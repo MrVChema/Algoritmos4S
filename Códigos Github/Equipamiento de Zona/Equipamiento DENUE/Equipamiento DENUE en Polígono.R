@@ -145,3 +145,6 @@ write_xlsx(datos_poligono_df, "Escuelas.xlsx")
 # Exportar a KML
 datos_poligono$Name <- ""
 st_write(datos_poligono, "Escuelas.kml", delete_dsn = TRUE)
+
+
+# Fin del código
