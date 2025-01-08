@@ -1,0 +1,81 @@
+rm(list = ls())
+
+# ---- Instalar y cargar paquetes necesarios ----
+library(sf)
+library(lwgeom)
+library(readxl)
+library(writexl)
+library(leaflet)
+
+# ---- Establecer directorio de trabajo ----
+setwd('/Users/yalta/Library/Mobile Documents/com~apple~CloudDocs/4S Real Estate/2024/[01] PROYECTOS/[00] ALGORITMO/[02] AVANCES/[03] HOSPITALES/[02] BASE DE DATOS')
+getwd()
+
+# ---- Cargar y convertir información ----
+data <- read_excel('/Users/yalta/Library/Mobile Documents/com~apple~CloudDocs/4S Real Estate/2024/[01] PROYECTOS/[00] ALGORITMO/[02] AVANCES/[03] HOSPITALES/[02] BASE DE DATOS/Hospitales_ZMM_Clean.xlsx')
+zonas <- st_read('/Users/yalta/Library/Mobile Documents/com~apple~CloudDocs/4S Real Estate/2024/[01] PROYECTOS/[00] ALGORITMO/[02] AVANCES/REDI - Zonas 2024-06-25.kml')
+
+  # Convertir data a objetos espaciales (invertir el orden de las coordenadas)
+  data_sf <- st_as_sf(data, coords = c("longitud", "latitud"), crs = 4326)
+
+# ---- Corrección de Geometrías ----
+  # Remover geometrías vacías
+  zonas <- zonas[!st_is_empty(zonas), ]
+  
+  # Remover Coordenadas Z y M
+  zonas <- st_zm(zonas, drop = TRUE, what = "ZM")
+  
+  # Validar y corregir geometrías
+  zonas <- st_make_valid(zonas)
+  
+  # Desactivar S2
+  sf_use_s2(FALSE)
+
+# ---- Intersección de la información ----
+
+  # Definir el bounding box para Monterrey
+  monterrey_bbox <- st_as_sfc(st_bbox(c(xmin = -100.6, xmax = -99.8, ymin = 25.5, ymax = 26), crs = st_crs(4326)))
+  
+  # Filtrar zonas dentro del bounding box
+  zonas <- st_intersection(zonas, monterrey_bbox)
+  
+  # Realizar la intersección espacial en CRS geográfico
+  data_zonas <- st_join(data_sf, zonas)
+  
+  # Eliminar columna "Description"
+  data_zonas <- data_zonas %>%
+    dplyr::select(-Description)
+
+# ---- Visualización de información ----
+  # Visualizar en Leaflet
+  mapa <- leaflet() %>%
+    addTiles() %>%
+    addPolygons(data = zonas,
+                color = "blue",
+                weight = 1,
+                fillOpacity = 0.2,
+                popup = ~Name) %>%
+    addCircleMarkers(data = data_zonas,
+                     radius = 5,
+                     color = "red",
+                     fillOpacity = 0.7,
+                     popup = ~nombre)
+
+  # Mostrar el mapa
+  mapa
+
+# ---- Preparación para exportar a Excel ---- 
+  # Extraer coordenadas
+  coords <- st_coordinates(data_zonas)
+  
+  # Agregar las coordenadas como nuevas columnas
+  data_zonas$longitud <- coords[, 1]
+  data_zonas$latitud <- coords[, 2]
+  
+  # Eliminar la columna 'geometry'
+  data_zonas$geometry <- NULL
+  
+  # Exportar a Excel
+  write_xlsx(data_zonas, "Hospitales X Zonas - ZMM.xlsx")
+  write.csv(data_zonas, "Hospitales X Zonas - ZMM.csv")
+  
