@@ -5,11 +5,11 @@ library(readxl)
 library(writexl)
 
 # ---- Establecer directorio de trabajo ----
-setwd('/Users/yalta/Library/Mobile Documents/com~apple~CloudDocs/4S Real Estate/2024/[01] PROYECTOS/[00] ALGORITMO/[02] AVANCES/[03] HOSPITALES/[02] BASE DE DATOS')
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/ACCESO TRANSPORTE')
 getwd()
 
 # ---- Cargar base de datos ----
-data <- read_excel('/Users/yalta/Library/Mobile Documents/com~apple~CloudDocs/4S Real Estate/2024/[01] PROYECTOS/[00] ALGORITMO/[02] AVANCES/[03] HOSPITALES/[02] BASE DE DATOS/Hospitales_ZMM.xlsx')
+data <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_ZMM.xlsx')
 
 # ---- Procesar Data ----
   # Ajustar nombres
@@ -37,4 +37,4 @@ data <- read_excel('/Users/yalta/Library/Mobile Documents/com~apple~CloudDocs/4S
     dplyr::select(-distancia)
 
 # ---- Exportar a XLSX ----
-write_xlsx(data, '/Users/yalta/Library/Mobile Documents/com~apple~CloudDocs/4S Real Estate/2024/[01] PROYECTOS/[00] ALGORITMO/[02] AVANCES/[03] HOSPITALES/[02] BASE DE DATOS/Hospitales_ZMM_Clean.xlsx')
+write_xlsx(data, '/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_ZMM_Clean.xlsx')
