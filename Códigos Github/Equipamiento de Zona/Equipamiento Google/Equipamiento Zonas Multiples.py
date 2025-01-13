@@ -14,13 +14,13 @@ from math import radians, cos, sin, asin, sqrt
 import re  # Para sanitizar el project_name
 
 # 1. Lectura del archivo Excel con las coordenadas
-coordinates_file = '/Users/yalta/Library/Mobile Documents/com~apple~CloudDocs/4S Real Estate/2024/[01] PROYECTOS/[00] ALGORITMO/[02] AVANCES/[03] HOSPITALES/[00] POLÍGONOS/Epicentros ZMM.xlsx' # Reemplaza con la ruta de tu archivo Excel
+coordinates_file = '/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/Epicentros ZMM.xlsx' # Reemplaza con la ruta de tu archivo Excel
 coordinates_df = pd.read_excel(coordinates_file)
 
 # 2. Configuración inicial
 url = "https://local-business-data.p.rapidapi.com/search-nearby"
-output_file = '/Users/yalta/Library/Mobile Documents/com~apple~CloudDocs/4S Real Estate/2024/[01] PROYECTOS/[00] ALGORITMO/[02] AVANCES/[03] HOSPITALES/[02] BASE DE DATOS/Hospitales_ZMM.xlsx'  # Ruta y nombre del archivo Excel de salida
-giros = ['hospital']
+output_file = '/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_ZMM.xlsx'  # Ruta y nombre del archivo Excel de salida
+giros = ['park', 'garden', 'community garden']
 region = 'mx'
 
 # Asegurarse de que la carpeta de salida existe
