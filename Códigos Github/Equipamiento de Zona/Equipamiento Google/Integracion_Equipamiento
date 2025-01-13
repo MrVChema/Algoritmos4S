@@ -1,0 +1,22 @@
+rm(list = ls())
+
+# ---- Librerías ----
+  library(readxl)
+  library(dplyr)
+  library(writexl)
+
+# ---- Establecer directorio de trabajo ----
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO')
+getwd()
+
+# ---- Importar datos ----
+  AreasVerdes <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_ZMM_Clean.xlsx')
+  TransportePublico <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/ACCESO TRANSPORTE/Acceso_TransportePublico_Clean.xlsx')
+
+# ---- Procesamiento de información ----
+  ## Join
+  datos <- AreasVerdes %>%
+    full_join(TransportePublico)
+
+# ---- Exportar a Excel ----
+  write_xlsx(datos, "Equipamiento_Integrado.xlsx")
