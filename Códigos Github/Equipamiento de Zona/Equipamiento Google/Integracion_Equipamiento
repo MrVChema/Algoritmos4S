@@ -30,4 +30,4 @@ rm(list = ls())
     dplyr::select(-business_id, -URL, -rating, -project_name)
 
 # ---- Exportar a Excel ----
-  write_xlsx(datos, "Equipamiento_Integrado.xlsx")
+  write_xlsx(datos_filtrados, "Equipamiento_Integrado.xlsx")
