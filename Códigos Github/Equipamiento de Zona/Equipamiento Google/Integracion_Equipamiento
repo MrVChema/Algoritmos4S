@@ -6,17 +6,28 @@ rm(list = ls())
   library(writexl)
 
 # ---- Establecer directorio de trabajo ----
-setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO')
-getwd()
+  setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO')
+  getwd()
 
 # ---- Importar datos ----
   AreasVerdes <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_ZMM_Clean.xlsx')
   TransportePublico <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/ACCESO TRANSPORTE/Acceso_TransportePublico_Clean.xlsx')
 
 # ---- Procesamiento de información ----
+  ## Agregar columna de fuente
+  AreasVerdes <- AreasVerdes %>% 
+    mutate(Fuente = "Areas_Verdes")
+  
+  TransportePublico <- TransportePublico %>% 
+    mutate(Fuente = "Transporte_Publico")
+  
   ## Join
   datos <- AreasVerdes %>%
     full_join(TransportePublico)
+  
+  ## Quitar variables innecesarias
+  datos_filtrados <- datos %>%
+    dplyr::select(-business_id, -URL, -rating, -project_name)
 
 # ---- Exportar a Excel ----
   write_xlsx(datos, "Equipamiento_Integrado.xlsx")
