@@ -8,11 +8,11 @@ library(writexl)
 library(leaflet)
 
 # ---- Establecer directorio de trabajo ----
-setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Bancos')
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO')
 getwd()
 
 # ---- Cargar y convertir información ----
-data <- read_csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Bancos/Bancos.csv')
+data <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/Equipamiento_Integrado.xlsx')
 zonas <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/REDI - Zonas 2024-06-25.kml')
 
 # Convertir data a objetos espaciales (invertir el orden de las coordenadas)
@@ -46,7 +46,25 @@ data_zonas <- st_join(data_sf, zonas)
 data_zonas <- data_zonas %>%
   dplyr::select(-Description)
 
+# Ajustar nombre de variables
+data_zonas <- data_zonas %>%
+  rename("Variable" = "Fuente",
+         "Zona_Redi" = "Name")
+
+# Eliminar filas con NA en Zona_Redi
+data_zonas <- data_zonas %>%
+  filter(!is.na(Zona_Redi))
+
 # ---- Visualización de información ----
+# Define un vector con los colores que quieres usar
+colores_personalizados <- c("Areas_Verdes" = "green", 
+                            "Transporte_Publico" = "red" 
+                            )
+
+# Crea la paleta de colores con los colores personalizados
+paleta_colores <- colorFactor(palette = colores_personalizados, 
+                              domain = data_zonas$Fuente)
+
 # Visualizar en Leaflet
 mapa <- leaflet() %>%
   addTiles() %>%
@@ -57,9 +75,9 @@ mapa <- leaflet() %>%
               popup = ~Name) %>%
   addCircleMarkers(data = data_zonas,
                    radius = 5,
-                   color = "red",
+                   color =  ~paleta_colores(Variable),
                    fillOpacity = 0.7,
-                   popup = ~nom_estab)
+                   popup = ~nombre)
 
 # Mostrar el mapa
 mapa
@@ -76,6 +94,5 @@ data_zonas$latitud <- coords[, 2]
 data_zonas$geometry <- NULL
 
 # Exportar a Excel
-write_xlsx(data_zonas, "Bancos X Zonas - ZMM.xlsx")
-write.csv(data_zonas, "Bancos X Zonas - ZMM.csv")
-  
+write_xlsx(data_zonas, "Equipamiento_Google X Zonas - ZMM.xlsx")
+write.csv(data_zonas, "Equipamiento_Google X Zonas - ZMM.csv")
