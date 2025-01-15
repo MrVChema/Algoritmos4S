@@ -1,0 +1,76 @@
+rm(list = ls())
+
+# ---- Instalar y cargar paquetes necesarios ----
+library(sf)
+library(lwgeom)
+library(readxl)
+library(writexl)
+library(leaflet)
+
+# ---- Establecer directorio de trabajo ----
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[01] PROYECTOS/[01] VIVIENDA VERTICAL')
+getwd()
+
+# ---- Cargar y convertir información ----
+data <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[01] PROYECTOS/[01] VIVIENDA VERTICAL/Proyectos Integrados_ZMM.xlsx')
+zonas <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/REDI - Zonas 2024-06-25.kml')
+
+# Convertir data a objetos espaciales (asumiendo que las columnas se llaman "longitud" y "latitud")
+data_sf <- st_as_sf(data, coords = c("Longitud", "Latitud"), crs = 4326)
+
+
+# ---- Corrección de Geometrías ----
+# Remover geometrías vacías
+zonas <- zonas[!st_is_empty(zonas), ]
+
+# Remover Coordenadas Z y M
+zonas <- st_zm(zonas, drop = TRUE, what = "ZM")
+
+# Validar y corregir geometrías
+zonas <- st_make_valid(zonas)
+
+# Desactivar S2 (opcional, pero recomendado para evitar problemas)
+sf_use_s2(FALSE)
+
+# ---- Intersección de la información ----
+# Realizar la intersección espacial
+data_zonas <- st_join(data_sf, zonas, join = st_within)
+
+# ---- Visualización de información ----
+# Define un vector con los colores que quieres usar
+colores_personalizados <- c("Medio" = "red", 
+                            "Premium Plus" = "darkgreen",
+                            "Premium" = "green",
+                            "Residencial Plus" = "blue",
+                            "Residencial" = "orange")
+
+# Crea la paleta de colores con los colores personalizados
+paleta_colores <- colorFactor(palette = colores_personalizados, 
+                              domain = data_zonas$Segmento)
+
+# Visualizar en Leaflet
+mapa <- leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = zonas,
+              color = "blue",
+              weight = 1,
+              fillOpacity = 0.2,
+              popup = ~Name) %>%
+  addCircleMarkers(data = data_zonas,
+                   radius = 5,
+                   color =  ~paleta_colores(data_zonas$Segmento),
+                   fillOpacity = 0.7,
+                   popup = ~Proyecto)
+
+# Mostrar el mapa
+mapa
+
+# ---- Preparación para exportar a Excel ---- 
+# Ya tienes las coordenadas en el dataframe original
+
+# Eliminar la columna 'geometry'
+data_zonas$geometry <- NULL
+
+# Exportar a Excel
+write_xlsx(data_zonas, "Proyectos X Zonas - ZMM.xlsx")
+write.csv(data_zonas, "Equipamiento_Google X Zonas - ZMM.csv")
