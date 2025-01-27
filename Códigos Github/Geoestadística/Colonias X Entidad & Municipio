@@ -6,7 +6,7 @@ rm(list = ls())
   library(leaflet)
 
 # ---- Cargar la información ----
-  colonias <- st_read('/Users/yalta/Downloads/coloniasine2020.geojson')
+  colonias <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[04] COLONIAS & AGEBS/coloniasine2020.geojson')
 
 # ---- Exploración de la información ----
   head(colonias) # Muestra las primeras filas
@@ -54,9 +54,16 @@ rm(list = ls())
       )
 
 # ---- Exportar a kml ----
+  ## Exportar a KML
     st_write(
       colonias_nl,
-      dsn   = "/Users/yalta/Downloads/colonias_nl_ZMM.kml",
+      dsn   = "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[04] COLONIAS & AGEBS/colonias_nl_ZMM.kml",
       driver = "KML"
     )
-    
+  
+  ## Exportar a GEOJSON
+    st_write(
+      colonias_nl,
+      dsn   = "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[04] COLONIAS & AGEBS/colonias_nl_ZMM.geojson",
+      driver = "GeoJSON"
+    )
