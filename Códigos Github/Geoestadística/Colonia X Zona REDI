@@ -1,0 +1,49 @@
+rm(list = ls())
+
+# ---- Cargar las librerías necesarios ----
+library(sf)
+library(dplyr)
+library(leaflet)
+
+# ---- Cargar los archivos ----
+  ## Cargar tu archivo con zonas
+    zonas <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/ZMM_REDI_2024.kml')
+  
+  ## Cargar el archivo con colonias
+    colonias <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[04] COLONIAS & AGEBS/colonias_nl_ZMM.geojson')
+
+# Verificar CRS de la información (4326)
+  st_crs(zonas)
+  st_crs(colonias)
+
+
+  # 3. Intersección de ambas capas
+  intersec <- st_intersection(colonias, zonas)
+  # Esto duplicará las filas de colonias que toquen más de una zona.
+  
+  # 4. Calcular el área de cada parte de la intersección
+  intersec <- intersec %>%
+    mutate(area_inter = st_area(intersec)) 
+  
+  # 5. Para cada colonia, quedarnos con la zona que tenga el área de intersección mayor
+  # Primero, necesitamos saber el área total de la colonia (si quieres un %). 
+  # Pero si solo te importa el valor absoluto para ver quién es “mayor”, basta con `area_inter`.
+  
+  # Elegimos la fila con mayor `area_inter` por cada `id_colonia`.
+  intersec_mayor <- intersec %>%
+    group_by(ID) %>%
+    filter(area_inter == max(area_inter)) %>%
+    ungroup()
+  
+  # Nota: Si hubiese empates exactos, quedarán varias filas; podrías resolverlo 
+  # manualmente o con otro criterio.
+  
+  # 6. Ahora 'intersec_mayor' tiene tantas filas como colonias (en la mayoría de casos).
+  # Si una colonia no intersecta con ninguna zona (caso raro), no aparecerá aquí.
+  
+  # 7. Finalmente, para regresar a la geometría original de la colonia con los atributos 
+  # de la zona mayoritaria, podemos:
+  resultado <- colonias %>%
+    select(ID, geometry) %>%
+    left_join(st_drop_geometry(intersec_mayor),
+              by = "ID")
