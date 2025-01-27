@@ -1,0 +1,62 @@
+rm(list = ls())
+
+# ---- Cargar las librerías necesarios ----
+  library(sf)
+  library(dplyr)
+  library(leaflet)
+
+# ---- Cargar la información ----
+  colonias <- st_read('/Users/yalta/Downloads/coloniasine2020.geojson')
+
+# ---- Exploración de la información ----
+  head(colonias) # Muestra las primeras filas
+  names(colonias) # Muestra los nombres de las columnas
+
+# ---- Filtrar geometrías vacías ----
+  colonias <- colonias %>%
+    filter(!st_is_empty(geometry))  # Mantiene solo filas cuya geometría no está vacía
+
+# Opcional: reparar geometrías que puedan ser inválidas
+# colonias <- st_make_valid(colonias)
+
+# ---- Transformar las proyecciones geográficas ----
+  ## Visualizar tipo de proyección
+    st_crs(colonias)
+  
+  ## Transformar proyección a CRS 4326
+    colonias <- st_transform(colonias, 4326)
+
+# ---- Visualización de las colonias en leaflet ----
+  ## Filtrar entidad seleccionada
+    colonias_nl <- colonias %>%
+      filter(ENTIDAD == 19)
+  
+  ## Filtrar municipios
+    colonias_nl <- colonias_nl %>%
+      filter(MUNICIPIO %in% c(6, 26, 21, 47, 40, 49, 19, 48, 18))
+    
+  ## Crear paleta de colores (categorías para ENTIDAD)
+    pal <- colorFactor(
+      palette = "viridis",      # o "Set3", "Spectral", etc.
+      domain  = colonias_nl$MUNICIPIO
+    )
+  
+  ## Visualizar en leaflet
+    leaflet(data = colonias_nl) %>%
+      addTiles() %>%
+      addPolygons(
+        fillColor = ~pal(MUNICIPIO),
+        color = "white",
+        weight = 1,
+        fillOpacity = 0.7,
+        popup = ~paste0("Colonia: ", NOMBRE, "<br>",
+                        "CP: ", CP)
+      )
+
+# ---- Exportar a kml ----
+    st_write(
+      colonias_nl,
+      dsn   = "/Users/yalta/Downloads/colonias_nl_ZMM.kml",
+      driver = "KML"
+    )
+    
