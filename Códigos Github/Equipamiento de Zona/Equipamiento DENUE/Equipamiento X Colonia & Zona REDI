@@ -1,0 +1,114 @@
+# Limpia el entorno de trabajo
+rm(list = ls())
+
+# Establece el directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Bancos')
+
+# Carga las librerías necesarias
+library(sf)
+library(dplyr)
+library(leaflet)
+
+# Desactivar la función s2
+sf_use_s2(FALSE)
+
+# 1. Lee el archivo CSV de establecimientos comerciales.
+message("Leyendo archivo CSV de establecimientos...")
+establecimientos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Bancos/Bancos.csv', stringsAsFactors = FALSE)
+message("Archivo CSV leído correctamente.")
+
+# Verificación de columnas
+if (!all(c("longitud", "latitud") %in% colnames(establecimientos))) {
+  stop("Las columnas 'longitud' y 'latitud' no se encuentran en el archivo CSV.")
+}
+
+# 2. Convierte el data frame de establecimientos a un objeto sf.
+establecimientos_sf <- st_as_sf(
+  establecimientos,
+  coords = c("longitud", "latitud"),
+  crs = 4326
+)
+
+# Extraer coordenadas de la columna geometry y agregarlas como nuevas columnas
+coordenadas <- st_coordinates(establecimientos_sf)
+establecimientos_sf$longitud <- coordenadas[, "X"]
+establecimientos_sf$latitud <- coordenadas[, "Y"]
+
+# 3. Lee el archivo GeoJSON que contiene la información de las colonias y zonas.
+message("Leyendo archivo GeoJSON de colonias/zonas...")
+colonias_zonas <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[05] CRUCES (BASES DATOS)/Colonias X ZONAS_REDI.geojson', quiet = TRUE)
+message("Archivo GeoJSON leído correctamente.")
+
+# Verificación y transformación de proyección
+if (!is.na(st_crs(colonias_zonas)$epsg) && st_crs(colonias_zonas)$epsg != 4326) {
+  message("ADVERTENCIA: El archivo GeoJSON no está en EPSG:4326. Transformando a EPSG:4326.")
+  colonias_zonas <- st_transform(colonias_zonas, crs = 4326)
+}
+
+# 4. Realiza el cruce espacial.
+resultado_join <- st_join(
+  establecimientos_sf,
+  colonias_zonas,
+  left = TRUE
+)
+
+# 5. Convierte de nuevo a data frame.
+resultado_tabla <- as.data.frame(resultado_join)
+
+# 6. Renombra las columnas.
+resultado_tabla <- resultado_tabla %>%
+  rename(
+    Zona_Redi = Name,
+    Colonia = NOMBRE
+  ) %>%
+  mutate(
+    Zona_Redi = ifelse(is.na(Zona_Redi), "No asignado", Zona_Redi),
+    Colonia = ifelse(is.na(Colonia), "No asignado", Colonia)
+  )
+
+# 6.1 Elimina filas con NAs o "No asignados".
+resultado_tabla <- resultado_tabla %>%
+  filter(Zona_Redi != "No asignado" & Colonia != "No asignado")
+
+# 6.2 Identifica y elimina establecimientos fuera de los límites de las colonias.
+# Verifica si los establecimientos intersectan con alguna colonia
+intersecciones <- st_intersects(establecimientos_sf, colonias_zonas)
+establecimientos_dentro <- lengths(intersecciones) > 0
+
+# Filtra los establecimientos que están dentro de los límites
+establecimientos_sf <- establecimientos_sf[establecimientos_dentro, ]
+resultado_tabla <- resultado_tabla[establecimientos_dentro, ]
+
+# 7. Visualización en leaflet.
+message("Generando visualización en Leaflet...")
+leaflet_map <- leaflet() %>%
+  addTiles() %>%
+  addPolygons(
+    data = colonias_zonas,
+    color = "blue",
+    fillOpacity = 0.2,
+    weight = 1,
+    group = "Colonias",
+    popup = ~paste("Zona: ", Name, "<br>Colonia: ", NOMBRE)
+  ) %>%
+  addCircleMarkers(
+    data = establecimientos_sf,
+    color = "red",
+    radius = 3,
+    stroke = TRUE,
+    fillOpacity = 1,
+    group = "Establecimientos",
+    popup = ~paste("Nombre: ", nom_estab, "<br>Lat: ", latitud, "<br>Lon: ", longitud)
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Colonias", "Establecimientos"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+# Muestra el mapa
+leaflet_map
+
+# 8. Guarda el resultado.
+message("Guardando resultado en CSV...")
+write.csv(resultado_tabla, "Bancos X Colonia_Zona.csv", row.names = FALSE)
+message("Resultado guardado en 'resultado.csv'.")
