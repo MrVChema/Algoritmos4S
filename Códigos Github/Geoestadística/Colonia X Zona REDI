@@ -77,8 +77,10 @@ resultado <- colonias %>%
 # ---- 5. Eliminar colonias que no intersectan con ninguna zona ----
 resultado <- resultado %>% filter(!is.na(area_inter))
 
-# ---- 6. Exportar resultado a Excel ----
+# ---- 6. Exportar resultado a Excel y GeoJSON----
 write.xlsx(st_drop_geometry(resultado), "Colonias X ZONAS_REDI.xlsx")
+st_write(resultado, "Colonias X ZONAS_REDI.geojson", delete_dsn = TRUE)
+
 
 # ---- 7. Visualizar resultado (opcional) ----
 leaflet() %>%
