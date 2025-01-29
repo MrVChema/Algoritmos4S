@@ -1,49 +1,95 @@
+# -----------------------------------------------------------------------------------
+# Script en R para cruzar colonias con zonas de influencia y obtener la zona principal
+# para cada colonia según el área de intersección
+# -----------------------------------------------------------------------------------
+
+# Limpiar el entorno
 rm(list = ls())
 
-# ---- Cargar las librerías necesarios ----
+# ---- Establecer directorio de trabajo ----
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[05] CRUCES (BASES DATOS)')
+
+# ---- Cargar librerías necesarias ----
 library(sf)
+
+# Desactivar el uso de s2 en sf (usar el motor GEOS clásico)
+sf_use_s2(FALSE)
+
 library(dplyr)
 library(leaflet)
+library(openxlsx)  # Librería para exportar a Excel
+
+# Nota: Para utilizar st_make_valid(), instala lwgeom si aún no lo tienes:
+# install.packages("lwgeom")
+# library(lwgeom)
 
 # ---- Cargar los archivos ----
-  ## Cargar tu archivo con zonas
-    zonas <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/ZMM_REDI_2024.kml')
-  
-  ## Cargar el archivo con colonias
-    colonias <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[04] COLONIAS & AGEBS/colonias_nl_ZMM.geojson')
+# Asegúrate de ajustar las rutas a los archivos según tu directorio
+zonas <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/ZMM_REDI_2024.kml')
+colonias <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[04] COLONIAS & AGEBS/colonias_nl_ZMM.geojson')
 
-# Verificar CRS de la información (4326)
-  st_crs(zonas)
-  st_crs(colonias)
+# ---- Verificar CRS y, si es necesario, transformar ----
+# Idealmente ambas capas deben tener la misma proyección; si difieren, ajusta una a la otra
+st_crs(zonas)
+st_crs(colonias)
 
+# if (st_crs(zonas) != st_crs(colonias)) {
+#   colonias <- st_transform(colonias, st_crs(zonas))
+# }
 
-  # 3. Intersección de ambas capas
-  intersec <- st_intersection(colonias, zonas)
-  # Esto duplicará las filas de colonias que toquen más de una zona.
-  
-  # 4. Calcular el área de cada parte de la intersección
-  intersec <- intersec %>%
-    mutate(area_inter = st_area(intersec)) 
-  
-  # 5. Para cada colonia, quedarnos con la zona que tenga el área de intersección mayor
-  # Primero, necesitamos saber el área total de la colonia (si quieres un %). 
-  # Pero si solo te importa el valor absoluto para ver quién es “mayor”, basta con `area_inter`.
-  
-  # Elegimos la fila con mayor `area_inter` por cada `id_colonia`.
-  intersec_mayor <- intersec %>%
-    group_by(ID) %>%
-    filter(area_inter == max(area_inter)) %>%
-    ungroup()
-  
-  # Nota: Si hubiese empates exactos, quedarán varias filas; podrías resolverlo 
-  # manualmente o con otro criterio.
-  
-  # 6. Ahora 'intersec_mayor' tiene tantas filas como colonias (en la mayoría de casos).
-  # Si una colonia no intersecta con ninguna zona (caso raro), no aparecerá aquí.
-  
-  # 7. Finalmente, para regresar a la geometría original de la colonia con los atributos 
-  # de la zona mayoritaria, podemos:
-  resultado <- colonias %>%
-    select(ID, geometry) %>%
-    left_join(st_drop_geometry(intersec_mayor),
-              by = "ID")
+# ---- (Opcional) Reparar geometrías y quitar tercera dimensión ----
+# 1. Hacer válidas las geometrías (puede requerir 'lwgeom')
+zonas <- st_make_valid(zonas)
+colonias <- st_make_valid(colonias)
+
+# 2. Quitar la tercera dimensión (Z o M) si existe, ya que a veces KML trae un Z=0
+zonas <- st_zm(zonas, drop = TRUE, what = "ZM")
+colonias <- st_zm(colonias, drop = TRUE, what = "ZM")
+
+# 3. Aplicar un buffer de 0 para corregir posibles defectos en el polígono
+zonas <- st_buffer(zonas, 0)
+colonias <- st_buffer(colonias, 0)
+
+# ---- 1. Intersección de ambas capas ----
+# Esto generará uno o más polígonos por cada colonia que intersecte con una o más zonas
+intersec <- st_intersection(colonias, zonas)
+
+# ---- 2. Calcular el área de cada parte de la intersección ----
+# De esta forma podremos identificar cuál es la zona dominante en cada colonia
+intersec <- intersec %>%
+  mutate(area_inter = st_area(intersec))
+
+# ---- 3. Determinar la zona con mayor área intersectada para cada colonia ----
+# Asumiendo que la columna de identificador de colonia es "ID"
+intersec_mayor <- intersec %>%
+  group_by(ID) %>%
+  slice_max(area_inter, with_ties = FALSE) %>%
+  ungroup()
+
+# ---- 4. Unir la geometría original de colonias con la zona de mayor intersección ----
+resultado <- colonias %>%
+  select(ID, geometry) %>%
+  left_join(
+    st_drop_geometry(intersec_mayor),
+    by = "ID"
+  )
+
+# ---- 5. Eliminar colonias que no intersectan con ninguna zona ----
+resultado <- resultado %>% filter(!is.na(area_inter))
+
+# ---- 6. Exportar resultado a Excel ----
+write.xlsx(st_drop_geometry(resultado), "Colonias X ZONAS_REDI.xlsx")
+
+# ---- 7. Visualizar resultado (opcional) ----
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(
+    data = resultado,
+    color = "blue",
+    weight = 1,
+    fillOpacity = 0.3,
+    popup = ~ID
+  )
+
+# Con este código, "resultado" contendrá solo las colonias que intersectan con alguna zona.
+# Se ha exportado a 'resultado_interseccion.xlsx' para su análisis posterior.
