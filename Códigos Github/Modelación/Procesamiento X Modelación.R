@@ -176,12 +176,12 @@ modelo_gbm <- gbm(log_precio_m2 ~ distancia_parque + Absorcion + m2_inv + Segmen
 ### Importancia de variables
 resumen_importancia <- summary(modelo_gbm)
 print(resumen_importancia)
-predicciones_gbm <- predict(modelo_gbm, datos, n.trees = 1000)
-mse_gbm <- mean((datos$log_precio_m2 - predicciones_gbm)^2)
+estimaciones_gbm <- predict(modelo_gbm, datos, n.trees = 1000)
+mse_gbm <- mean((datos$log_precio_m2 - estimaciones_gbm)^2)
 rmse_gbm <- sqrt(mse_gbm)
 cat("RMSE del modelo GBM:", rmse_gbm, "\n")
 
-# --- Predicciones ----
+# --- estimaciones ----
 ## Crear un nuevo data frame con una observación
 nueva_obs <- data.frame(
   distancia_parque   = 350,          # metros a un parque
@@ -196,15 +196,15 @@ nueva_obs <- data.frame(
 ## Convertir Segmento a factor con los mismos niveles que en los datos de entrenamiento
 nueva_obs$Segmento <- factor(nueva_obs$Segmento, levels = levels(datos$Segmento))
 
-## Predicción en logaritmo del precio por m2
+## Estimación en logaritmo del precio por m2
 prediccion_log <- predict(modelo_gbm, newdata = nueva_obs, n.trees = 1000)
 prediccion_log
 
-## Convertir la predicción logarítmica a precio por m2
+## Convertir la estimación logarítmica a precio por m2
 prediccion_m2 <- exp(prediccion_log)
 prediccion_m2
 
-## Predicción en logaritmo con el modelo de regresión lineal
+## Estimación en logaritmo con el modelo de regresión lineal
 prediccion_log_rl <- predict(modelo_regsim, newdata = nueva_obs)
 
 ## Convertir a escala real
@@ -212,11 +212,11 @@ prediccion_m2_rl <- exp(prediccion_log_rl)
 prediccion_m2_rl
 
 # --- Termómetro Calificador Original ----
-## 1. Obtener predicciones
-predicciones_gbm_termometro <- predict(modelo_gbm, datos, n.trees = 1000)
+## 1. Obtener estimaciones
+estimaciones_gbm_termometro <- predict(modelo_gbm, datos, n.trees = 1000)
 
 ## 2. Cálculo de residuales
-datos$residuals_gbm_termometro <- datos$log_precio_m2 - predicciones_gbm_termometro
+datos$residuals_gbm_termometro <- datos$log_precio_m2 - estimaciones_gbm_termometro
 
 ## 3. Cálculo de percentiles en cada observación
 datos <- datos %>%
@@ -312,8 +312,8 @@ ggplot() +
 ## 1. Agregar la nueva observación al conjunto de datos
 nueva_obs <- nueva_obs %>%
   mutate(
-    log_precio_m2 = prediccion_log,  # Agregar la predicción logarítmica
-    PM2_Promedio = prediccion_m2,    # Agregar la predicción en escala real
+    log_precio_m2 = prediccion_log,  # Agregar la estimación logarítmica
+    PM2_Promedio = prediccion_m2,    # Agregar la estimación en escala real
     Proyecto = "Nuevo Proyecto",     # Asignar un nombre a la nueva observación
     residuals_gbm_termometro = 0,    # Asumimos residual = 0 (no hay valor real)
     nombre_zona = "Valle" # Asignar un valor de nombre_zona (ajusta según tus datos)
