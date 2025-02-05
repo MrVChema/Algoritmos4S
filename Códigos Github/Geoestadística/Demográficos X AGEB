@@ -1,0 +1,103 @@
+rm(list = ls())
+
+# ---- Instala y carga las librerías necesarias ----
+library(sf)
+library(leaflet)
+library(dplyr)
+library(readxl)
+library(htmlwidgets)
+
+# ---- Cargar Información del KML ----
+  ## Desactivar s2 si es necesario
+    #sf::sf_use_s2(FALSE)
+
+  ## Leer el archivo KML con los límites geográficos de los AGEBs
+    ageb_sf <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[04] COLONIAS & AGEBS/AGEBS_ZMM.kml')
+
+  ## Revisar y reparar las geometrías en caso de que alguna no sea válida
+    if (!all(st_is_valid(ageb_sf))) {
+      ageb_sf <- st_make_valid(ageb_sf)
+    }
+
+# ---- Cargar información demográfica ----
+    datos_demog <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[03] DEMOGRAFICOS/ZONAS_ZMM_AGEBS_R.xlsx') %>%
+      rename(
+        pob2020 = `Población Total 2020`,
+        independiente      = `ADULTO INDEPENDIENTE`,
+        empty_nesters      = `EMPTY NESTERS`,
+        NE = `NO ESPECIFICADO`,
+        separados_hijos = `PADRE/MADRE SEPARADOS CON HIJOS`,
+        pareja_sin_hijos = `PAREJA ADULTA SIN HIJOS`,
+        pareja_hijos_10 = `PAREJA CON HIJOS EN CASA (-10)`,
+        pareja_hijos_21 = `PAREJA CON HIJOS EN CASA (+21)`,
+        pareja_hijos_1120 = `PAREJA CON HIJOS EN CASA (11-20)`,
+        joven_sin_hijos = `PAREJA JOVEN SIN HIJOS`,
+        soltero_adulto = `SOLTERO ADULTO`,
+        soltero_joven = `SOLTERO JOVEN`,
+        prestada = `Es prestada`,
+        propia = `Es propia`,
+        propia_pagando = `Es propia pero la están pagando`,
+        rentada = `Es rentada`,
+        intestada_litigio = `Está intestada o en litigio`,
+        hogares2020 = `Hogares totales 2020`,
+        viv2020 = `Viviendas Totales 2020`,
+        habitadas2020 = `Viviendas Habitadas 2020`,
+        migrantes2020 = `Migrantes 2020`,
+        pob_ocupada_2020 = `Población Ocupada 2020`,
+        pob2010 = `Población Total 2010`,
+        hogares2010 = `Hogares totales 2010`,
+        viv2010 = `Viviendas Totales 2010`,
+        pob_ocupada_2010 = `Población Ocupada 2010`,
+        pob_fem = `Población Femenina`,
+        pob_masc = `Población Masculina`,
+        pob_0_2 = `POB 0 A 2`,
+        pob_3_5 = `POB 3 A 5`,
+        pob_6_11 = `POB 6 A 11`,
+        pob_12_14 = `POB 12 A 14`,
+        pob_15_17 = `POB 15 A 17`,
+        pob_18_24 = `POB 18 A 24`,
+        pob_25_59 = `POB 25 A 59`,
+        pob_60 = `POB 60+`
+      )
+    
+# ---- Unir la información demográfica al objeto espacial ----
+    ageb_sf <- ageb_sf %>% 
+      left_join(datos_demog, by = c("Name" = "cve_geo")) %>% 
+      st_zm(drop = TRUE, what = "ZM") %>%  # Eliminar coordenadas 3D
+      mutate(pob2020_num = as.numeric(pob2020)) %>% 
+      filter(!is.na(pob2020))
+    
+# ---- Visualización en leaflet ----
+    ## Crear la paleta de colores usando el rango de pob2020 (ya sin NA)
+    pal <- colorNumeric(
+      palette = "viridis", 
+      domain = unname(range(ageb_sf$pob2020_num, na.rm = TRUE))
+    )
+    
+    ## Generar el mapa interactivo
+    leaflet(ageb_sf) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addPolygons(
+        fillColor = ~pal(pob2020_num),
+        weight = 1,
+        opacity = 1,
+        color = "white",
+        dashArray = "3",
+        fillOpacity = 0.7,
+        highlightOptions = highlightOptions(
+          weight = 2,
+          color = "#666",
+          dashArray = "",
+          fillOpacity = 0.7,
+          bringToFront = TRUE
+        ),
+        popup = ~paste0("<strong>AGEB: </strong>", Name, "<br>",
+                        "<strong>Población: </strong>", pob2020_num)
+      ) %>%
+      addLegend(
+        pal = pal, 
+        values = unname(ageb_sf$pob2020_num),
+        opacity = 0.7,
+        title = "Población", 
+        position = "bottomright"
+      )
