@@ -1,3 +1,7 @@
+# -----------------------------------------------------------------------------
+# Script en R para cruzar AGEBs con Demográficos
+# -----------------------------------------------------------------------------
+
 rm(list = ls())
 
 # ---- Instala y carga las librerías necesarias ----
@@ -6,6 +10,7 @@ library(leaflet)
 library(dplyr)
 library(readxl)
 library(htmlwidgets)
+library(writexl)
 
 # ---- Cargar Información del KML ----
   ## Desactivar s2 si es necesario
@@ -101,3 +106,10 @@ library(htmlwidgets)
         title = "Población", 
         position = "bottomright"
       )
+    
+# ---- Exportar la información a Excel manteniendo geometrías como texto ----
+    ageb_sf_export <- ageb_sf %>%
+      mutate(geometry = st_as_text(geometry))
+    
+    write_xlsx(ageb_sf_export, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[03] DEMOGRAFICOS/Demograficos_AGEBS.xlsx")
+    
