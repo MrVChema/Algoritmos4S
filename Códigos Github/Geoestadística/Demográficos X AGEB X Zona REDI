@@ -1,0 +1,101 @@
+# -----------------------------------------------------------------------------------
+# Cruce de Demográficos, AGEBs y Zonas REDI
+# -----------------------------------------------------------------------------------
+
+# Limpiar el entorno
+rm(list = ls())
+
+# ---- Cargar librerías necesarias ----
+library(sf)
+library(dplyr)
+library(readxl)
+library(openxlsx)
+library(leaflet)
+
+# Desactivar el uso de s2
+sf::sf_use_s2(FALSE)
+
+# ---- Cargar y preparar los datos ----
+  ## 1. Cargar Excel con datos demográficos y geometrías en WKT
+    ageb_datos <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[03] DEMOGRAFICOS/Demograficos_AGEBS.xlsx') %>% 
+      # Convertir columna de texto WKT a geometría
+      st_as_sf(wkt = "geometry", crs = 4326) %>%  # Asegurar que el CRS coincide con el original
+      # Corregir posibles problemas en geometrías
+      st_make_valid() %>% 
+      st_buffer(0)
+  
+  ## 2. Cargar Zonas REDI
+    zonas_redi <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/ZMM_REDI_2024.kml') %>% 
+      st_make_valid() %>% 
+      st_zm(drop = TRUE) %>%  # Eliminar 3D
+      st_buffer(0) %>% 
+      # Renombrar columna para claridad
+      rename(zona_redi = Name)
+
+# ---- Verificar y ajustar CRS ----
+if(st_crs(zonas_redi) != st_crs(ageb_datos)){
+  zonas_redi <- st_transform(zonas_redi, st_crs(ageb_datos))
+}
+
+# ---- Realizar intersección ----
+interseccion <- st_intersection(
+  st_make_valid(ageb_datos),
+  st_make_valid(zonas_redi)
+) %>% 
+  mutate(
+    area_interseccion = st_area(.)
+  )
+
+# ---- Asignación de zona principal ----
+asignacion_zona <- interseccion %>% 
+  group_by(Name) %>%  # Cambiar al identificador único de tus AGEBs
+  mutate(
+    proporcion = as.numeric(area_interseccion)/as.numeric(st_area(geometry))
+  ) %>% 
+  # Seleccionar la zona con mayor superposición
+  slice_max(proporcion, with_ties = FALSE) %>% 
+  ungroup()
+
+# ---- Unir con datos originales ----
+resultado_final <- ageb_datos %>% 
+  left_join(
+    asignacion_zona %>% 
+      st_drop_geometry() %>% 
+      select(Name, zona_redi, area_interseccion, proporcion),
+    by = "Name"
+  )
+
+# ---- Visualización ----
+pal <- colorFactor("viridis", domain = resultado_final$zona_redi)
+
+leaflet(resultado_final) %>%
+  addTiles() %>%
+  addPolygons(
+    fillColor = ~pal(zona_redi),
+    weight = 1,
+    opacity = 1,
+    color = "white",
+    fillOpacity = 0.7,
+    popup = ~paste0(
+      "<strong>AGEB:</strong> ", Name, "<br>",
+      "<strong>Zona REDI:</strong> ", zona_redi, "<br>",
+      "<strong>Población:</strong> ", pob2020  # Añadir cualquier variable demográfica
+    )
+  ) %>%
+  addLegend(
+    pal = pal, 
+    values = ~zona_redi,
+    title = "Zonas REDI",
+    position = "bottomright"
+  )
+
+# ---- Exportar resultados ----
+# Convertir geometría a WKT para Excel
+resultado_exportar <- resultado_final %>%
+  mutate(geometry_wkt = st_as_text(geometry)) %>%  # Conversión a texto
+  st_drop_geometry()  # Eliminar geometría binaria
+
+# Escribir archivos
+write.xlsx(resultado_exportar, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[05] CRUCES (BASES DATOS)/AGEBs_REDI_Demografia.xlsx")
+st_write(resultado_final, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[05] CRUCES (BASES DATOS)/AGEBs_REDI_Demografia.kml", delete_dsn = TRUE)
+
