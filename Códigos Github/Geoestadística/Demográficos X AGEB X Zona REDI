@@ -11,26 +11,27 @@ library(dplyr)
 library(readxl)
 library(openxlsx)
 library(leaflet)
+library(tibble)
 
 # Desactivar el uso de s2
 sf::sf_use_s2(FALSE)
 
 # ---- Cargar y preparar los datos ----
-  ## 1. Cargar Excel con datos demográficos y geometrías en WKT
-    ageb_datos <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[03] DEMOGRAFICOS/Demograficos_AGEBS.xlsx') %>% 
-      # Convertir columna de texto WKT a geometría
-      st_as_sf(wkt = "geometry", crs = 4326) %>%  # Asegurar que el CRS coincide con el original
-      # Corregir posibles problemas en geometrías
-      st_make_valid() %>% 
-      st_buffer(0)
-  
-  ## 2. Cargar Zonas REDI
-    zonas_redi <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/ZMM_REDI_2024.kml') %>% 
-      st_make_valid() %>% 
-      st_zm(drop = TRUE) %>%  # Eliminar 3D
-      st_buffer(0) %>% 
-      # Renombrar columna para claridad
-      rename(zona_redi = Name)
+## 1. Cargar Excel con datos demográficos y geometrías en WKT
+ageb_datos <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[03] DEMOGRAFICOS/Demograficos_AGEBS.xlsx') %>% 
+  # Convertir columna de texto WKT a geometría
+  st_as_sf(wkt = "geometry", crs = 4326) %>%  # Asegurar que el CRS coincide con el original
+  # Corregir posibles problemas en geometrías
+  st_make_valid() %>% 
+  st_buffer(0)
+
+## 2. Cargar Zonas REDI
+zonas_redi <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/ZMM_REDI_2024.kml') %>% 
+  st_make_valid() %>% 
+  st_zm(drop = TRUE) %>%  # Eliminar 3D
+  st_buffer(0) %>% 
+  # Renombrar columna para claridad
+  rename(zona_redi = Name)
 
 # ---- Verificar y ajustar CRS ----
 if(st_crs(zonas_redi) != st_crs(ageb_datos)){
@@ -61,7 +62,7 @@ resultado_final <- ageb_datos %>%
   left_join(
     asignacion_zona %>% 
       st_drop_geometry() %>% 
-      select(Name, zona_redi, area_interseccion, proporcion),
+      dplyr::select(Name, zona_redi, area_interseccion, proporcion),
     by = "Name"
   )
 
@@ -98,4 +99,3 @@ resultado_exportar <- resultado_final %>%
 # Escribir archivos
 write.xlsx(resultado_exportar, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[05] CRUCES (BASES DATOS)/AGEBs_REDI_Demografia.xlsx")
 st_write(resultado_final, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[05] CRUCES (BASES DATOS)/AGEBs_REDI_Demografia.kml", delete_dsn = TRUE)
-
