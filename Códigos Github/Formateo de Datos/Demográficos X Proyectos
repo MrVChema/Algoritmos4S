@@ -1,0 +1,108 @@
+# -----------------------------------------------------------------------------------
+# Cruce de Demográficos, AGEBs y Zonas REDI
+# -----------------------------------------------------------------------------------
+
+# Limpiar el entorno
+rm(list = ls())
+
+# ---- Cargar librerías necesarias ----
+library(sf)
+library(readxl)
+library(ggplot2)
+library(leaflet)
+
+# ---- Cargar información ----
+datos_preliminares <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[04] RESULTADOS/resultados_preliminares.xlsx')
+agebs_demograficos <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[05] CRUCES (BASES DATOS)/AGEBs_REDI_Demografia.xlsx')
+
+# ---- Cruce espacial de la información ----
+  ## Verificación de que los datos sean objetos espaciales
+  class(datos_preliminares)
+  class(agebs_demograficos)
+  
+  ## Convertir los datos a objetos espaciales
+  datos_preliminares <- datos_preliminares %>%
+    mutate(geometry = st_as_sfc(geometry_wkt, crs = 4326)) %>%  # Convertir WKT a geometría
+    st_as_sf()  # Convertir el data frame a objeto sf
+  
+  agebs_demograficos <- agebs_demograficos %>%
+    mutate(geometry = st_as_sfc(geometry_wkt, crs = 4326)) %>%
+    st_as_sf()
+  
+  ## Realizar la unión espacial (puntos dentro de polígonos)
+  datos_demografia <- st_join(datos_preliminares, agebs_demograficos, join = st_intersects)
+
+# ---- Visualización de la información ----
+  ## Unidades y PM2
+  ggplot(datos_demografia, aes(x = m2_inv, y = log_precio_m2)) +
+    geom_point(alpha = 0.6, color = "steelblue") +
+    geom_smooth(method = "lm", se = FALSE, color = "darkred") +
+    labs(
+      title = "Relación entre Unidades Totales y Log Precio por m²",
+      x = "m² en inventario",
+      y = "Log Precio por m²"
+    ) +
+    theme_minimal()
+  
+  ## Gráfico con facetas
+  datos_demografia$NSE <- as.factor(datos_demografia$NSE)
+  
+  ggplot(datos_demografia, aes(x = unidades_totales, y = log_precio_m2)) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "lm", se = FALSE, color = "darkred") +
+    facet_wrap(~ NSE) +
+    labs(
+      title = "Relación entre Unidades Totales y Log Precio por m² según NSE",
+      x = "Unidades Totales",
+      y = "Log Precio por m²"
+    ) +
+    theme_minimal()
+  
+  ## Boxplot
+  ggplot(datos_demografia, aes(x = loc_tipo, y = log_precio_m2, fill = loc_tipo)) +
+    geom_boxplot(alpha = 0.7) +
+    labs(
+      title = "Distribución del Log Precio por m² por Tipo de Localización",
+      x = "Tipo de Localización",
+      y = "Log Precio por m²"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  ## Visualizaciones Espaciales
+  # Extraer coordenadas y agregarlas como columnas 'lng' y 'lat'
+  datos_demografia <- datos_demografia %>%
+    mutate(
+      lng = st_coordinates(geometry)[, 1],
+      lat = st_coordinates(geometry)[, 2]
+    )
+  
+  # Definir una paleta de colores basada en el precio (por ejemplo, comparado con la mediana)
+  paleta <- colorNumeric(
+    palette = "YlOrRd",
+    domain = datos_demografia$log_precio_m2
+  )
+  
+  leaflet(datos_demografia) %>%
+    addTiles() %>%
+    addCircleMarkers(
+      lng = ~lng,
+      lat = ~lat,
+      radius = 5,
+      color = ~paleta(log_precio_m2),
+      stroke = FALSE,
+      fillOpacity = 0.7,
+      popup = ~paste(
+        "<strong>Proyecto:</strong>", Proyecto, "<br>",
+        "<strong>Log Precio por m²:</strong>", round(log_precio_m2, 2), "<br>",
+        "<strong>Unidades Totales:</strong>", unidades_totales, "<br>",
+        "<strong>NSE:</strong>", NSE
+      )
+    ) %>%
+    addLegend(
+      "bottomright",
+      pal = paleta,
+      values = ~log_precio_m2,
+      title = "Log Precio por m²",
+      opacity = 0.7
+    )
