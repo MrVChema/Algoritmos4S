@@ -28,6 +28,7 @@ library(e1071)
 library(pdp)
 library(iml)
 library(caret)
+library(tibble)
 
 # --- Cargar Datos ----
 # Datos Mac
@@ -181,7 +182,7 @@ mse_gbm <- mean((datos$log_precio_m2 - estimaciones_gbm)^2)
 rmse_gbm <- sqrt(mse_gbm)
 cat("RMSE del modelo GBM:", rmse_gbm, "\n")
 
-# --- estimaciones ----
+# --- Estimaciones ----
 ## Crear un nuevo data frame con una observación
 nueva_obs <- data.frame(
   distancia_parque   = 350,          # metros a un parque
@@ -409,3 +410,12 @@ ggplot() +
     axis.ticks.y = element_blank()
   ) +
   guides(fill = "none", color = "none")
+
+# --- Exportar resultados a Excel ----
+  ## Convertir geometría a WKT para Excel
+  datos <- datos %>%
+    mutate(geometry_wkt = st_as_text(geometry)) %>%  # Conversión a texto
+    st_drop_geometry()  # Eliminar geometría binaria
+  
+  ## Exportar resultado
+  write.xlsx(datos, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[04] RESULTADOS/resultados_preliminares.xlsx")
