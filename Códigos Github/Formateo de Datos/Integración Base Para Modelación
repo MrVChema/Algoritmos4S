@@ -157,3 +157,8 @@
         )
       ) %>%
     addScaleBar(position = "bottomleft")
+
+# ---- 7. Exportar base de datos ----
+  ## Exportar a GeoPackage para mantener geometrías.
+    st_write(base_integrada, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_integrada.gpkg", driver = "GPKG")
+    
