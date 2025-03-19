@@ -3,162 +3,221 @@
 # -----------------------------------------------------------------------------------
 
 # ---- 1. Limpiar el entorno y cargar librerías necesarias ----
-  rm(list = ls())
-  
-  library(sf)
-  library(readr)
-  library(readxl)
-  library(dplyr)
-  library(tidyr)
-  library(tibble)
-  library(leaflet)
-  library(readr)  # para parse_number()
-  
-  ## Desactivar el uso de s2 (opcional, según complejidad de las geometrías)
-    sf::sf_use_s2(FALSE)
+rm(list = ls())
+
+library(sf)
+library(readr)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(leaflet)
+library(readr)  # para parse_number()
+
+## Desactivar el uso de s2 (opcional, según complejidad de las geometrías)
+sf::sf_use_s2(FALSE)
 
 # ---- 2. Cargar las fuentes de datos ----
 
-  ## 2.1. Archivos CSV y XLSX
-    ### Proyectos (vivienda vertical)
-    proyectos <- read_csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[01] PROYECTOS/[01] VIVIENDA VERTICAL/Proyectos Integrados_ZMM.csv')
-    
-    ### Variables de áreas verdes y datos demográficos
-    verdes <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_Zona_V2.xlsx')
-    demograficos <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[03] DEMOGRAFICOS/Demograficos_AGEBS.xlsx')
-    
-  ## 2.2. Archivos KML
-    ### Polígonos NSE
-    nse_kml_path <- '/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[01] NSE/NSE-Monterrey.kml'
-    nse_layers <- st_layers(nse_kml_path)
-    print(nse_layers)
-    
-    ### Leer todas las capas del KML de NSE y combinarlas
-    nse_data_list <- lapply(nse_layers$name, function(x) {
-      st_read(nse_kml_path, layer = x)
-    })
-    nse_data <- do.call(rbind, nse_data_list)
-    
-    ### Polígonos de Zonas REDI
-    zonas_redi <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/ZMM_REDI_2024.kml')
-    
-    ### Polígonos de parques importantes (KML)
-    parques_kml <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/Parques_Peso.kml')
-    
-      #### Si en el KML de parques la columna que identifica el parque se llama "Name", renómbrala a "nombre"
-      if("Name" %in% names(parques_kml)){
-        parques_kml <- parques_kml %>% rename(nombre = Name)
-      }
+## 2.1. Archivos CSV y XLSX
+### Proyectos (vivienda vertical)
+proyectos <- read_csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[01] PROYECTOS/[01] VIVIENDA VERTICAL/Proyectos Integrados_ZMM.csv')
+
+### Variables de áreas verdes y datos demográficos
+verdes <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_Zona_V2.xlsx')
+demograficos <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[03] DEMOGRAFICOS/Demograficos_AGEBS.xlsx')
+
+## 2.2. Archivos KML
+### Polígonos NSE
+nse_kml_path <- '/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[01] NSE/NSE-Monterrey.kml'
+nse_layers <- st_layers(nse_kml_path)
+print(nse_layers)
+
+### Leer todas las capas del KML de NSE y combinarlas
+nse_data_list <- lapply(nse_layers$name, function(x) {
+  st_read(nse_kml_path, layer = x)
+})
+nse_data <- do.call(rbind, nse_data_list)
+
+### Polígonos de Zonas REDI
+zonas_redi <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/ZMM_REDI_2024.kml')
+
+### Polígonos de parques importantes (KML)
+parques_kml <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/Parques_Peso.kml')
+
+#### Si en el KML de parques la columna que identifica el parque se llama "Name", renómbrala a "nombre"
+if("Name" %in% names(parques_kml)){
+  parques_kml <- parques_kml %>% rename(nombre = Name)
+}
 
 # ---- 3. Convertir los datos a objetos espaciales (sf) y renombrar columnas ----
 
-  ## 3.1. Proyectos: Se asume que las columnas "Longitud" y "Latitud" contienen las coordenadas (WGS84)
-    proyectos_sf <- st_as_sf(proyectos,
-                             coords = c("Longitud", "Latitud"),
-                             crs = 4326,
-                             remove = FALSE)
-  
-  ## 3.2. Áreas verdes: Usan las columnas "longitud" y "latitud" (en minúscula)
-    verdes_sf <- st_as_sf(verdes,
-                          coords = c("longitud", "latitud"),
-                          crs = 4326,
-                          remove = FALSE)
-  
-  ## 3.3. Datos demográficos: La columna "geometry" está en formato WKT
-    demograficos_sf <- demograficos %>%
-      mutate(geometry = st_as_sfc(geometry, crs = 4326)) %>%
-      st_as_sf()
-  
-  ## 3.4. Renombrar columnas para evitar conflictos en las uniones espaciales
-    nse_data_renamed <- nse_data %>%
-      rename(nse_name = Name,
-             nse_description = Description)
-    
-    zonas_redi_renamed <- zonas_redi %>%
-      rename(zona_name = Name,
-             zona_description = Description)
+## 3.1. Proyectos: Se asume que las columnas "Longitud" y "Latitud" contienen las coordenadas (WGS84)
+proyectos_sf <- st_as_sf(proyectos,
+                         coords = c("Longitud", "Latitud"),
+                         crs = 4326,
+                         remove = FALSE)
+
+## 3.2. Áreas verdes: Usan las columnas "longitud" y "latitud" (en minúscula)
+verdes_sf <- st_as_sf(verdes,
+                      coords = c("longitud", "latitud"),
+                      crs = 4326,
+                      remove = FALSE)
+
+## 3.3. Datos demográficos: La columna "geometry" está en formato WKT
+demograficos_sf <- demograficos %>%
+  mutate(geometry = st_as_sfc(geometry, crs = 4326)) %>%
+  st_as_sf()
+
+## 3.4. Renombrar columnas para evitar conflictos en las uniones espaciales
+nse_data_renamed <- nse_data %>%
+  rename(nse_name = Name,
+         nse_description = Description)
+
+zonas_redi_renamed <- zonas_redi %>%
+  rename(zona_name = Name,
+         zona_description = Description)
 
 # ---- 4. Uniones espaciales e integración de la información ----
 
-  ## 4.1. Unir información demográfica: Se asocia a cada proyecto el polígono demográfico que lo contiene.
-    proyectos_sf <- st_join(proyectos_sf,
-                            demograficos_sf,
-                            join = st_within,
-                            left = TRUE,
-                            suffix = c("", "_dem"))
+  ## 4.1. Calcular variables demográficas en radio de 1 km (nuevo enfoque) ----
+    ### Ajustar variables a la categoría correcta
+    demograficos_sf <- demograficos_sf %>%
+      mutate(hogares2020 = as.numeric(hogares2020))
+    
+    ### Transformar a CRS proyectado adecuado (UTM 14N para Monterrey)
+    proyectos_proj <- st_transform(proyectos_sf, 32614)
+    demograficos_proj <- st_transform(demograficos_sf, 32614)
+    
+    ### Calcular área de cada AGEB
+    demograficos_proj <- demograficos_proj %>% 
+      mutate(ageb_area = st_area(.))
+    
+    ### Crear buffer de 1 km alrededor de cada proyecto
+    proyectos_buffer <- st_buffer(proyectos_proj, 1000)
+    
+    ### Encontrar intersecciones y calcular áreas de superposición
+    intersecciones <- st_intersection(
+      st_make_valid(proyectos_buffer),
+      st_make_valid(demograficos_proj)
+    ) %>% 
+      mutate(
+        interseccion_area = st_area(.),
+        proporcion = as.numeric(interseccion_area / ageb_area)
+      ) %>% 
+      filter(proporcion > 0.001)  # Filtrar superposiciones mínimas
+    
+    ### Lista de variables demográficas a agregar (ajusta según necesidades)
+    variables_demograficas <- c(
+      "pob2020", "hogares2020", "viv2020", "habitadas2020", 
+      "migrantes2020", "pob_ocupada_2020", "pob2010", 
+      "hogares2010", "viv2010", "pob_ocupada_2010",
+      "independiente", "empty_nesters", "separados_hijos",
+      "pareja_sin_hijos", "pareja_hijos_10", "pareja_hijos_21",
+      "pareja_hijos_1120", "joven_sin_hijos", "soltero_adulto",
+      "soltero_joven", "prestada", "propia", "propia_pagando",
+      "rentada", "intestada_litigio", "pob_masc", "pob_fem"
+    )
+    
+    ### Agregar variables ponderadas por la proporción de área
+    demografia_agregada <- intersecciones %>% 
+      st_drop_geometry() %>% 
+      group_by(Proyecto) %>% 
+      summarise(
+        across(
+          all_of(variables_demograficas),
+          ~sum(.x * proporcion, na.rm = TRUE),
+          .names = "{.col}_1km"
+        ),
+        .groups = "drop"
+      )
+    
+    ### Unir los datos agregados al dataset principal
+    proyectos_sf <- proyectos_sf %>% 
+      left_join(demografia_agregada, by = "Proyecto")
   
   ## 4.2. Unir información de NSE: Agregar la zona NSE a cada proyecto.
-    proyectos_sf <- st_join(proyectos_sf,
-                            nse_data_renamed,
-                            join = st_intersects,
-                            left = TRUE)
+  proyectos_sf <- st_join(proyectos_sf,
+                          nse_data_renamed,
+                          join = st_intersects,
+                          left = TRUE)
   
   ## 4.3. Unir información de zonas REDI
-    proyectos_sf <- st_join(proyectos_sf,
-                            zonas_redi_renamed,
-                            join = st_intersects,
-                            left = TRUE)
-    
+  proyectos_sf <- st_join(proyectos_sf,
+                          zonas_redi_renamed,
+                          join = st_intersects,
+                          left = TRUE)
+  
   ## 4.4. Calcular el parque más cercano usando la base "verdes"
-    nearest_idx <- st_nearest_feature(proyectos_sf, verdes_sf)
-    proyectos_sf$nearest_park <- verdes_sf$nombre[nearest_idx]
-    proyectos_sf$dist_to_park <- st_distance(proyectos_sf, verdes_sf[nearest_idx, ], by_element = TRUE)
-    proyectos_sf$dist_to_park <- as.numeric(proyectos_sf$dist_to_park)
+  nearest_idx <- st_nearest_feature(proyectos_sf, verdes_sf)
+  proyectos_sf$nearest_park <- verdes_sf$nombre[nearest_idx]
+  proyectos_sf$dist_to_park <- st_distance(proyectos_sf, verdes_sf[nearest_idx, ], by_element = TRUE)
+  proyectos_sf$dist_to_park <- as.numeric(proyectos_sf$dist_to_park)
   
   ## 4.5. Calcular el parque importante más cercano (desde el KML)
-    nearest_idx_poly <- st_nearest_feature(proyectos_sf, parques_kml)
-    proyectos_sf$nearest_park_kml <- parques_kml$nombre[nearest_idx_poly]
-    proyectos_sf$dist_to_park_kml <- st_distance(proyectos_sf, parques_kml[nearest_idx_poly, ], by_element = TRUE)
-    proyectos_sf$dist_to_park_kml <- as.numeric(proyectos_sf$dist_to_park_kml)
+  nearest_idx_poly <- st_nearest_feature(proyectos_sf, parques_kml)
+  proyectos_sf$nearest_park_kml <- parques_kml$nombre[nearest_idx_poly]
+  proyectos_sf$dist_to_park_kml <- st_distance(proyectos_sf, parques_kml[nearest_idx_poly, ], by_element = TRUE)
+  proyectos_sf$dist_to_park_kml <- as.numeric(proyectos_sf$dist_to_park_kml)
 
 # ---- 5. Procesamiento adicional de variables ----
 
-  ## Procesar la variable "nse_description" para extraer NSE, Personas, Hogares y Precio Promedio de Vivienda
-    base_integrada <- proyectos_sf %>%
-      extract(
-        col = nse_description, 
-        into = c("nse", "personas", "hogares", "precio_vivienda"),
-        regex = "NSE:\\s*([^\\s]+)\\s+Personas:\\s*([0-9,]+)\\s+Hogares:\\s*([0-9,]+)\\s+Precio Promedio de Vivienda:\\s*\\$?([0-9,\\.]+)",
-        remove = FALSE
-      ) %>%
-      mutate(
-        nse = as.factor(nse),
-        personas = parse_number(personas),
-        hogares = parse_number(hogares),
-        precio_vivienda = parse_number(precio_vivienda)
-      )
+## Procesar la variable "nse_description" para extraer NSE, Personas, Hogares y Precio Promedio de Vivienda
+base_integrada <- proyectos_sf %>%
+  extract(
+    col = nse_description, 
+    into = c("nse", "personas", "hogares", "precio_vivienda"),
+    regex = "NSE:\\s*([^\\s]+)\\s+Personas:\\s*([0-9,]+)\\s+Hogares:\\s*([0-9,]+)\\s+Precio Promedio de Vivienda:\\s*\\$?([0-9,\\.]+)",
+    remove = FALSE
+  ) %>%
+  rename(
+    absorcion = `Absorcion por proyecto`,
+    nearest_relevant_park = nearest_park_kml
+  ) %>%
+  mutate(
+    absorcion = as.numeric(absorcion),
+    Estatus = as.factor(Estatus),
+    hogares = parse_number(hogares),
+    Municipio = as.factor(Municipio),
+    nearest_park = as.factor(nearest_park),
+    nearest_relevant_park = as.factor(nearest_relevant_park),
+    nse = as.factor(nse),
+    personas = parse_number(personas),
+    precio_vivienda = parse_number(precio_vivienda),
+    Segmento = as.factor(Segmento),
+    zona_name = as.factor(zona_name)
+  )
 
 # ---- 6. Visualización en un mapa interactivo con Leaflet ----
 
-  ## Asegurarse de que "base_integrada" es un objeto sf con su geometría
-    if (!("sf" %in% class(base_integrada))) {
-      base_integrada <- st_as_sf(base_integrada, coords = c("Longitud", "Latitud"), crs = 4326)
-    }
-    
-  ## Visualización en Mapa Interactivo de Leaflet
-    leaflet(data = base_integrada) %>%
-      addTiles() %>%
-      addCircleMarkers(
-        radius = 5,
-        color = "blue",
-        stroke = FALSE,
-        fillOpacity = 0.8,
-        popup = ~paste(
-          "<strong>Proyecto:</strong>", Proyecto, "<br>",
-          "<strong>Desarrollador:</strong>", Desarrollador, "<br>",
-          "<strong>Municipio:</strong>", Municipio, "<br>",
-          "<strong>Precio por m²:</strong>", p_m2, "<br>",
-          "<strong>Segmento:</strong>", ifelse(is.na(Segmento), "Sin información", Segmento), "<br>",
-          "<strong>Zona REDI:</strong>", ifelse(is.na(zona_name), "Sin información", zona_name), "<br>",
-          "<strong>Parque más cercano (Verdes):</strong>", nearest_park, "<br>",
-          "<strong>Distancia (m) - Verdes:</strong>", round(dist_to_park, 1), "<br>",
-          "<strong>Parque importante más cercano:</strong>", nearest_park_kml, "<br>",
-          "<strong>Distancia (m) - Parque importante:</strong>", round(dist_to_park_kml, 1)
-        )
-      ) %>%
-    addScaleBar(position = "bottomleft")
+## Asegurarse de que "base_integrada" es un objeto sf con su geometría
+if (!("sf" %in% class(base_integrada))) {
+  base_integrada <- st_as_sf(base_integrada, coords = c("Longitud", "Latitud"), crs = 4326)
+}
+
+## Visualización en Mapa Interactivo de Leaflet
+leaflet(data = base_integrada) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    radius = 5,
+    color = "blue",
+    stroke = FALSE,
+    fillOpacity = 0.8,
+    popup = ~paste(
+      "<strong>Proyecto:</strong>", Proyecto, "<br>",
+      "<strong>Desarrollador:</strong>", Desarrollador, "<br>",
+      "<strong>Municipio:</strong>", Municipio, "<br>",
+      "<strong>Precio por m²:</strong>", p_m2, "<br>",
+      "<strong>Segmento:</strong>", ifelse(is.na(Segmento), "Sin información", Segmento), "<br>",
+      "<strong>Zona REDI:</strong>", ifelse(is.na(zona_name), "Sin información", zona_name), "<br>",
+      "<strong>Parque más cercano (Verdes):</strong>", nearest_park, "<br>",
+      "<strong>Distancia (m) - Verdes:</strong>", round(dist_to_park, 1), "<br>",
+      "<strong>Parque importante más cercano:</strong>", nearest_relevant_park, "<br>",
+      "<strong>Distancia (m) - Parque importante:</strong>", round(dist_to_park_kml, 1)
+    )
+  ) %>%
+  addScaleBar(position = "bottomleft")
 
 # ---- 7. Exportar base de datos ----
-  ## Exportar a GeoPackage para mantener geometrías.
-    st_write(base_integrada, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_integrada.gpkg", driver = "GPKG")
-    
+## Exportar a GeoPackage para mantener geometrías.
+st_write(base_integrada, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_integrada.gpkg", driver = "GPKG")
