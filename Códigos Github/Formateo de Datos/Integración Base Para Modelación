@@ -80,85 +80,85 @@ zonas_redi_renamed <- zonas_redi %>%
 
 # ---- 4. Uniones espaciales e integración de la información ----
 
-  ## 4.1. Calcular variables demográficas en radio de 1 km (nuevo enfoque) ----
-    ### Ajustar variables a la categoría correcta
-    demograficos_sf <- demograficos_sf %>%
-      mutate(hogares2020 = as.numeric(hogares2020))
-    
-    ### Transformar a CRS proyectado adecuado (UTM 14N para Monterrey)
-    proyectos_proj <- st_transform(proyectos_sf, 32614)
-    demograficos_proj <- st_transform(demograficos_sf, 32614)
-    
-    ### Calcular área de cada AGEB
-    demograficos_proj <- demograficos_proj %>% 
-      mutate(ageb_area = st_area(.))
-    
-    ### Crear buffer de 1 km alrededor de cada proyecto
-    proyectos_buffer <- st_buffer(proyectos_proj, 1000)
-    
-    ### Encontrar intersecciones y calcular áreas de superposición
-    intersecciones <- st_intersection(
-      st_make_valid(proyectos_buffer),
-      st_make_valid(demograficos_proj)
-    ) %>% 
-      mutate(
-        interseccion_area = st_area(.),
-        proporcion = as.numeric(interseccion_area / ageb_area)
-      ) %>% 
-      filter(proporcion > 0.001)  # Filtrar superposiciones mínimas
-    
-    ### Lista de variables demográficas a agregar (ajusta según necesidades)
-    variables_demograficas <- c(
-      "pob2020", "hogares2020", "viv2020", "habitadas2020", 
-      "migrantes2020", "pob_ocupada_2020", "pob2010", 
-      "hogares2010", "viv2010", "pob_ocupada_2010",
-      "independiente", "empty_nesters", "separados_hijos",
-      "pareja_sin_hijos", "pareja_hijos_10", "pareja_hijos_21",
-      "pareja_hijos_1120", "joven_sin_hijos", "soltero_adulto",
-      "soltero_joven", "prestada", "propia", "propia_pagando",
-      "rentada", "intestada_litigio", "pob_masc", "pob_fem"
-    )
-    
-    ### Agregar variables ponderadas por la proporción de área
-    demografia_agregada <- intersecciones %>% 
-      st_drop_geometry() %>% 
-      group_by(Proyecto) %>% 
-      summarise(
-        across(
-          all_of(variables_demograficas),
-          ~sum(.x * proporcion, na.rm = TRUE),
-          .names = "{.col}_1km"
-        ),
-        .groups = "drop"
-      )
-    
-    ### Unir los datos agregados al dataset principal
-    proyectos_sf <- proyectos_sf %>% 
-      left_join(demografia_agregada, by = "Proyecto")
-  
-  ## 4.2. Unir información de NSE: Agregar la zona NSE a cada proyecto.
-  proyectos_sf <- st_join(proyectos_sf,
-                          nse_data_renamed,
-                          join = st_intersects,
-                          left = TRUE)
-  
-  ## 4.3. Unir información de zonas REDI
-  proyectos_sf <- st_join(proyectos_sf,
-                          zonas_redi_renamed,
-                          join = st_intersects,
-                          left = TRUE)
-  
-  ## 4.4. Calcular el parque más cercano usando la base "verdes"
-  nearest_idx <- st_nearest_feature(proyectos_sf, verdes_sf)
-  proyectos_sf$nearest_park <- verdes_sf$nombre[nearest_idx]
-  proyectos_sf$dist_to_park <- st_distance(proyectos_sf, verdes_sf[nearest_idx, ], by_element = TRUE)
-  proyectos_sf$dist_to_park <- as.numeric(proyectos_sf$dist_to_park)
-  
-  ## 4.5. Calcular el parque importante más cercano (desde el KML)
-  nearest_idx_poly <- st_nearest_feature(proyectos_sf, parques_kml)
-  proyectos_sf$nearest_park_kml <- parques_kml$nombre[nearest_idx_poly]
-  proyectos_sf$dist_to_park_kml <- st_distance(proyectos_sf, parques_kml[nearest_idx_poly, ], by_element = TRUE)
-  proyectos_sf$dist_to_park_kml <- as.numeric(proyectos_sf$dist_to_park_kml)
+## 4.1. Calcular variables demográficas en radio de 1 km (nuevo enfoque) ----
+### Ajustar variables a la categoría correcta
+demograficos_sf <- demograficos_sf %>%
+  mutate(hogares2020 = as.numeric(hogares2020))
+
+### Transformar a CRS proyectado adecuado (UTM 14N para Monterrey)
+proyectos_proj <- st_transform(proyectos_sf, 32614)
+demograficos_proj <- st_transform(demograficos_sf, 32614)
+
+### Calcular área de cada AGEB
+demograficos_proj <- demograficos_proj %>% 
+  mutate(ageb_area = st_area(.))
+
+### Crear buffer de 1 km alrededor de cada proyecto
+proyectos_buffer <- st_buffer(proyectos_proj, 1000)
+
+### Encontrar intersecciones y calcular áreas de superposición
+intersecciones <- st_intersection(
+  st_make_valid(proyectos_buffer),
+  st_make_valid(demograficos_proj)
+) %>% 
+  mutate(
+    interseccion_area = st_area(.),
+    proporcion = as.numeric(interseccion_area / ageb_area)
+  ) %>% 
+  filter(proporcion > 0.001)  # Filtrar superposiciones mínimas
+
+### Lista de variables demográficas a agregar (ajusta según necesidades)
+variables_demograficas <- c(
+  "pob2020", "hogares2020", "viv2020", "habitadas2020", 
+  "migrantes2020", "pob_ocupada_2020", "pob2010", 
+  "hogares2010", "viv2010", "pob_ocupada_2010",
+  "independiente", "empty_nesters", "separados_hijos",
+  "pareja_sin_hijos", "pareja_hijos_10", "pareja_hijos_21",
+  "pareja_hijos_1120", "joven_sin_hijos", "soltero_adulto",
+  "soltero_joven", "prestada", "propia", "propia_pagando",
+  "rentada", "intestada_litigio", "pob_masc", "pob_fem"
+)
+
+### Agregar variables ponderadas por la proporción de área
+demografia_agregada <- intersecciones %>% 
+  st_drop_geometry() %>% 
+  group_by(Proyecto) %>% 
+  summarise(
+    across(
+      all_of(variables_demograficas),
+      ~sum(.x * proporcion, na.rm = TRUE),
+      .names = "{.col}_1km"
+    ),
+    .groups = "drop"
+  )
+
+### Unir los datos agregados al dataset principal
+proyectos_sf <- proyectos_sf %>% 
+  left_join(demografia_agregada, by = "Proyecto")
+
+## 4.2. Unir información de NSE: Agregar la zona NSE a cada proyecto.
+proyectos_sf <- st_join(proyectos_sf,
+                        nse_data_renamed,
+                        join = st_intersects,
+                        left = TRUE)
+
+## 4.3. Unir información de zonas REDI
+proyectos_sf <- st_join(proyectos_sf,
+                        zonas_redi_renamed,
+                        join = st_intersects,
+                        left = TRUE)
+
+## 4.4. Calcular el parque más cercano usando la base "verdes"
+nearest_idx <- st_nearest_feature(proyectos_sf, verdes_sf)
+proyectos_sf$nearest_park <- verdes_sf$nombre[nearest_idx]
+proyectos_sf$dist_to_park <- st_distance(proyectos_sf, verdes_sf[nearest_idx, ], by_element = TRUE)
+proyectos_sf$dist_to_park <- as.numeric(proyectos_sf$dist_to_park)
+
+## 4.5. Calcular el parque importante más cercano (desde el KML)
+nearest_idx_poly <- st_nearest_feature(proyectos_sf, parques_kml)
+proyectos_sf$nearest_park_kml <- parques_kml$nombre[nearest_idx_poly]
+proyectos_sf$dist_to_park_kml <- st_distance(proyectos_sf, parques_kml[nearest_idx_poly, ], by_element = TRUE)
+proyectos_sf$dist_to_park_kml <- as.numeric(proyectos_sf$dist_to_park_kml)
 
 # ---- 5. Procesamiento adicional de variables ----
 
@@ -178,6 +178,7 @@ base_integrada <- proyectos_sf %>%
     absorcion = as.numeric(absorcion),
     Estatus = as.factor(Estatus),
     hogares = parse_number(hogares),
+    log_pm2 = log(p_m2),
     Municipio = as.factor(Municipio),
     nearest_park = as.factor(nearest_park),
     nearest_relevant_park = as.factor(nearest_relevant_park),
