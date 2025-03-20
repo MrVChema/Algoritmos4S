@@ -1,0 +1,56 @@
+# -----------------------------------------------------------------------------------
+# Modelación por Machine Learning
+# -----------------------------------------------------------------------------------
+
+# ---- 1. Limpiar el entorno y cargar librerías necesarias ----
+  rm(list = ls())  
+  
+  library(sf)
+  library(dplyr)
+  library(gbm)
+  library(ggplot2)
+  library(leaflet)
+
+# ---- 2. Cargar base de datos ----
+  datos <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_integrada.gpkg')
+
+# ---- 3. Corrección de categorización de cariables ----
+  datos <- datos %>%
+    mutate(nse = as.factor(nse),
+           Segmento = as.factor(Segmento),
+           zona_name = as.factor(zona_name),
+           nearest_relevant_park = as.factor(nearest_relevant_park))
+  
+# ---- 4. Modelación ----
+  ## Modelo de Regresión Lineal Simple
+  modelo_regsim <- lm(log_pm2 ~ absorcion + unidades_totales + ppromedio_inv + 
+                        Segmento + pob2020_1km + hogares2020_1km + viv2020_1km + 
+                        habitadas2020_1km + migrantes2020_1km + pob_ocupada_2020_1km +
+                        independiente_1km + empty_nesters_1km + separados_hijos_1km +
+                        pareja_sin_hijos_1km + pareja_hijos_10_1km + pareja_hijos_21_1km +
+                        pareja_hijos_1120_1km + joven_sin_hijos_1km + soltero_adulto_1km +
+                        soltero_joven_1km + prestada_1km + propia_1km + propia_pagando_1km +
+                        rentada_1km + intestada_litigio_1km + pob_masc_1km + pob_fem_1km +
+                        nse + precio_vivienda + zona_name + dist_to_park + nearest_relevant_park, 
+                      data = datos)
+  summary(modelo_regsim)
+  
+  ## Gradient Boost Machines (GBM)
+  ### Ajustar el modelo GBM
+  modelo_gbm <- gbm(log_pm2 ~ absorcion + unidades_totales + ppromedio_inv + 
+                      Segmento + pob2020_1km + hogares2020_1km + viv2020_1km + 
+                      habitadas2020_1km + migrantes2020_1km + pob_ocupada_2020_1km +
+                      independiente_1km + empty_nesters_1km + separados_hijos_1km +
+                      pareja_sin_hijos_1km + pareja_hijos_10_1km + pareja_hijos_21_1km +
+                      pareja_hijos_1120_1km + joven_sin_hijos_1km + soltero_adulto_1km +
+                      soltero_joven_1km + prestada_1km + propia_1km + propia_pagando_1km +
+                      rentada_1km + intestada_litigio_1km + pob_masc_1km + pob_fem_1km +
+                      nse + precio_vivienda + zona_name + dist_to_park + nearest_relevant_park, 
+                    data = datos, distribution = "gaussian", n.trees = 1000, interaction.depth = 3)
+  ### Importancia de variables
+  resumen_importancia <- summary(modelo_gbm)
+  print(resumen_importancia)
+  estimaciones_gbm <- predict(modelo_gbm, datos, n.trees = 1000)
+  mse_gbm <- mean((datos$log_pm2 - estimaciones_gbm)^2)
+  rmse_gbm <- sqrt(mse_gbm)
+  cat("RMSE del modelo GBM:", rmse_gbm, "\n")
