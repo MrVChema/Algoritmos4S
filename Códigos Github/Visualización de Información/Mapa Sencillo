@@ -11,12 +11,13 @@ tmap_mode("view")  # Modo interactivo
 
 # Crear el mapa
 mapa <- tm_shape(poligonos) +
-  tm_polygons(col = "#8ab4f8",
-              border.col = "#3388ff",
+  tm_polygons(col = "#2C6C66",
+              border.col = "#2C6C66",
               border.lwd = 1.5,
               alpha = 0.7) +
   tm_text("Name", 
           size = 0.8,
+          col = "black",
           bg.color = "white",
           bg.alpha = 0.7,
           fontface = "bold") +
