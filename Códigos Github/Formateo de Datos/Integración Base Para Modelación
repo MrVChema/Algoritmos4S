@@ -172,7 +172,8 @@ base_integrada <- proyectos_sf %>%
   ) %>%
   rename(
     absorcion = `Absorcion por proyecto`,
-    nearest_relevant_park = nearest_park_kml
+    nearest_relevant_park = nearest_park_kml,
+    dist_to_relevant_park = dist_to_park_kml
   ) %>%
   mutate(
     absorcion = as.numeric(absorcion),
@@ -188,6 +189,20 @@ base_integrada <- proyectos_sf %>%
     Segmento = as.factor(Segmento),
     zona_name = as.factor(zona_name)
   )
+
+## Agregar la variable de "Unidades Vendidas"
+base_integrada <- base_integrada %>%
+  mutate(unidades_vendidas = unidades_totales - unidades_inv) %>%
+  relocate(unidades_vendidas, .after = unidades_inv) %>%
+  relocate(log_pm2, .after = p_m2)
+
+## Calificación de proximidad a parques relevantes
+base_integrada <- base_integrada %>%
+  mutate(
+    inv_dist_to_park = 1 / log(dist_to_relevant_park + 1),  # Ajuste para no linealidad
+    inv_dist_to_park = scale(inv_dist_to_park)  # Opcional: escalar si usas algoritmos sensibles a magnitud (ej: redes neuronales)
+  ) %>%
+  relocate(inv_dist_to_park, .after = dist_to_relevant_park)
 
 # ---- 6. Visualización en un mapa interactivo con Leaflet ----
 
@@ -214,7 +229,7 @@ leaflet(data = base_integrada) %>%
       "<strong>Parque más cercano (Verdes):</strong>", nearest_park, "<br>",
       "<strong>Distancia (m) - Verdes:</strong>", round(dist_to_park, 1), "<br>",
       "<strong>Parque importante más cercano:</strong>", nearest_relevant_park, "<br>",
-      "<strong>Distancia (m) - Parque importante:</strong>", round(dist_to_park_kml, 1)
+      "<strong>Distancia (m) - Parque importante:</strong>", round(dist_to_relevant_park, 1)
     )
   ) %>%
   addScaleBar(position = "bottomleft")
