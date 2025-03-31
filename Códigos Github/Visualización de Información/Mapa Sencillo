@@ -1,0 +1,28 @@
+# Limpiar entorno y cargar paquetes
+rm(list = ls())
+library(sf)
+library(tmap)
+
+# Leer el archivo KML
+poligonos <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/Parques_Peso.kml')
+
+# Configurar el modo de visualización
+tmap_mode("view")  # Modo interactivo
+
+# Crear el mapa
+mapa <- tm_shape(poligonos) +
+  tm_polygons(col = "#8ab4f8",
+              border.col = "#3388ff",
+              border.lwd = 1.5,
+              alpha = 0.7) +
+  tm_text("Name", 
+          size = 0.8,
+          bg.color = "white",
+          bg.alpha = 0.7,
+          fontface = "bold") +
+  tm_basemap("CartoDB.Positron") +
+  tm_layout(frame = FALSE,
+            legend.show = FALSE)
+
+# Mostrar el mapa
+mapa
