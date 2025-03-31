@@ -9,6 +9,7 @@ library(sf)
 library(readr)
 library(readxl)
 library(dplyr)
+library(janitor)
 library(tidyr)
 library(tibble)
 library(leaflet)
@@ -50,6 +51,17 @@ if("Name" %in% names(parques_kml)){
   parques_kml <- parques_kml %>% rename(nombre = Name)
 }
 
+## 2.3. Cargar datos de amenidades
+amenidades <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[06] AMENIDADES/Qlik Sense - Tabla Amenidades_ Desglose de Amenidades x Proy... MTY.xlsx')  # Reemplazar con tu ruta
+
+### Limpiar nombres y convertir Sí/No a 1/0
+amenidades_clean <- amenidades %>%
+  janitor::clean_names() %>%
+  rename(Proyecto = proyecto) %>%
+  mutate(across(c(control_de_acceso:vestidores), ~ ifelse(.x == "Sí", 1, 0))) %>%
+  select(-c(segmento, ciudad, zona, precio_promedio_inventario, absorcion_historica, absorcioo_del_ult_q))
+
+
 # ---- 3. Convertir los datos a objetos espaciales (sf) y renombrar columnas ----
 
 ## 3.1. Proyectos: Se asume que las columnas "Longitud" y "Latitud" contienen las coordenadas (WGS84)
@@ -80,7 +92,7 @@ zonas_redi_renamed <- zonas_redi %>%
 
 # ---- 4. Uniones espaciales e integración de la información ----
 
-## 4.1. Calcular variables demográficas en radio de 1 km (nuevo enfoque) ----
+## 4.1. Calcular variables demográficas en radio de 1 km (nuevo enfoque)
 ### Ajustar variables a la categoría correcta
 demograficos_sf <- demograficos_sf %>%
   mutate(hogares2020 = as.numeric(hogares2020))
@@ -159,6 +171,11 @@ nearest_idx_poly <- st_nearest_feature(proyectos_sf, parques_kml)
 proyectos_sf$nearest_park_kml <- parques_kml$nombre[nearest_idx_poly]
 proyectos_sf$dist_to_park_kml <- st_distance(proyectos_sf, parques_kml[nearest_idx_poly, ], by_element = TRUE)
 proyectos_sf$dist_to_park_kml <- as.numeric(proyectos_sf$dist_to_park_kml)
+
+## 4.6 Unir información de amenidades
+proyectos_sf <- proyectos_sf %>%
+  left_join(amenidades_clean, by = "Proyecto") %>%
+  mutate(across(c(control_de_acceso:vestidores), ~ ifelse(is.na(.x), 0, .x)))  # Convertir NA a 0
 
 # ---- 5. Procesamiento adicional de variables ----
 
