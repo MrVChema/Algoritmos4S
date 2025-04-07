@@ -52,7 +52,7 @@ if("Name" %in% names(parques_kml)){
 }
 
 ## 2.3. Cargar datos de amenidades
-amenidades <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[06] AMENIDADES/Qlik Sense - Tabla Amenidades_ Desglose de Amenidades x Proy... MTY.xlsx')  # Reemplazar con tu ruta
+amenidades <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[06] FUNCIONALIDAD Y AMENIDADES/Qlik Sense - Tabla Amenidades_ Desglose de Amenidades x Proy... MTY.xlsx')
 
 ### Limpiar nombres y convertir Sí/No a 1/0
 amenidades_clean <- amenidades %>%
