@@ -1,0 +1,240 @@
+# Código para el cálculo de pesos del Índice de Valor por Ubicación (IVU)
+# Este script muestra el proceso completo para obtener los pesos basados en correlaciones
+
+# Limpiar el entorno y carga de bibliotecas necesarias
+rm(list = ls())
+
+library(dplyr)
+library(corrplot)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+
+# ---- 1. Cargar los datos ---- 
+datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_inmobiliaria_transformada.csv', stringsAsFactors = FALSE, encoding = "UTF-8")
+
+# ---- 2. Definir los factores a considerar para el IVU ----
+factores <- list(
+  # Índices existentes
+  indices = c("indice_accesibilidad", "potencial_inversion", "indice_conveniencia"),
+  
+  # Cercanías a equipamientos (0 o 1)
+  cercanias = c(
+    "cercania_hospital", 
+    "cercania_esc_priv", 
+    "cercania_esc_pub", 
+    "cercania_universidad", 
+    "cercania_super", 
+    "cercania_restau", 
+    "cercania_oficina", 
+    "cercania_tienda_dept"
+  ),
+  
+  # Cantidades de equipamientos en 1km
+  cantidades = c(
+    "cantidad_hospital_1km", 
+    "cantidad_esc_priv_1km", 
+    "cantidad_esc_pub_1km", 
+    "cantidad_universidad_1km", 
+    "cantidad_super_1km", 
+    "cantidad_restau_1km", 
+    "cantidad_oficina_1km", 
+    "cantidad_tienda_dept_1km"
+  )
+)
+
+# ---- 3. Calcular las correlaciones entre cada factor y el precio por m² ----
+# Función para calcular correlación con manejo de valores NA
+calcular_correlacion <- function(x, y) {
+  return(cor(x, y, use = "pairwise.complete.obs", method = "pearson"))
+}
+
+# Inicializar vector de correlaciones
+correlaciones <- numeric()
+
+# Variable objetivo (precio por metro cuadrado)
+precio_m2 <- datos$p_m2
+
+# Calcular correlaciones para cada categoría de factores
+for (categoria in names(factores)) {
+  for (factor in factores[[categoria]]) {
+    # Calcular correlación solo si la variable existe
+    if (factor %in% colnames(datos)) {
+      # Manejo de valores NA en los datos
+      valores_factor <- datos[[factor]]
+      pares_completos <- !is.na(valores_factor) & !is.na(precio_m2)
+      
+      if (sum(pares_completos) > 2) { # Necesitamos al menos 3 pares para correlación
+        corr <- calcular_correlacion(valores_factor[pares_completos], 
+                                     precio_m2[pares_completos])
+        correlaciones[factor] <- corr
+      } else {
+        correlaciones[factor] <- 0
+      }
+    } else {
+      correlaciones[factor] <- 0
+      warning(paste("Variable", factor, "no encontrada en los datos"))
+    }
+  }
+}
+
+# ---- 4. Visualizar las correlaciones ----
+# Ordenar correlaciones
+correlaciones_ordenadas <- sort(correlaciones, decreasing = TRUE)
+
+# Convertir a dataframe para visualización
+correlaciones_df <- data.frame(
+  Factor = names(correlaciones_ordenadas),
+  Correlacion = correlaciones_ordenadas
+)
+
+# Crear gráfico de barras de correlaciones
+grafico_correlaciones <- ggplot(correlaciones_df, aes(x = reorder(Factor, Correlacion), y = Correlacion)) +
+  geom_bar(stat = "identity", fill = "#4285F4") +
+  geom_text(aes(label = sprintf("%.3f", Correlacion)), hjust = ifelse(correlaciones_df$Correlacion >= 0, -0.1, 1.1)) +
+  coord_flip() +
+  labs(title = "Correlación de factores con Precio por m²",
+       x = "Factor",
+       y = "Coeficiente de correlación") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8))
+
+print(grafico_correlaciones)
+
+# ---- 5. Manejar correlaciones negativas ----
+# Para factores que deberían tener impacto positivo pero muestran correlación negativa
+# (basado en conocimiento del dominio inmobiliario)
+correlaciones_ajustadas <- correlaciones
+
+# Identificar factores con correlación negativa
+factores_negativos <- names(correlaciones_ajustadas[correlaciones_ajustadas < 0])
+print("Factores con correlación negativa:")
+print(factores_negativos)
+
+# Ajustar factores específicos (por ejemplo, escuelas públicas)
+# En caso de que "cantidad_esc_pub_1km" tenga correlación negativa pero queramos mantener su impacto
+for (factor in factores_negativos) {
+  if (factor == "cantidad_esc_pub_1km" || factor == "cercania_esc_pub") {
+    # Asignar un valor positivo bajo en lugar de negativo
+    correlaciones_ajustadas[factor] <- 0.05  # Valor arbitrario positivo bajo
+    cat("Ajustando factor", factor, "de", correlaciones[factor], "a", correlaciones_ajustadas[factor], "\n")
+  }
+  # Otros ajustes específicos pueden añadirse aquí
+}
+
+# ---- 6. Convertir correlaciones a pesos ----
+# Tomar el valor absoluto de las correlaciones ajustadas
+correlaciones_abs <- abs(correlaciones_ajustadas)
+
+# Normalizar para que sumen 1 (o 100%)
+suma_correlaciones <- sum(correlaciones_abs, na.rm = TRUE)
+pesos_calculados <- correlaciones_abs / suma_correlaciones
+
+# ---- 7. Crear tabla comparativa de correlaciones originales, ajustadas y pesos finales ----
+tabla_resultados <- data.frame(
+  Factor = names(correlaciones),
+  Correlacion_Original = unname(correlaciones),
+  Correlacion_Ajustada = unname(correlaciones_ajustadas),
+  Peso_Final = unname(pesos_calculados)
+)
+
+# Ordenar por peso final descendente
+tabla_resultados <- tabla_resultados[order(tabla_resultados$Peso_Final, decreasing = TRUE), ]
+
+# Mostrar tabla con formato
+print(kable(tabla_resultados, digits = 4, 
+            col.names = c("Factor", "Correlación Original", "Correlación Ajustada", "Peso Final"),
+            caption = "Derivación de pesos para el Índice de Valor por Ubicación"))
+
+# ---- 8. Visualizar distribución final de pesos ----
+# Preparar datos para gráfico de pastel
+pesos_df <- data.frame(
+  Factor = tabla_resultados$Factor,
+  Peso = tabla_resultados$Peso_Final
+)
+
+# Categorizar factores para el gráfico
+categorias_factores <- character(length(pesos_df$Factor))
+for (i in 1:length(pesos_df$Factor)) {
+  factor <- pesos_df$Factor[i]
+  if (factor %in% factores$indices) {
+    categorias_factores[i] <- "Índices"
+  } else if (factor %in% factores$cercanias) {
+    categorias_factores[i] <- "Cercanías"
+  } else if (factor %in% factores$cantidades) {
+    categorias_factores[i] <- "Cantidades"
+  } else {
+    categorias_factores[i] <- "Otros"
+  }
+}
+pesos_df$Categoria <- categorias_factores
+
+# Crear gráfico de pesos por categoría
+grafico_pesos_categoria <- ggplot(pesos_df, 
+                                  aes(x = reorder(Factor, -Peso), y = Peso, fill = Categoria)) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(palette = "Set1") +
+  geom_text(aes(label = sprintf("%.3f", Peso)), size = 3, vjust = -0.3) +
+  labs(title = "Distribución de pesos para el IVU por factor",
+       x = "Factor",
+       y = "Peso") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8))
+
+print(grafico_pesos_categoria)
+
+# ---- 9. Crear gráfico de pesos por categoría (agrupado) ----
+pesos_por_categoria <- pesos_df %>%
+  group_by(Categoria) %>%
+  summarise(Peso_Total = sum(Peso))
+
+grafico_pesos_agrupados <- ggplot(pesos_por_categoria, 
+                                  aes(x = "", y = Peso_Total, fill = Categoria)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste0(round(Peso_Total * 100), "%")), 
+            position = position_stack(vjust = 0.5)) +
+  labs(title = "Distribución de pesos por categoría de factores",
+       x = NULL,
+       y = NULL) +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+print(grafico_pesos_agrupados)
+
+# ---- 10. Exportar los pesos finales para usar en el cálculo del IVU ----
+pesos_finales <- pesos_calculados
+
+# Mostrar los pesos en formato código para copiar y pegar
+cat("\n\nPESOS PARA USAR EN EL CÁLCULO DEL IVU:\n")
+cat("pesos <- c(\n")
+
+# Cantidades
+cat("  # Cantidades\n")
+for (factor in factores$cantidades) {
+  cat(sprintf('  "%s" = %.4f,\n', factor, pesos_finales[factor]))
+}
+
+# Cercanías
+cat("\n  # Cercanías\n")
+for (factor in factores$cercanias) {
+  cat(sprintf('  "%s" = %.4f,\n', factor, pesos_finales[factor]))
+}
+
+# Índices
+cat("\n  # Índices\n")
+for (factor in factores$indices) {
+  cat(sprintf('  "%s" = %.4f%s\n', 
+              factor, 
+              pesos_finales[factor], 
+              ifelse(factor == factores$indices[length(factores$indices)], "", ",")))
+}
+
+cat(")\n")
+
+# ---- 11. Resumen estadístico de los pesos ----
+cat("\nResumen estadístico de pesos:\n")
+summary_pesos <- summary(pesos_finales)
+print(summary_pesos)
+
