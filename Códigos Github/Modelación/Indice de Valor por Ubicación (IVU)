@@ -227,9 +227,24 @@ for (i in 1:nrow(promedio_municipios)) {
 #--------------------
 # Visualizaciones
 #--------------------
-
-# 1. Visualización del Termómetro
-crear_termometro <- function(valor, categoria) {
+# 1. Visualización del Termómetro Mejorado
+crear_termometro <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Permitir selección por índice o por nombre
+  if (!is.null(indice_proyecto)) {
+    proyecto <- datos[indice_proyecto, ]
+  } else if (!is.null(nombre_proyecto)) {
+    proyecto <- datos[datos$Proyecto == nombre_proyecto, ]
+    if (nrow(proyecto) == 0) {
+      stop("Proyecto no encontrado: ", nombre_proyecto)
+    }
+  } else {
+    stop("Debe proporcionar un índice_proyecto o un nombre_proyecto")
+  }
+  
+  valor <- proyecto$ivu
+  categoria <- proyecto$ivu_categoria
+  nombre <- proyecto$Proyecto
+  
   colores <- c(
     "Muy bajo" = "#FF0000",  # Rojo
     "Bajo" = "#FF9900",      # Naranja
@@ -239,6 +254,8 @@ crear_termometro <- function(valor, categoria) {
   )
   
   color <- colores[as.character(categoria)]
+  
+  # Modificación: Empezar la escala desde un valor negativo para dar espacio a la etiqueta 0.0
   escala <- data.frame(
     y = seq(0, 1, 0.2),
     labels = c("0.0", "0.2", "0.4", "0.6", "0.8", "1.0"),
@@ -265,9 +282,11 @@ crear_termometro <- function(valor, categoria) {
     geom_text(data = escala[-1,], 
               aes(x = 0.7, y = y - 0.1, label = categorias), 
               hjust = 0) +
-    # Valor actual
+    # Valor actual y nombre del proyecto
     geom_text(aes(x = 0.5, y = 1.1, 
-                  label = paste0("Valor: ", round(valor, 2), "\nCategoría: ", categoria)),
+                  label = paste0("Proyecto: ", nombre, 
+                                 "\nValor: ", round(valor, 2), 
+                                 "\nCategoría: ", categoria)),
               fontface = "bold") +
     # Ajustes estéticos
     labs(title = "Termómetro de Valor por Ubicación",
@@ -275,16 +294,18 @@ crear_termometro <- function(valor, categoria) {
     theme_minimal() +
     theme(axis.text = element_blank(),
           axis.ticks = element_blank(),
-          panel.grid = element_blank()) +
-    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1.2), expand = FALSE)
+          panel.grid = element_blank(),
+          plot.title = element_text(hjust = 0.5, face = "bold", size = 14)) +
+    # Modificación: Extender el límite inferior para dar espacio a la etiqueta 0.0
+    coord_cartesian(xlim = c(0, 1), ylim = c(-0.05, 1.25), expand = FALSE)
   
   return(p)
 }
 
-# Ejemplo de termómetro para el primer proyecto
-proyecto_ejemplo <- datos[1, ]
-termometro_ejemplo <- crear_termometro(proyecto_ejemplo$ivu, proyecto_ejemplo$ivu_categoria)
-print(termometro_ejemplo)
+# Ejemplos de uso:
+# Por índice (número de fila)
+termometro_ejemplo1 <- crear_termometro(datos, indice_proyecto = 119)
+print(termometro_ejemplo1)
 
 # 2. Gráfico de barras del IVU por municipio
 grafico_municipios <- ggplot(promedio_municipios, aes(x = reorder(Municipio, PromedioIVU), y = PromedioIVU)) +
@@ -409,4 +430,3 @@ mapa
 
 # 8. Guardar el dataframe con el IVU calculado
 write.csv(datos, "datos_con_ivu.csv", row.names = FALSE)
-
