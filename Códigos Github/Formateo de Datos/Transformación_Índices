@@ -294,7 +294,15 @@ base_transformada <- base_transformada %>%
 # Guardar como GeoPackage (mantiene la estructura espacial)
 st_write(base_transformada, "base_inmobiliaria_transformada.gpkg", delete_dsn = TRUE)
 
-# También guardar como CSV para uso general (elimina componente espacial)
+# También guardar como CSV para uso general
+# Crear versión con coordenadas explícitas antes de exportar a CSV
+base_transformada <- base_transformada %>%
+  mutate(
+    longitud = st_coordinates(geom)[,1],
+    latitud = st_coordinates(geom)[,2]
+  ) %>%
+  st_drop_geometry()  # Ahora elimina la geometría pero ya tienes las coordenadas guardadas
+
 st_write(base_transformada, "base_inmobiliaria_transformada.csv", delete_dsn = TRUE)
 
 print("Transformación de variables completada")
