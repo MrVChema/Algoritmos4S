@@ -14,6 +14,9 @@ library(DT)           # Para tablas interactivas
 library(plotly)       # Para gráficos interactivos
 library(stringr)      # Para manipulación de texto
 
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
+
 # 1. Cargar los datos
 datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_inmobiliaria_transformada.csv', stringsAsFactors = FALSE, encoding = "UTF-8")
 
@@ -444,4 +447,4 @@ mapa <- crear_mapa(datos)
 mapa
 
 # 7. Guardar el dataframe con el IVU calculado
-write.csv(datos, "datos_con_ivu.csv", row.names = FALSE)
+write.csv(datos, "proyectos_con_ivu.csv", row.names = FALSE)
