@@ -13,6 +13,8 @@ library(scales)       # Para formateo de escalas
 library(DT)           # Para tablas interactivas
 library(plotly)       # Para gráficos interactivos
 library(stringr)      # Para manipulación de texto
+library(extrafont)    # Para usar tipografías adicionales
+library(htmltools)    # Trabajar con las fuentes
 
 # Establecer directorio de trabajo
 setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
@@ -261,11 +263,11 @@ crear_termometro <- function(datos, indice_proyecto = NULL, nombre_proyecto = NU
   nombre <- proyecto$Proyecto
   
   colores <- c(
-    "Muy bajo" = "#FF0000",  # Rojo
-    "Bajo" = "#FF9900",      # Naranja
-    "Medio" = "#FFCC00",     # Amarillo
-    "Alto" = "#66CC00",      # Verde claro
-    "Muy alto" = "#009900"   # Verde oscuro
+    "Muy bajo" = "#EF6558",  # Rojo
+    "Bajo" = "#F8C579",      # Naranja
+    "Medio" = "#F4E785",     # Amarillo
+    "Alto" = "#68d192",      # Verde claro
+    "Muy alto" = "#9B87F4"   # Verde oscuro
   )
   
   color <- colores[as.character(categoria)]
@@ -339,28 +341,46 @@ grafico_categorias <- ggplot(data.frame(Categoria = names(tabla_categorias),
                                         Cantidad = as.numeric(tabla_categorias)), 
                              aes(x = Categoria, y = Cantidad, fill = Categoria)) +
   geom_bar(stat = "identity") +
-  geom_text(aes(label = Cantidad), vjust = -0.5) +
-  scale_fill_manual(values = c("Muy bajo" = "#FF0000", "Bajo" = "#FF9900", 
-                               "Medio" = "#FFCC00", "Alto" = "#66CC00", 
-                               "Muy alto" = "#009900")) +
+  geom_text(aes(label = Cantidad), 
+            vjust = -0.5, 
+            family = "Inter",
+            size = 16/3) + # En ggplot2, el tamaño se divide entre ~3 para convertir de pt a unidades de ggplot
+  scale_fill_manual(values = c("Muy bajo" = "#EF6558", "Bajo" = "#F8C579", 
+                               "Medio" = "#F4E785", "Alto" = "#68d192", 
+                               "Muy alto" = "#9B87F4")) +
   labs(title = "Distribución de proyectos por categoría de IVU",
        x = "Categoría", y = "Número de proyectos") +
-  theme_minimal()
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Inter", size = 14),
+    axis.title = element_text(family = "Inter", size = 13),
+    axis.text = element_text(family = "Inter", size = 11),
+    plot.title = element_text(family = "Inter", size = 18, face = "bold"),
+    legend.text = element_text(family = "Inter", size = 12)
+  )
 
 print(grafico_categorias)
 
 # 4. Relación entre IVU y precio por m²
 grafico_precio_ivu <- ggplot(datos, aes(x = ivu, y = p_m2, color = ivu_categoria)) +
   geom_point(alpha = 0.7) +
-  scale_color_manual(values = c("Muy bajo" = "#FF0000", "Bajo" = "#FF9900", 
-                                "Medio" = "#FFCC00", "Alto" = "#66CC00", 
-                                "Muy alto" = "#009900")) +
+  scale_color_manual(values = c("Muy bajo" = "#EF6558", "Bajo" = "#F8C579", 
+                                "Medio" = "#F4E785", "Alto" = "#68d192", 
+                                "Muy alto" = "#9B87F4")) +
   labs(title = "Relación entre IVU y Precio por m²",
        x = "Índice de Valor por Ubicación", 
        y = "Precio por m²",
        color = "Categoría") +
   theme_minimal() +
-  scale_y_continuous(labels = scales::comma)
+  scale_y_continuous(labels = scales::comma) +
+  theme(
+    text = element_text(family = "Inter", size = 16),
+    axis.title = element_text(family = "Inter", size = 13),
+    axis.text = element_text(family = "Inter", size = 11),
+    plot.title = element_text(family = "Inter", size = 18, face = "bold"),
+    legend.title = element_text(family = "Inter", size = 14, face = "bold"),
+    legend.text = element_text(family = "Inter", size = 12)
+  )
 
 print(grafico_precio_ivu)
 
@@ -412,9 +432,12 @@ print(radar_ejemplo)
 crear_mapa <- function(datos) {
   # Definir paleta de colores por categoría IVU
   pal <- colorFactor(
-    palette = c("#FF0000", "#FF9900", "#FFCC00", "#66CC00", "#009900"),
+    palette = c("#EF6558", "#F8C579", "#F4E785", "#68d192", "#9B87F4"),
     domain = datos$ivu_categoria
   )
+  
+  # Estilo CSS para usar Inter en los popups
+  popup_style <- "font-family: 'Inter', sans-serif; font-size: 16px;"
   
   # Crear el mapa
   leaflet(datos) %>%
@@ -426,12 +449,14 @@ crear_mapa <- function(datos) {
       radius = 8,
       color = ~pal(ivu_categoria),
       stroke = FALSE,
-      fillOpacity = 0.8,
+      fillOpacity = 1,
       popup = ~paste0(
+        "<div style='", popup_style, "'>",
         "<b>", Proyecto, "</b><br>",
         "Desarrollador: ", Desarrollador, "<br>",
         "IVU: ", round(ivu, 2), " (", ivu_categoria, ")<br>",
-        "Precio/m²: $", format(p_m2, big.mark = ",", scientific = FALSE)
+        "Precio/m²: $", format(p_m2, big.mark = ",", scientific = FALSE),
+        "</div>"
       )
     ) %>%
     addLegend(
@@ -440,7 +465,33 @@ crear_mapa <- function(datos) {
       values = ~ivu_categoria,
       title = "Categoría IVU",
       opacity = 0.8
-    )
+    ) %>%
+    # Agregar CSS personalizado para cambiar la fuente de la leyenda
+    htmlwidgets::onRender("
+      function(el, x) {
+        // Aplicar estilo a la leyenda
+        var legends = document.querySelectorAll('.info.legend');
+        legends.forEach(function(legend) {
+          legend.style.fontFamily = 'Inter, sans-serif';
+          legend.style.fontSize = '12px';
+        });
+        
+        // Aplicar estilo al título de la leyenda
+        var legendTitles = document.querySelectorAll('.info.legend .legend-title');
+        legendTitles.forEach(function(title) {
+          title.style.fontFamily = 'Inter, sans-serif';
+          title.style.fontSize = '14px';
+          title.style.fontWeight = 'bold';
+        });
+        
+        // Aplicar estilo a los items de la leyenda
+        var legendItems = document.querySelectorAll('.info.legend .legend-item');
+        legendItems.forEach(function(item) {
+          item.style.fontFamily = 'Inter, sans-serif';
+          item.style.fontSize = '16px';
+        });
+      }
+    ")
 }
 
 mapa <- crear_mapa(datos)
@@ -448,3 +499,5 @@ mapa
 
 # 7. Guardar el dataframe con el IVU calculado
 write.csv(datos, "proyectos_con_ivu.csv", row.names = FALSE)
+
+
