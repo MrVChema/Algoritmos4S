@@ -1,0 +1,878 @@
+# -----------------------------------------------------------------------------------
+# Script para evaluar nuevos proyectos y calcular el Índice de Valor por Ubicación (IVU)
+# -----------------------------------------------------------------------------------
+
+# ---- 1. Limpiar el entorno y cargar librerías necesarias ----
+rm(list = ls())
+
+library(sf)
+library(readr)
+library(readxl)
+library(dplyr)
+library(janitor)
+library(tidyr)
+library(tibble)
+library(leaflet)
+library(readr)
+library(stringr)
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+
+## Desactivar el uso de s2 (opcional, según complejidad de las geometrías)
+sf::sf_use_s2(FALSE)
+
+# ---- 2. Función para convertir coordenadas en diferentes formatos a decimal ----
+convertir_coordenadas <- function(coordenada, tipo) {
+  # Si ya es numérica, devolverla directamente
+  if (is.numeric(coordenada)) {
+    return(coordenada)
+  }
+  
+  # Si es una cadena, intentar diferentes formatos
+  coordenada <- as.character(coordenada)
+  
+  # Formato de grados, minutos, segundos (DMS): 20°40'15.5"N o 20°40'15.5"W
+  if (grepl("°|'|\"|[NSEW]", coordenada)) {
+    # Extraer dirección (N, S, E, W)
+    direccion <- str_extract(coordenada, "[NSEW]$")
+    
+    # Eliminar la dirección para el procesamiento
+    coordenada_limpia <- str_replace(coordenada, "[NSEW]$", "")
+    
+    # Extraer grados, minutos y segundos
+    grados <- as.numeric(str_extract(coordenada_limpia, "^[0-9]+"))
+    minutos <- as.numeric(str_extract(coordenada_limpia, "(?<=°)[0-9]+") %||% "0")
+    segundos <- as.numeric(str_extract(coordenada_limpia, "(?<=')[0-9]+(\\.[0-9]+)?") %||% "0")
+    
+    # Convertir a decimal
+    decimal <- grados + minutos/60 + segundos/3600
+    
+    # Ajustar signo según dirección para coincidir con el sistema de coordenadas estándar
+    if (tipo == "latitud" && direccion == "S") {
+      decimal <- -decimal
+    } else if (tipo == "longitud" && direccion == "W") {
+      decimal <- -decimal
+    }
+    
+    return(decimal)
+  }
+  
+  # Intentar convertir directamente si es un número en formato de texto
+  tryCatch({
+    return(as.numeric(coordenada))
+  }, error = function(e) {
+    stop(paste("No se pudo convertir la coordenada:", coordenada))
+  })
+}
+
+# ---- 3. Función principal para evaluar un nuevo proyecto ----
+evaluar_proyecto <- function(nombre, desarrollador, longitud, latitud, municipio, 
+                             estatus = NA, unidades_totales = NA, unidades_inv = NA,
+                             segmento = NA, precio_m2 = NA, adicionales = list()) {
+  
+  # Convertir coordenadas a formato decimal
+  longitud_dec <- convertir_coordenadas(longitud, "longitud")
+  latitud_dec <- convertir_coordenadas(latitud, "latitud")
+  
+  cat("Coordenadas convertidas:\n")
+  cat("Longitud:", longitud_dec, "\n")
+  cat("Latitud:", latitud_dec, "\n")
+  
+  # Crear dataframe básico para el nuevo proyecto
+  nuevo_proyecto <- data.frame(
+    Proyecto = nombre,
+    Desarrollador = desarrollador,
+    Longitud = longitud_dec,
+    Latitud = latitud_dec,
+    Municipio = municipio,
+    Estatus = estatus,
+    unidades_totales = unidades_totales,
+    unidades_inv = unidades_inv,
+    Segmento = segmento,
+    p_m2 = precio_m2
+  )
+  
+  # Añadir campos adicionales
+  for (nombre_campo in names(adicionales)) {
+    nuevo_proyecto[[nombre_campo]] <- adicionales[[nombre_campo]]
+  }
+  
+  # ---- 4. Cargar las fuentes de datos ----
+  
+  ## 4.1. Variables de áreas verdes y datos demográficos
+  verdes <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_Zona_V2.xlsx')
+  demograficos <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[03] DEMOGRAFICOS/Demograficos_AGEBS.xlsx')
+  
+  ## 4.2. Archivos KML
+  ### Polígonos NSE
+  nse_kml_path <- '/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[01] NSE/NSE-Monterrey.kml'
+  nse_layers <- st_layers(nse_kml_path)
+  
+  ### Leer todas las capas del KML de NSE y combinarlas
+  nse_data_list <- lapply(nse_layers$name, function(x) {
+    st_read(nse_kml_path, layer = x)
+  })
+  nse_data <- do.call(rbind, nse_data_list)
+  
+  ### Polígonos de Zonas REDI
+  zonas_redi <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[03] ZONAS REDI/ZMM_REDI_2024.kml')
+  
+  ### Polígonos de parques importantes (KML)
+  parques_kml <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/Parques_Peso.kml')
+  
+  #### Si en el KML de parques la columna que identifica el parque se llama "Name", renómbrala a "nombre"
+  if("Name" %in% names(parques_kml)){
+    parques_kml <- parques_kml %>% rename(nombre = Name)
+  }
+  
+  ## 4.3. Cargar datos de equipamientos
+  hospitales <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Hospitales/Hospitales.csv', encoding = "UTF-8")
+  escuelas_privadas <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Escuelas Privadas/Escuelas Privadas.csv', encoding = "UTF-8")
+  escuelas_publicas <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Escuelas Públicas/Escuelas Públicas.csv', encoding = "UTF-8")
+  universidades <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Universidades/Universidades.csv', encoding = "UTF-8")
+  supermercados <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Supermercados/Supermercado.csv', encoding = "UTF-8")
+  restaurantes <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Restaurantes/Restaurantes.csv', encoding = "UTF-8")
+  oficinas <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Oficinas/Oficinas.csv', encoding = "UTF-8")
+  tiendas_departamentales <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Tiendas departamentales/Tiendas departamentales.csv', encoding = "UTF-8")
+  
+  # Asegurar que los equipamientos tienen coordenadas válidas
+  equipamientos_list <- list(
+    hospitales = hospitales %>% filter(!is.na(latitud) & !is.na(longitud)),
+    escuelas_privadas = escuelas_privadas %>% filter(!is.na(latitud) & !is.na(longitud)),
+    escuelas_publicas = escuelas_publicas %>% filter(!is.na(latitud) & !is.na(longitud)),
+    universidades = universidades %>% filter(!is.na(latitud) & !is.na(longitud)),
+    supermercados = supermercados %>% filter(!is.na(latitud) & !is.na(longitud)),
+    restaurantes = restaurantes %>% filter(!is.na(latitud) & !is.na(longitud)),
+    oficinas = oficinas %>% filter(!is.na(latitud) & !is.na(longitud)),
+    tiendas_departamentales = tiendas_departamentales %>% filter(!is.na(latitud) & !is.na(longitud))
+  )
+  
+  ## 4.4. Cargar datos de amenidades
+  amenidades <- tryCatch({
+    read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[06] FUNCIONALIDAD Y AMENIDADES/Qlik Sense - Tabla Amenidades_ Desglose de Amenidades x Proy... MTY.xlsx')
+  }, error = function(e) {
+    cat("Nota: No se pudieron cargar los datos de amenidades\n")
+    NULL
+  })
+  
+  # Limpiar nombres y convertir Sí/No a 1/0
+  if (!is.null(amenidades)) {
+    amenidades_clean <- amenidades %>%
+      janitor::clean_names() %>%
+      rename(Proyecto = proyecto) %>%
+      mutate(across(c(control_de_acceso:vestidores), ~ ifelse(.x == "Sí", 1, 0))) %>%
+      select(-c(segmento, ciudad, zona, precio_promedio_inventario, absorcion_historica, absorcioo_del_ult_q))
+  }
+  
+  # ---- 5. Convertir a objetos espaciales (sf) ----
+  
+  ## 5.1. Nuevo proyecto
+  nuevo_proyecto_sf <- st_as_sf(nuevo_proyecto,
+                                coords = c("Longitud", "Latitud"),
+                                crs = 4326,
+                                remove = FALSE)
+  
+  ## 5.2. Áreas verdes
+  verdes_sf <- st_as_sf(verdes,
+                        coords = c("longitud", "latitud"),
+                        crs = 4326,
+                        remove = FALSE)
+  
+  ## 5.3. Datos demográficos
+  demograficos_sf <- demograficos %>%
+    mutate(geometry = st_as_sfc(geometry, crs = 4326)) %>%
+    st_as_sf()
+  
+  ## 5.4. Renombrar columnas para evitar conflictos
+  nse_data_renamed <- nse_data %>%
+    rename(nse_name = Name,
+           nse_description = Description)
+  
+  zonas_redi_renamed <- zonas_redi %>%
+    rename(zona_name = Name,
+           zona_description = Description)
+  
+  # ---- 6. FASE 1: Uniones espaciales e integración de información ----
+  
+  ## 6.1. Calcular variables demográficas en radio de 1 km
+  demograficos_sf <- demograficos_sf %>%
+    mutate(hogares2020 = as.numeric(hogares2020))
+  
+  ## Transformar a CRS proyectado adecuado (UTM 14N para Monterrey)
+  nuevo_proyecto_proj <- st_transform(nuevo_proyecto_sf, 32614)
+  demograficos_proj <- st_transform(demograficos_sf, 32614)
+  
+  ## Calcular área de cada AGEB
+  demograficos_proj <- demograficos_proj %>% 
+    mutate(ageb_area = st_area(.))
+  
+  ## Crear buffer de 1 km alrededor del nuevo proyecto
+  nuevo_proyecto_buffer <- st_buffer(nuevo_proyecto_proj, 1000)
+  
+  ## Encontrar intersecciones y calcular áreas de superposición
+  intersecciones <- st_intersection(
+    st_make_valid(nuevo_proyecto_buffer),
+    st_make_valid(demograficos_proj)
+  ) %>% 
+    mutate(
+      interseccion_area = st_area(.),
+      proporcion = as.numeric(interseccion_area / ageb_area)
+    ) %>% 
+    filter(proporcion > 0.001)  # Filtrar superposiciones mínimas
+  
+  ## Lista de variables demográficas a agregar
+  variables_demograficas <- c(
+    "pob2020", "hogares2020", "viv2020", "habitadas2020", 
+    "migrantes2020", "pob_ocupada_2020", "pob2010", 
+    "hogares2010", "viv2010", "pob_ocupada_2010",
+    "independiente", "empty_nesters", "separados_hijos",
+    "pareja_sin_hijos", "pareja_hijos_10", "pareja_hijos_21",
+    "pareja_hijos_1120", "joven_sin_hijos", "soltero_adulto",
+    "soltero_joven", "prestada", "propia", "propia_pagando",
+    "rentada", "intestada_litigio", "pob_masc", "pob_fem"
+  )
+  
+  ## Agregar variables ponderadas por la proporción de área
+  if (nrow(intersecciones) > 0) {
+    demografia_agregada <- intersecciones %>% 
+      st_drop_geometry() %>% 
+      group_by(Proyecto) %>% 
+      summarise(
+        across(
+          all_of(variables_demograficas),
+          ~sum(.x * proporcion, na.rm = TRUE),
+          .names = "{.col}_1km"
+        ),
+        .groups = "drop"
+      )
+    
+    ## Unir los datos agregados al dataset del nuevo proyecto
+    nuevo_proyecto_sf <- nuevo_proyecto_sf %>% 
+      left_join(demografia_agregada, by = "Proyecto")
+  } else {
+    warning("No se encontraron intersecciones con áreas demográficas. Revisar coordenadas.")
+    # Agregar columnas de demografía con NA
+    for (var in variables_demograficas) {
+      nuevo_proyecto_sf[[paste0(var, "_1km")]] <- NA
+    }
+  }
+  
+  ## 6.2. Unir información de NSE
+  nuevo_proyecto_sf <- st_join(nuevo_proyecto_sf,
+                               nse_data_renamed,
+                               join = st_intersects,
+                               left = TRUE)
+  
+  ## 6.3. Unir información de zonas REDI
+  nuevo_proyecto_sf <- st_join(nuevo_proyecto_sf,
+                               zonas_redi_renamed,
+                               join = st_intersects,
+                               left = TRUE)
+  
+  ## 6.4. Calcular el parque más cercano usando la base "verdes"
+  nearest_idx <- st_nearest_feature(nuevo_proyecto_sf, verdes_sf)
+  nuevo_proyecto_sf$nearest_park <- verdes_sf$nombre[nearest_idx]
+  nuevo_proyecto_sf$dist_to_park <- st_distance(nuevo_proyecto_sf, verdes_sf[nearest_idx, ], by_element = TRUE)
+  nuevo_proyecto_sf$dist_to_park <- as.numeric(nuevo_proyecto_sf$dist_to_park)
+  
+  ## 6.5. Calcular el parque importante más cercano (desde el KML)
+  nearest_idx_poly <- st_nearest_feature(nuevo_proyecto_sf, parques_kml)
+  nuevo_proyecto_sf$nearest_park_kml <- parques_kml$nombre[nearest_idx_poly]
+  nuevo_proyecto_sf$dist_to_park_kml <- st_distance(nuevo_proyecto_sf, parques_kml[nearest_idx_poly, ], by_element = TRUE)
+  nuevo_proyecto_sf$dist_to_park_kml <- as.numeric(nuevo_proyecto_sf$dist_to_park_kml)
+  
+  # ---- 7. FASE 2: Transformación de variables ----
+  
+  ## 7.1 Procesar la variable "nse_description" para extraer NSE, Personas, Hogares y Precio Promedio de Vivienda
+  # Extraer datos sin la geometría
+  datos_procesados <- st_drop_geometry(nuevo_proyecto_sf) %>%
+    extract(
+      col = nse_description, 
+      into = c("nse", "personas", "hogares", "precio_vivienda"),
+      regex = "NSE:\\s*([^\\s]+)\\s+Personas:\\s*([0-9,]+)\\s+Hogares:\\s*([0-9,]+)\\s+Precio Promedio de Vivienda:\\s*\\$?([0-9,\\.]+)",
+      remove = FALSE
+    ) %>%
+    rename(
+      nearest_relevant_park = nearest_park_kml,
+      dist_to_relevant_park = dist_to_park_kml
+    ) %>%
+    mutate(
+      Estatus = as.factor(Estatus),
+      hogares = parse_number(hogares),
+      log_pm2 = ifelse(!is.na(p_m2), log(p_m2), NA),
+      Municipio = as.factor(Municipio),
+      nearest_park = as.factor(nearest_park),
+      nearest_relevant_park = as.factor(nearest_relevant_park),
+      nse = as.factor(nse),
+      personas = parse_number(personas),
+      precio_vivienda = parse_number(precio_vivienda),
+      Segmento = as.factor(Segmento),
+      zona_name = as.factor(zona_name)
+    )
+  
+  # Recrear el objeto sf con la geometría original
+  proyecto_procesado <- st_sf(datos_procesados, geometry = st_geometry(nuevo_proyecto_sf))
+  
+  ## 7.2 Agregar la variable de "Unidades Vendidas"
+  proyecto_procesado <- proyecto_procesado %>%
+    mutate(unidades_vendidas = unidades_totales - unidades_inv) %>%
+    relocate(unidades_vendidas, .after = unidades_inv) %>%
+    relocate(log_pm2, .after = p_m2)
+  
+  ## 7.3 Calificación de proximidad a parques relevantes
+  proyecto_procesado <- proyecto_procesado %>%
+    mutate(
+      inv_dist_to_park = 1 / log(dist_to_relevant_park + 1),  # Ajuste para no linealidad
+      inv_dist_to_park = scale(inv_dist_to_park)[,1]  # Escalar
+    ) %>%
+    relocate(inv_dist_to_park, .after = dist_to_relevant_park)
+  
+  
+  # ---- 8. FASE 3: Cálculo de variables de equipamiento (distancias) ----
+  
+  # Función para calcular distancias a equipamientos y crear variables dicotómicas
+  calcular_distancias_equipamientos <- function(proyecto_sf, equipamientos_df, nombre) {
+    
+    # Asegurar que proyecto_sf sea un objeto sf
+    if(!inherits(proyecto_sf, "sf")) {
+      stop("El objeto proyecto_sf debe ser un objeto sf.")
+    }
+    
+    # Convertir coordenadas a numéricas por si acaso
+    equipamientos_df$latitud <- as.numeric(equipamientos_df$latitud)
+    equipamientos_df$longitud <- as.numeric(equipamientos_df$longitud)
+    
+    # Filtrar equipamientos con coordenadas válidas
+    equipamientos_df <- equipamientos_df %>% 
+      filter(!is.na(latitud) & !is.na(longitud))
+    
+    # Inicializar columnas de resultado
+    proyecto_sf[[paste0("dist_", nombre)]] <- NA_real_
+    proyecto_sf[[paste0("cercania_", nombre)]] <- NA_real_
+    proyecto_sf[[paste0("cantidad_", nombre, "_1km")]] <- 0
+    
+    # Convertir equipamientos a objeto sf para cálculos espaciales más eficientes
+    equipamientos_sf <- st_as_sf(equipamientos_df, 
+                                 coords = c("longitud", "latitud"), 
+                                 crs = 4326)
+    
+    # Extraer geometría del proyecto
+    punto_proyecto <- proyecto_sf
+    
+    # Calcular distancias (usando st_distance es más eficiente para objetos sf)
+    distancias <- st_distance(punto_proyecto, equipamientos_sf)
+    distancias_m <- as.numeric(distancias)
+    
+    # Distancia al más cercano
+    if (length(distancias_m) > 0) {
+      min_dist <- min(distancias_m, na.rm = TRUE)
+      proyecto_sf[[paste0("dist_", nombre)]] <- min_dist
+      proyecto_sf[[paste0("cercania_", nombre)]] <- ifelse(min_dist <= 1000, 1, 0)
+      
+      # Contar cantidad a menos de 1km
+      proyecto_sf[[paste0("cantidad_", nombre, "_1km")]] <- sum(distancias_m <= 1000, na.rm = TRUE)
+    }
+    
+    return(proyecto_sf)
+  }
+  
+  # Aplicar función para cada tipo de equipamiento
+  proyecto_procesado <- calcular_distancias_equipamientos(proyecto_procesado, equipamientos_list$hospitales, "hospital")
+  proyecto_procesado <- calcular_distancias_equipamientos(proyecto_procesado, equipamientos_list$escuelas_privadas, "esc_priv")
+  proyecto_procesado <- calcular_distancias_equipamientos(proyecto_procesado, equipamientos_list$escuelas_publicas, "esc_pub")
+  proyecto_procesado <- calcular_distancias_equipamientos(proyecto_procesado, equipamientos_list$universidades, "universidad")
+  proyecto_procesado <- calcular_distancias_equipamientos(proyecto_procesado, equipamientos_list$supermercados, "super")
+  proyecto_procesado <- calcular_distancias_equipamientos(proyecto_procesado, equipamientos_list$restaurantes, "restau")
+  proyecto_procesado <- calcular_distancias_equipamientos(proyecto_procesado, equipamientos_list$oficinas, "oficina")
+  proyecto_procesado <- calcular_distancias_equipamientos(proyecto_procesado, equipamientos_list$tiendas_departamentales, "tienda_dept")
+  
+  # ---- 9. FASE 4: Creación de variables transformadas e índices compuestos ----
+  
+  proyecto_procesado <- proyecto_procesado %>%
+    # 9.1 Densidad poblacional
+    mutate(
+      alta_densidad_pob = case_when(
+        is.na(pob2020_1km) ~ NA_real_,
+        # Asumiendo área de 3.14 km² (radio de 1km)
+        pob2020_1km / 3.14 > 20000 ~ 1, 
+        TRUE ~ 0
+      )
+    ) %>%
+    
+    # 9.2 Distancia a parques
+    mutate(
+      cerca_parque_relevante = case_when(
+        is.na(dist_to_relevant_park) ~ NA_real_,
+        dist_to_relevant_park <= 500 ~ 1,
+        TRUE ~ 0
+      )
+    ) %>%
+    
+    # 9.3 Proporción hogares propios vs rentados
+    mutate(
+      prop_hogares_propios = (propia_1km + propia_pagando_1km) / 
+        (propia_1km + propia_pagando_1km + rentada_1km + prestada_1km),
+      predominio_hogares_propios = case_when(
+        is.na(prop_hogares_propios) ~ NA_real_,
+        prop_hogares_propios > 0.6 ~ 1,
+        TRUE ~ 0
+      )
+    ) %>%
+    
+    # 9.4 Crecimiento poblacional
+    mutate(
+      crecimiento_pob = (pob2020_1km - pob2010_1km) / pob2010_1km,
+      alto_crecimiento = case_when(
+        is.na(crecimiento_pob) ~ NA_real_,
+        crecimiento_pob > 0.15 ~ 1, # Crecimiento mayor al 15% en 10 años
+        TRUE ~ 0
+      )
+    ) %>%
+    
+    # 9.5 Índice de Accesibilidad a Servicios
+    mutate(
+      indice_accesibilidad = (
+        (cercania_universidad * 3) +
+          (cercania_esc_priv * 2) +
+          (cercania_esc_pub * 1) +
+          (cercania_hospital * 3) +
+          (cercania_super * 2) +
+          (cercania_restau * 1) +
+          (cercania_oficina * 2) +
+          (cercania_tienda_dept * 2)
+      ) / 16  # Normalizar entre 0 y 1 (suma máxima de pesos)
+    ) %>%
+    
+    # 9.6 Índice de densidad educativa
+    mutate(
+      densidad_educativa = cantidad_esc_priv_1km + cantidad_esc_pub_1km + cantidad_universidad_1km,
+      alta_densidad_educativa = case_when(
+        densidad_educativa >= 5 ~ 1,
+        TRUE ~ 0
+      )
+    ) %>%
+    
+    # 9.7 Índice de densidad comercial
+    mutate(
+      densidad_comercial = cantidad_super_1km + cantidad_restau_1km + cantidad_tienda_dept_1km,
+      alta_densidad_comercial = case_when(
+        densidad_comercial >= 10 ~ 1,
+        TRUE ~ 0
+      )
+    ) %>%
+    
+    # 9.8 Índice de entorno laboral
+    mutate(
+      entorno_laboral = cantidad_oficina_1km,
+      alto_entorno_laboral = case_when(
+        entorno_laboral >= 5 ~ 1,
+        TRUE ~ 0
+      )
+    ) %>%
+    
+    # 9.9 Índice de conveniencia urbana
+    mutate(
+      indice_conveniencia = (
+        cercania_super * 0.25 +
+          cercania_restau * 0.15 +
+          cercania_hospital * 0.20 +
+          cercania_esc_priv * 0.15 +
+          cercania_tienda_dept * 0.15 +
+          cerca_parque_relevante * 0.10
+      ),
+      alta_conveniencia = case_when(
+        indice_conveniencia >= 0.7 ~ 1,
+        TRUE ~ 0
+      )
+    ) %>%
+    
+    # 9.10 Índice compuesto de inversión
+    mutate(
+      potencial_inversion = (
+        (alto_crecimiento * 3) +
+          (cerca_parque_relevante * 2) +
+          (indice_accesibilidad * 4) +
+          (alta_densidad_comercial * 2) +
+          (alto_entorno_laboral * 2) +
+          (ifelse(Estatus == "Preventa", 1, 0) * 1)
+      ) / 14  # Normalizar entre 0 y 1
+    )
+  
+  # ---- 10. FASE 5: Cálculo del Índice de Valor por Ubicación (IVU) ----
+  
+  # 10.1 Definir los factores para el cálculo del IVU
+  factores <- list(
+    # Índices existentes
+    indices = c("indice_accesibilidad", "potencial_inversion", "indice_conveniencia"),
+    
+    # Cercanías a equipamientos (0 o 1)
+    cercanias = c(
+      "cercania_hospital", 
+      "cercania_esc_priv", 
+      "cercania_esc_pub", 
+      "cercania_universidad", 
+      "cercania_super", 
+      "cercania_restau", 
+      "cercania_oficina", 
+      "cercania_tienda_dept"
+    ),
+    
+    # Cantidades de equipamientos en 1km
+    cantidades = c(
+      "cantidad_hospital_1km", 
+      "cantidad_esc_priv_1km", 
+      "cantidad_esc_pub_1km", 
+      "cantidad_universidad_1km", 
+      "cantidad_super_1km", 
+      "cantidad_restau_1km", 
+      "cantidad_oficina_1km", 
+      "cantidad_tienda_dept_1km"
+    ),
+    
+    # Otros factores relevantes
+    otros = c(
+      "cerca_parque_relevante",
+      "alta_densidad_pob",
+      "predominio_hogares_propios",
+      "alto_crecimiento",
+      "alta_densidad_educativa",
+      "alta_densidad_comercial",
+      "alto_entorno_laboral"
+    )
+  )
+  
+  # 10.2 Función para normalizar valores entre 0 y 1
+  normalizar <- function(valores) {
+    valores_numericos <- as.numeric(valores)
+    valores_validos <- valores_numericos[!is.na(valores_numericos)]
+    
+    if (length(valores_validos) == 0) return(rep(0, length(valores)))
+    
+    min_val <- min(valores_validos)
+    max_val <- max(valores_validos)
+    
+    # Si todos los valores son iguales, devolver 0.5 para evitar división por cero
+    if (max_val == min_val) {
+      resultado <- rep(0, length(valores))
+      resultado[!is.na(valores_numericos)] <- 0.5
+      return(resultado)
+    }
+    
+    # Normalizar valores
+    resultado <- rep(0, length(valores))
+    resultado[!is.na(valores_numericos)] <- (valores_numericos[!is.na(valores_numericos)] - min_val) / (max_val - min_val)
+    return(resultado)
+  }
+  
+  # 10.3 Normalizar las cantidades de equipamientos
+  # Aplicar normalización respecto a valores de referencia del mercado
+  # (Nota: aquí usamos valores de referencia, pero se podrían obtener de la base de datos existente)
+  cantidades_ref <- list(
+    "cantidad_hospital_1km" = c(0, 5),         # Min y Max típicos
+    "cantidad_esc_priv_1km" = c(0, 10),
+    "cantidad_esc_pub_1km" = c(0, 15),
+    "cantidad_universidad_1km" = c(0, 3),
+    "cantidad_super_1km" = c(0, 12),
+    "cantidad_restau_1km" = c(0, 50),
+    "cantidad_oficina_1km" = c(0, 20),
+    "cantidad_tienda_dept_1km" = c(0, 5)
+  )
+  
+  cantidades_norm <- list()
+  for (col in factores$cantidades) {
+    if (col %in% names(cantidades_ref)) {
+      valor <- as.numeric(proyecto_procesado[[col]])
+      min_val <- cantidades_ref[[col]][1]
+      max_val <- cantidades_ref[[col]][2]
+      
+      if (max_val > min_val) {
+        cantidades_norm[[col]] <- (valor - min_val) / (max_val - min_val)
+        # Limitar a rango 0-1
+        cantidades_norm[[col]] <- max(0, min(1, cantidades_norm[[col]]))
+      } else {
+        cantidades_norm[[col]] <- 0.5  # Valor por defecto
+      }
+    } else {
+      cantidades_norm[[col]] <- 0  # Si no hay referencia
+    }
+  }
+  
+  # 10.4 Ponderaciones basadas en correlaciones con precio (del análisis previo)
+  pesos <- c(
+    # Cantidades
+    "cantidad_hospital_1km" = 0.0391,
+    "cantidad_esc_priv_1km" = 0.0077,
+    "cantidad_esc_pub_1km" = 0.0186,
+    "cantidad_universidad_1km" = 0.0134,
+    "cantidad_super_1km" = 0.0396,
+    "cantidad_restau_1km" = 0.0218,
+    "cantidad_oficina_1km" = 0.1013,
+    "cantidad_tienda_dept_1km" = 0.0345,
+    
+    # Cercanías
+    "cercania_hospital" = 0.0332,
+    "cercania_esc_priv" = 0.0820,
+    "cercania_esc_pub" = 0.0186,
+    "cercania_universidad" = 0.0847,
+    "cercania_super" = 0.0418,
+    "cercania_restau" = 0.0274,
+    "cercania_oficina" = 0.0476,
+    "cercania_tienda_dept" = 0.0986,
+    
+    # Índices
+    "indice_accesibilidad" = 0.0909,
+    "potencial_inversion" = 0.1029,
+    "indice_conveniencia" = 0.0963
+  )
+  
+  # Agregar pesos para otros factores
+  for (factor in factores$otros) {
+    pesos[factor] <- 0.021  # 2.1% para cada uno de los otros factores
+  }
+  
+  # 10.5 Calcular el IVU
+  calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
+    suma <- 0
+    peso_total <- 0
+    
+    # Sumar los índices existentes
+    for (indice in factores$indices) {
+      if (!is.na(datos[[indice]])) {
+        suma <- suma + datos[[indice]] * pesos[indice]
+        peso_total <- peso_total + pesos[indice]
+      }
+    }
+    
+    # Sumar las cercanías (ya son binarias 0-1)
+    for (cercania in factores$cercanias) {
+      if (!is.na(datos[[cercania]])) {
+        suma <- suma + datos[[cercania]] * pesos[cercania]
+        peso_total <- peso_total + pesos[cercania]
+      }
+    }
+    
+    # Sumar las cantidades normalizadas
+    for (cantidad in factores$cantidades) {
+      if (!is.na(cantidades_norm[[cantidad]])) {
+        suma <- suma + cantidades_norm[[cantidad]] * pesos[cantidad]
+        peso_total <- peso_total + pesos[cantidad]
+      }
+    }
+    
+    # Sumar otros factores binarios
+    for (otro in factores$otros) {
+      if (!is.na(datos[[otro]])) {
+        suma <- suma + datos[[otro]] * pesos[otro]
+        peso_total <- peso_total + pesos[otro]
+      }
+    }
+    
+    # Normalizar por el peso total usado
+    ivu <- if (peso_total > 0) suma / peso_total else 0
+    
+    return(ivu)
+  }
+  
+  # Calcular el IVU para el nuevo proyecto
+  ivu_valor <- calcular_ivu(proyecto_procesado, pesos, cantidades_norm, factores)
+  
+  # Añadir el IVU al dataframe
+  proyecto_procesado$ivu <- ivu_valor
+  
+  # Determinar la categoría del IVU
+  proyecto_procesado$ivu_categoria <- cut(
+    ivu_valor, 
+    breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+    labels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"),
+    include.lowest = TRUE
+  )
+  
+  # ---- 11. Visualización de resultados ----
+  
+  # 11.1 Termómetro del IVU
+  crear_termometro <- function(valor, categoria, nombre) {
+    colores <- c(
+      "Muy bajo" = "#EF6558",  # Rojo
+      "Bajo" = "#F8C579",      # Naranja
+      "Medio" = "#F4E785",     # Amarillo
+      "Alto" = "#68d192",      # Verde claro
+      "Muy alto" = "#9B87F4"   # Verde oscuro
+    )
+    
+    color <- colores[as.character(categoria)]
+    
+    # Empezar la escala desde un valor negativo para dar espacio a la etiqueta 0.0
+    escala <- data.frame(
+      y = seq(0, 1, 0.2),
+      labels = c("0.0", "0.2", "0.4", "0.6", "0.8", "1.0"),
+      categorias = c("", "Muy bajo", "Bajo", "Medio", "Alto", "Muy alto")
+    )
+    
+    # Crear gráfico base
+    p <- ggplot() +
+      # Fondo del termómetro
+      geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = 1), 
+                fill = "lightgrey", color = "black") +
+      # Contenido del termómetro
+      geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = valor), 
+                fill = color) +
+      # Líneas de escala
+      geom_segment(data = escala, 
+                   aes(x = 0.38, y = y, xend = 0.62, yend = y), 
+                   color = "black") +
+      # Etiquetas de escala
+      geom_text(data = escala, 
+                aes(x = 0.35, y = y, label = labels), 
+                hjust = 1) +
+      # Etiquetas de categorías
+      geom_text(data = escala[-1,], 
+                aes(x = 0.7, y = y - 0.1, label = categorias), 
+                hjust = 0) +
+      # Valor actual y nombre del proyecto
+      geom_text(aes(x = 0.5, y = 1.1, 
+                    label = paste0("Proyecto: ", nombre, 
+                                   "\nValor: ", round(valor, 2), 
+                                   "\nCategoría: ", categoria)),
+                fontface = "bold") +
+      # Ajustes estéticos
+      labs(title = "Termómetro de Valor por Ubicación",
+           x = NULL, y = NULL) +
+      theme_minimal() +
+      theme(axis.text = element_blank(),
+            axis.ticks = element_blank(),
+            panel.grid = element_blank(),
+            plot.title = element_text(hjust = 0.5, face = "bold", size = 14)) +
+      # Extender el límite inferior para dar espacio a la etiqueta 0.0
+      coord_cartesian(xlim = c(0, 1), ylim = c(-0.05, 1.25), expand = FALSE)
+    
+    return(p)
+  }
+  
+  # Generar el termómetro
+  termometro <- crear_termometro(ivu_valor, proyecto_procesado$ivu_categoria, nombre)
+  print(termometro)
+  
+  # 11.2 Mapa interactivo
+  mapa <- leaflet(proyecto_procesado) %>%
+    addTiles() %>%
+    addCircleMarkers(
+      radius = 8,
+      color = ~case_when(
+        ivu_categoria == "Muy bajo" ~ "#EF6558",
+        ivu_categoria == "Bajo" ~ "#F8C579",
+        ivu_categoria == "Medio" ~ "#F4E785",
+        ivu_categoria == "Alto" ~ "#68d192",
+        ivu_categoria == "Muy alto" ~ "#9B87F4"
+      ),
+      stroke = FALSE,
+      fillOpacity = 0.8,
+      popup = ~paste(
+        "<strong>Proyecto:</strong>", Proyecto, "<br>",
+        "<strong>Desarrollador:</strong>", Desarrollador, "<br>",
+        "<strong>Municipio:</strong>", Municipio, "<br>",
+        "<strong>IVU:</strong>", round(ivu, 2), " (", ivu_categoria, ")<br>",
+        "<strong>Parque más cercano (Verdes):</strong>", nearest_park, "<br>",
+        "<strong>Distancia (m) - Verdes:</strong>", round(dist_to_park, 1), "<br>",
+        "<strong>Parque importante más cercano:</strong>", nearest_relevant_park, "<br>",
+        "<strong>Distancia (m) - Parque importante:</strong>", round(dist_to_relevant_park, 1)
+      )
+    ) %>%
+    addScaleBar(position = "bottomleft")
+  
+  # Mostrar mapa
+  print(mapa)
+  
+  # 11.3 Informe de resultados
+  cat("\n=== INFORME DEL ÍNDICE DE VALOR POR UBICACIÓN (IVU) ===\n")
+  cat("Proyecto:", nombre, "\n")
+  cat("Desarrollador:", desarrollador, "\n")
+  cat("Municipio:", municipio, "\n")
+  cat("Coordenadas: Latitud", latitud_dec, "/ Longitud", longitud_dec, "\n\n")
+  
+  cat("IVU:", round(ivu_valor, 4), "\n")
+  cat("Categoría:", proyecto_procesado$ivu_categoria, "\n\n")
+  
+  cat("== Índices Compuestos ==\n")
+  cat("Índice de Accesibilidad:", round(proyecto_procesado$indice_accesibilidad, 4), "\n")
+  cat("Índice de Conveniencia:", round(proyecto_procesado$indice_conveniencia, 4), "\n")
+  cat("Potencial de Inversión:", round(proyecto_procesado$potencial_inversion, 4), "\n\n")
+  
+  cat("== Equipamientos cercanos (1km) ==\n")
+  for (eq in factores$cantidades) {
+    nombre_corto <- gsub("cantidad_(.+)_1km", "\\1", eq)
+    cantidad <- proyecto_procesado[[eq]]
+    cat(nombre_corto, ":", cantidad, "\n")
+  }
+  
+  cat("\n== Parques y Zonas Verdes ==\n")
+  cat("Parque más cercano:", proyecto_procesado$nearest_park, "\n")
+  cat("Distancia:", round(proyecto_procesado$dist_to_park), "metros\n")
+  cat("Parque relevante más cercano:", proyecto_procesado$nearest_relevant_park, "\n")
+  cat("Distancia:", round(proyecto_procesado$dist_to_relevant_park), "metros\n\n")
+  
+  cat("== Datos demográficos (radio 1km) ==\n")
+  cat("Población 2020:", round(proyecto_procesado$pob2020_1km), "\n")
+  cat("Hogares 2020:", round(proyecto_procesado$hogares2020_1km), "\n")
+  cat("Viviendas 2020:", round(proyecto_procesado$viv2020_1km), "\n")
+  cat("Población ocupada 2020:", round(proyecto_procesado$pob_ocupada_2020_1km), "\n")
+  cat("Crecimiento poblacional 2010-2020:", round(proyecto_procesado$crecimiento_pob * 100, 1), "%\n")
+  
+  # ---- 12. Exportar resultados ----
+  
+  # 12.1 Guardar como GeoPackage
+  #st_write(proyecto_procesado, paste0("nuevo_proyecto_", gsub(" ", "_", nombre), ".gpkg"), delete_dsn = TRUE)
+  
+  # 12.2 Guardar termómetro
+  #ggsave(paste0("termometro_", gsub(" ", "_", nombre), ".png"), termometro, width = 8, height = 10, dpi = 300)
+  
+  # 12.3 Devolver el proyecto procesado
+  return(list(
+    proyecto = proyecto_procesado,
+    ivu = ivu_valor,
+    categoria = proyecto_procesado$ivu_categoria,
+    termometro = termometro,
+    mapa = mapa
+  ))
+}
+
+# ---- Función auxiliar para probar con proyectos de ejemplo ----
+probar_con_ejemplo <- function() {
+  # Ejemplo con coordenadas en formato decimal
+  resultados_decimal <- evaluar_proyecto(
+    nombre = "Proyecto Ejemplo 1", 
+    desarrollador = "Desarrolladora ABC", 
+    longitud = -100.3167, 
+    latitud = 25.6667, 
+    municipio = "Monterrey",
+    estatus = "Planeación",
+    unidades_totales = 120,
+    unidades_inv = 120,
+    segmento = "Residencial Plus"
+  )
+  
+  # Ejemplo con coordenadas en formato DMS
+  resultados_dms <- evaluar_proyecto(
+    nombre = "Proyecto Ejemplo 2", 
+    desarrollador = "Desarrolladora XYZ", 
+    longitud = "100°19'0.12\"W", 
+    latitud = "25°40'0.13\"N", 
+    municipio = "San Pedro Garza García"
+  )
+  
+  return(list(decimal = resultados_decimal, dms = resultados_dms))
+}
+
+# ---- Ejecución para un nuevo proyecto ----
+# Descomentar y modificar según sea necesario
+ nuevo_proyecto <- evaluar_proyecto(
+   nombre = "Proyecto: FRIDA CHILAQUILES", 
+   desarrollador = "Mi Desarrolladora", 
+   longitud = "100°21'50.12\"W", 
+   latitud = "25°39'24.12\"N", 
+   municipio = "Monterrey",
+   estatus = "Planeación"
+   )
+
+# Para probar con los ejemplos:
+# ejemplos <- probar_con_ejemplo()
