@@ -24,6 +24,143 @@ sf::sf_use_s2(FALSE)
 ### Proyectos (vivienda vertical)
 proyectos <- read_csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[01] PROYECTOS/[01] VIVIENDA VERTICAL/Proyectos Integrados_ZMM.csv')
 
+# 2.2 Función mejorada para convertir coordenadas DMS a decimal
+convertir_dms <- function(coord_str) {
+  # Si ya es numérico, devolverlo directamente
+  if(is.numeric(coord_str)) return(coord_str)
+  
+  # Detectar si es formato decimal como texto
+  if(grepl("^-?[0-9]+\\.[0-9]+$", coord_str)) {
+    return(as.numeric(coord_str))
+  }
+  
+  # Extraer dirección (N, S, E, W)
+  direccion <- NA
+  if(grepl("[NSEW]", coord_str, ignore.case = TRUE)) {
+    direccion <- toupper(regmatches(coord_str, regexpr("[NSEW]", coord_str, ignore.case = TRUE)))
+  }
+  
+  # Para formato con símbolos: 25°40'0.13"N
+  if(grepl("°|'|\"", coord_str)) {
+    # Extrae números usando expresiones regulares
+    grados <- as.numeric(regmatches(coord_str, regexpr("^-?[0-9]+(?=°)", coord_str, perl = TRUE)))
+    minutos <- as.numeric(regmatches(coord_str, regexpr("(?<=°)[0-9]+(?=')", coord_str, perl = TRUE)))
+    
+    # Extrae segundos - puede ser opcional
+    segundos_match <- regexpr("(?<=')[0-9]+(\\.[0-9]+)?(?=\")", coord_str, perl = TRUE)
+    segundos <- if(segundos_match > 0) {
+      as.numeric(regmatches(coord_str, segundos_match))
+    } else {
+      0
+    }
+  } else if(grepl("[0-9]+ [0-9]+ [0-9]+", coord_str)) {
+    # Para formato con espacios: 25 40 0.13 N
+    partes <- strsplit(gsub("[^0-9\\. NSEW-]", "", coord_str), " ")[[1]]
+    partes <- partes[partes != ""]
+    
+    grados <- as.numeric(partes[1])
+    minutos <- if(length(partes) > 1) as.numeric(partes[2]) else 0
+    segundos <- if(length(partes) > 2) as.numeric(partes[3]) else 0
+  } else {
+    # Si no coincide con ningún formato conocido, intentar convertir directamente
+    return(as.numeric(gsub("[^0-9\\.-]", "", coord_str)))
+  }
+  
+  # Verificar que los valores son razonables
+  if(is.na(grados)) {
+    warning("No se pudieron extraer los grados de: ", coord_str)
+    return(NA)
+  }
+  
+  if(is.na(minutos)) minutos <- 0
+  if(is.na(segundos)) segundos <- 0
+  
+  # Aplicar la fórmula de conversión DMS a decimal
+  decimal <- grados + minutos/60 + segundos/3600
+  
+  # Ajustar el signo según la dirección
+  if(!is.na(direccion) && direccion %in% c("S", "W")) decimal <- -decimal
+  
+  # Para longitudes oeste, asegurar que sea negativo
+  if(abs(decimal) > 90 && decimal > 0) {
+    # Probablemente es una longitud oeste sin signo negativo
+    decimal <- -decimal
+  }
+  
+  return(decimal)
+}
+
+# Función específica para coordenadas manuales - método alternativo
+convertir_coordenadas_manualmente <- function(dms_str, tipo) {
+  # Eliminar espacios extras
+  dms_str <- trimws(dms_str)
+  
+  # Casos específicos
+  if(tipo == "latitud") {
+    if(dms_str == "25°40'0.13\"N") {
+      return(25 + 40/60 + 0.13/3600)  # = 25.66670
+    }
+  } else if(tipo == "longitud") {
+    if(dms_str == "100°19'0.12\"W") {
+      return(-(100 + 19/60 + 0.12/3600))  # = -100.31670
+    }
+  }
+  
+  # Si no es un caso específico, usar la función general
+  return(convertir_dms(dms_str))
+}
+
+# Datos del nuevo proyecto - MODIFICAR ESTOS DATOS
+nombre_proyecto <- "Proyecto: Frida Chilaquiles"
+desarrollador <- "Desarrollador XYZ"
+municipio <- "San Pedro Garza García"
+
+# Coordenadas en formato DMS
+latitud_dms <- "25°39'24.18\"N"
+longitud_dms <- "100°21'50.10\"W"
+
+# Convertir coordenadas manualmente para mayor seguridad
+lat_decimal <- convertir_coordenadas_manualmente(latitud_dms, "latitud")
+lon_decimal <- convertir_coordenadas_manualmente(longitud_dms, "longitud")
+
+# También probar con la función general
+lat_decimal2 <- convertir_dms(latitud_dms)
+lon_decimal2 <- convertir_dms(longitud_dms)
+
+# Imprimir todas las conversiones para verificar
+cat("Coordenadas convertidas (método manual):", lat_decimal, lon_decimal, "\n")
+cat("Coordenadas convertidas (método general):", lat_decimal2, lon_decimal2, "\n")
+
+# Verificación de coordenadas
+coords_correctas <- lat_decimal >= -90 && lat_decimal <= 90 && 
+  lon_decimal >= -180 && lon_decimal <= 180
+
+if(!coords_correctas) {
+  # Si la conversión automática falló, usar coordenadas conocidas para Monterrey
+  cat("ADVERTENCIA: ¡Conversión de coordenadas incorrecta! Usando coordenadas aproximadas para San Pedro Garza García\n")
+  lat_decimal <- 25.6667  # Aproximado para San Pedro Garza García
+  lon_decimal <- -100.4167  # Aproximado para San Pedro Garza García
+}
+
+# Crear dataframe para el nuevo proyecto
+nuevo_proyecto <- data.frame(
+  Proyecto = nombre_proyecto,
+  Desarrollador = desarrollador,
+  Municipio = municipio,
+  Latitud = lat_decimal,
+  Longitud = lon_decimal,
+  Estatus = "Nuevo"
+)
+
+# Añadir otras columnas existentes en proyectos con NA
+cols_faltantes <- setdiff(names(proyectos), names(nuevo_proyecto))
+for(col in cols_faltantes) {
+  nuevo_proyecto[[col]] <- NA
+}
+
+# Integrar el nuevo proyecto a la base existente
+proyectos <- bind_rows(proyectos, nuevo_proyecto)
+
 ### Variables de áreas verdes y datos demográficos
 verdes <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_Zona_V2.xlsx')
 demograficos <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[03] DEMOGRAFICOS/Demograficos_AGEBS.xlsx')
@@ -69,6 +206,11 @@ proyectos_sf <- st_as_sf(proyectos,
                          coords = c("Longitud", "Latitud"),
                          crs = 4326,
                          remove = FALSE)
+
+# Verificar que los datos espaciales tienen puntos válidos
+print(paste("Número de proyectos:", nrow(proyectos_sf)))
+print("Comprobando coordenadas del nuevo proyecto:")
+print(proyectos[proyectos$Proyecto == nombre_proyecto, c("Proyecto", "Latitud", "Longitud")])
 
 ## 3.2. Áreas verdes: Usan las columnas "longitud" y "latitud" (en minúscula)
 verdes_sf <- st_as_sf(verdes,
@@ -223,18 +365,43 @@ base_integrada <- base_integrada %>%
 
 # ---- 6. Visualización en un mapa interactivo con Leaflet ----
 
-## Asegurarse de que "base_integrada" es un objeto sf con su geometría
-if (!("sf" %in% class(base_integrada))) {
-  base_integrada <- st_as_sf(base_integrada, coords = c("Longitud", "Latitud"), crs = 4326)
-}
+# Preparar datos para leaflet sin usar objetos sf
+datos_mapa <- data.frame(
+  Proyecto = base_integrada$Proyecto,
+  Desarrollador = base_integrada$Desarrollador,
+  Municipio = base_integrada$Municipio,
+  Segmento = base_integrada$Segmento,
+  p_m2 = base_integrada$p_m2,
+  zona_name = base_integrada$zona_name,
+  nearest_park = base_integrada$nearest_park,
+  dist_to_park = base_integrada$dist_to_park,
+  nearest_relevant_park = base_integrada$nearest_relevant_park,
+  dist_to_relevant_park = base_integrada$dist_to_relevant_park,
+  lat = base_integrada$Latitud,
+  lng = base_integrada$Longitud,
+  es_nuevo = base_integrada$Proyecto == nombre_proyecto
+) %>%
+  mutate_if(is.factor, as.character)
 
-## Visualización en Mapa Interactivo de Leaflet
-leaflet(data = base_integrada) %>%
+# Filtrar solo las filas con coordenadas válidas
+datos_mapa <- datos_mapa %>%
+  filter(!is.na(lat) & !is.na(lng)) %>%
+  # Asegurarse que las coordenadas están en formato correcto
+  mutate(
+    lat = as.numeric(lat),
+    lng = as.numeric(lng)
+  )
+
+# Crear mapa con leaflet usando datos filtrados
+mapa <- leaflet(datos_mapa) %>%
   addTiles() %>%
+  setView(lng = lon_decimal, lat = lat_decimal, zoom = 14) %>%
   addCircleMarkers(
-    radius = 5,
-    color = "blue",
-    stroke = FALSE,
+    ~lng, ~lat,  # Usar coordenadas directamente
+    radius = ~ifelse(es_nuevo, 8, 5),
+    color = ~ifelse(es_nuevo, "red", "blue"),
+    weight = ~ifelse(es_nuevo, 2, 1),
+    stroke = TRUE,
     fillOpacity = 0.8,
     popup = ~paste(
       "<strong>Proyecto:</strong>", Proyecto, "<br>",
@@ -251,6 +418,26 @@ leaflet(data = base_integrada) %>%
   ) %>%
   addScaleBar(position = "bottomleft")
 
+# Mostrar el mapa
+print(mapa)
+
 # ---- 7. Exportar base de datos ----
 ## Exportar a GeoPackage para mantener geometrías.
-st_write(base_integrada, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_integrada.gpkg", driver = "GPKG")
+st_write(base_integrada, "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_integrada.gpkg", driver = "GPKG", delete_layer = TRUE)
+
+# ---- 8. Mostrar resultados del nuevo proyecto ----
+nuevo_proyecto_info <- base_integrada %>% 
+  filter(Proyecto == nombre_proyecto) %>%
+  st_drop_geometry()
+
+# Mostrar información relevante del nuevo proyecto
+cat("\n=== INFORMACIÓN DEL NUEVO PROYECTO ===\n")
+cat("Nombre:", nuevo_proyecto_info$Proyecto, "\n")
+cat("Municipio:", as.character(nuevo_proyecto_info$Municipio), "\n")
+cat("Coordenadas:", nuevo_proyecto_info$Latitud, nuevo_proyecto_info$Longitud, "\n")
+cat("NSE:", as.character(nuevo_proyecto_info$nse), "\n")
+cat("Zona REDI:", as.character(nuevo_proyecto_info$zona_name), "\n")
+cat("Parque más cercano:", as.character(nuevo_proyecto_info$nearest_park), "(", round(nuevo_proyecto_info$dist_to_park), "m)\n")
+cat("Parque importante más cercano:", as.character(nuevo_proyecto_info$nearest_relevant_park), "(", round(nuevo_proyecto_info$dist_to_relevant_park), "m)\n")
+cat("Población en 1km:", round(nuevo_proyecto_info$pob2020_1km), "\n")
+cat("Hogares en 1km:", round(nuevo_proyecto_info$hogares2020_1km), "\n")
