@@ -291,18 +291,42 @@ base_transformada <- base_transformada %>%
 # 6. GUARDAR DATASET RESULTANTE
 #=====================================================================
 
-# Guardar como GeoPackage (mantiene la estructura espacial)
-st_write(base_transformada, "base_inmobiliaria_transformada.gpkg", delete_dsn = TRUE)
-
-# También guardar como CSV para uso general
-# Crear versión con coordenadas explícitas antes de exportar a CSV
+# Primero extraer coordenadas
 base_transformada <- base_transformada %>%
   mutate(
     longitud = st_coordinates(geom)[,1],
     latitud = st_coordinates(geom)[,2]
-  ) %>%
-  st_drop_geometry()  # Ahora elimina la geometría pero ya tienes las coordenadas guardadas
+  )
 
-st_write(base_transformada, "base_inmobiliaria_transformada.csv", delete_dsn = TRUE)
+# Verificar nombres duplicados
+nombres_columnas <- names(base_transformada)
+duplicados <- duplicated(nombres_columnas)
+if(any(duplicados)) {
+  cat("Se encontraron nombres duplicados:\n")
+  tabla_freq <- table(nombres_columnas)
+  print(tabla_freq[tabla_freq > 1])
+  
+  # Renombrar columnas duplicadas añadiendo un sufijo
+  indices_duplicados <- which(duplicados)
+  for(i in indices_duplicados) {
+    nombres_columnas[i] <- paste0(nombres_columnas[i], "_", i)
+  }
+  names(base_transformada) <- nombres_columnas
+  cat("Nombres corregidos.\n")
+} else {
+  cat("No se encontraron nombres duplicados.\n")
+}
+
+# Regenerar completamente la geometría desde las coordenadas
+base_sin_geom <- st_drop_geometry(base_transformada)
+base_nueva_sf <- st_as_sf(base_sin_geom, 
+                          coords = c("longitud", "latitud"), 
+                          crs = 4326)
+
+# Guardar la versión con geometría regenerada
+st_write(base_nueva_sf, "base_inmobiliaria_transformada.gpkg", delete_dsn = TRUE)
+
+# Y para CSV
+write.csv(base_sin_geom, "base_inmobiliaria_transformada.csv", row.names = FALSE)
 
 print("Transformación de variables completada")
