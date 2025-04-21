@@ -1,4 +1,3 @@
-
 # -----------------------------------------------------------------------------------
 # Integración de bases de datos de proyectos y variables
 # -----------------------------------------------------------------------------------
@@ -189,6 +188,14 @@ if("Name" %in% names(parques_kml)){
   parques_kml <- parques_kml %>% rename(nombre = Name)
 }
 
+### Polígonos de avenidas principales (KML)
+avenidas_kml <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/Avenidas_ZMM.kml')
+
+#### Si en el KML de avenidas la columna que identifica la avenida se llama "Name", renómbrala a "nombre"
+if("Name" %in% names(avenidas_kml)){
+  avenidas_kml <- avenidas_kml %>% rename(nombre = Name)
+}
+
 ## 2.3. Cargar datos de amenidades
 amenidades <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[06] FUNCIONALIDAD Y AMENIDADES/Qlik Sense - Tabla Amenidades_ Desglose de Amenidades x Proy... MTY.xlsx')
 
@@ -320,6 +327,12 @@ proyectos_sf <- proyectos_sf %>%
   left_join(amenidades_clean, by = "Proyecto") %>%
   mutate(across(c(control_de_acceso:vestidores), ~ ifelse(is.na(.x), 0, .x)))  # Convertir NA a 0
 
+## 4.7. Calcular la avenida principal más cercana
+nearest_idx_av <- st_nearest_feature(proyectos_sf, avenidas_kml)
+proyectos_sf$nearest_avenue <- avenidas_kml$nombre[nearest_idx_av]
+proyectos_sf$dist_to_avenue <- st_distance(proyectos_sf, avenidas_kml[nearest_idx_av, ], by_element = TRUE)
+proyectos_sf$dist_to_avenue <- as.numeric(proyectos_sf$dist_to_avenue)
+
 # ---- 5. Procesamiento adicional de variables ----
 
 ## Procesar la variable "nse_description" para extraer NSE, Personas, Hogares y Precio Promedio de Vivienda
@@ -378,6 +391,8 @@ datos_mapa <- data.frame(
   dist_to_park = base_integrada$dist_to_park,
   nearest_relevant_park = base_integrada$nearest_relevant_park,
   dist_to_relevant_park = base_integrada$dist_to_relevant_park,
+  nearest_avenue = base_integrada$nearest_avenue,
+  dist_to_avenue = base_integrada$dist_to_avenue,
   lat = base_integrada$Latitud,
   lng = base_integrada$Longitud,
   es_nuevo = base_integrada$Proyecto == nombre_proyecto
@@ -414,7 +429,9 @@ mapa <- leaflet(datos_mapa) %>%
       "<strong>Parque más cercano (Verdes):</strong>", nearest_park, "<br>",
       "<strong>Distancia (m) - Verdes:</strong>", round(dist_to_park, 1), "<br>",
       "<strong>Parque importante más cercano:</strong>", nearest_relevant_park, "<br>",
-      "<strong>Distancia (m) - Parque importante:</strong>", round(dist_to_relevant_park, 1)
+      "<strong>Distancia (m) - Parque importante:</strong>", round(dist_to_relevant_park, 1), "<br>",
+      "<strong>Avenida más cercana:</strong>", nearest_avenue, "<br>",
+      "<strong>Distancia (m) - Avenida:</strong>", round(dist_to_avenue, 1)
     )
   ) %>%
   addScaleBar(position = "bottomleft")
