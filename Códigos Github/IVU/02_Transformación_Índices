@@ -1,0 +1,332 @@
+# Limpiar el entorno y carga de bibliotecas necesarias
+rm(list = ls())
+
+library(tidyverse)
+library(sf)
+library(geosphere) # Para cálculos de distancia geoespacial
+
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA')
+
+#=====================================================================
+# 1. CARGA DE DATOS
+#=====================================================================
+
+# Cargar la base integrada desde archivo GeoPackage
+base_integrada <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_integrada.gpkg')
+
+# Cargar datos de equipamientos (ajusta rutas según sea necesario)
+hospitales <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Hospitales/Hospitales.csv', encoding = "UTF-8")
+escuelas_privadas <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Escuelas Privadas/Escuelas Privadas.csv', encoding = "UTF-8")
+escuelas_publicas <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Escuelas Públicas/Escuelas Públicas.csv', encoding = "UTF-8")
+universidades <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Universidades/Universidades.csv', encoding = "UTF-8")
+supermercados <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Supermercados/Supermercado.csv', encoding = "UTF-8")
+restaurantes <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Restaurantes/Restaurantes.csv', encoding = "UTF-8")
+oficinas <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Oficinas/Oficinas.csv', encoding = "UTF-8")
+tiendas_departamentales <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[02] EQUIPAMIENTO/DENUE 2024/Tiendas departamentales/Tiendas departamentales.csv', encoding = "UTF-8")
+
+# Asegurar que los equipamientos tienen coordenadas válidas
+equipamientos_list <- list(
+  hospitales = hospitales %>% filter(!is.na(latitud) & !is.na(longitud)),
+  escuelas_privadas = escuelas_privadas %>% filter(!is.na(latitud) & !is.na(longitud)),
+  escuelas_publicas = escuelas_publicas %>% filter(!is.na(latitud) & !is.na(longitud)),
+  universidades = universidades %>% filter(!is.na(latitud) & !is.na(longitud)),
+  supermercados = supermercados %>% filter(!is.na(latitud) & !is.na(longitud)),
+  restaurantes = restaurantes %>% filter(!is.na(latitud) & !is.na(longitud)),
+  oficinas = oficinas %>% filter(!is.na(latitud) & !is.na(longitud)),
+  tiendas_departamentales = tiendas_departamentales %>% filter(!is.na(latitud) & !is.na(longitud))
+)
+
+#=====================================================================
+# 2. TRANSFORMACIÓN DE VARIABLES A DICOTÓMICAS
+#=====================================================================
+
+base_transformada <- base_integrada %>%
+  # 2.1 Absorción - proyectos exitosos
+  mutate(
+    exitoso = case_when(
+      is.na(absorcion) ~ NA_real_,
+      absorcion >= 3 ~ 1,
+      TRUE ~ 0
+    ),
+    super_exitoso = case_when(
+      is.na(absorcion) ~ NA_real_,
+      absorcion >= 7 ~ 1,
+      TRUE ~ 0
+    )
+  ) %>%
+  
+  # 2.2 Densidad poblacional
+  mutate(
+    alta_densidad_pob = case_when(
+      is.na(pob2020_1km) ~ NA_real_,
+      # Asumiendo área de 3.14 km² (radio de 1km)
+      pob2020_1km / 3.14 > 20000 ~ 1, 
+      TRUE ~ 0
+    )
+  ) %>%
+  
+  # 2.3 Distancia a parques
+  mutate(
+    cerca_parque_relevante = case_when(
+      is.na(dist_to_relevant_park) ~ NA_real_,
+      dist_to_relevant_park <= 500 ~ 1,
+      TRUE ~ 0
+    )
+  ) %>%
+  
+  # 2.4 Proporción hogares propios vs rentados
+  mutate(
+    prop_hogares_propios = (propia_1km + propia_pagando_1km) / 
+      (propia_1km + propia_pagando_1km + rentada_1km + prestada_1km),
+    predominio_hogares_propios = case_when(
+      is.na(prop_hogares_propios) ~ NA_real_,
+      prop_hogares_propios > 0.6 ~ 1,
+      TRUE ~ 0
+    )
+  ) %>%
+  
+  # 2.5 Crecimiento poblacional
+  mutate(
+    crecimiento_pob = (pob2020_1km - pob2010_1km) / pob2010_1km,
+    alto_crecimiento = case_when(
+      is.na(crecimiento_pob) ~ NA_real_,
+      crecimiento_pob > 0.15 ~ 1, # Crecimiento mayor al 15% en 10 años
+      TRUE ~ 0
+    )
+  )
+
+#=====================================================================
+# 3. CÁLCULO DE VARIABLES DE EQUIPAMIENTO (DISTANCIAS)
+#=====================================================================
+
+# Función para calcular distancias a equipamientos y crear variables dicotómicas
+calcular_distancias_equipamientos <- function(proyectos_sf, equipamientos_df, nombre) {
+  
+  # Asegurar que proyectos_sf sea un objeto sf
+  if(!inherits(proyectos_sf, "sf")) {
+    stop("El objeto proyectos_sf debe ser un objeto sf.")
+  }
+  
+  # Convertir coordenadas a numericas por si acaso
+  equipamientos_df$latitud <- as.numeric(equipamientos_df$latitud)
+  equipamientos_df$longitud <- as.numeric(equipamientos_df$longitud)
+  
+  # Filtrar equipamientos con coordenadas válidas
+  equipamientos_df <- equipamientos_df %>% 
+    filter(!is.na(latitud) & !is.na(longitud))
+  
+  # Inicializar columnas de resultado
+  proyectos_sf[[paste0("dist_", nombre)]] <- NA_real_
+  proyectos_sf[[paste0("cercania_", nombre)]] <- NA_real_
+  proyectos_sf[[paste0("cantidad_", nombre, "_1km")]] <- 0
+  
+  # Convertir equipamientos a objeto sf para cálculos espaciales más eficientes
+  equipamientos_sf <- st_as_sf(equipamientos_df, 
+                               coords = c("longitud", "latitud"), 
+                               crs = 4326)
+  
+  # Para cada proyecto, calcular distancia al equipamiento más cercano
+  for (i in 1:nrow(proyectos_sf)) {
+    # Extraer geometría del proyecto
+    punto_proyecto <- proyectos_sf[i,]
+    
+    # Calcular distancias (usando st_distance es más eficiente para objetos sf)
+    distancias <- st_distance(punto_proyecto, equipamientos_sf)
+    distancias_m <- as.numeric(distancias)
+    
+    # Distancia al más cercano
+    if (length(distancias_m) > 0) {
+      min_dist <- min(distancias_m, na.rm = TRUE)
+      proyectos_sf[[paste0("dist_", nombre)]][i] <- min_dist
+      proyectos_sf[[paste0("cercania_", nombre)]][i] <- ifelse(min_dist <= 1000, 1, 0)
+      
+      # Contar cantidad a menos de 1km
+      proyectos_sf[[paste0("cantidad_", nombre, "_1km")]][i] <- sum(distancias_m <= 1000, na.rm = TRUE)
+    }
+  }
+  
+  return(proyectos_sf)
+}
+
+# Aplicar función para cada tipo de equipamiento
+base_transformada <- calcular_distancias_equipamientos(base_transformada, equipamientos_list$hospitales, "hospital")
+base_transformada <- calcular_distancias_equipamientos(base_transformada, equipamientos_list$escuelas_privadas, "esc_priv")
+base_transformada <- calcular_distancias_equipamientos(base_transformada, equipamientos_list$escuelas_publicas, "esc_pub")
+base_transformada <- calcular_distancias_equipamientos(base_transformada, equipamientos_list$universidades, "universidad")
+base_transformada <- calcular_distancias_equipamientos(base_transformada, equipamientos_list$supermercados, "super")
+base_transformada <- calcular_distancias_equipamientos(base_transformada, equipamientos_list$restaurantes, "restau")
+base_transformada <- calcular_distancias_equipamientos(base_transformada, equipamientos_list$oficinas, "oficina")
+base_transformada <- calcular_distancias_equipamientos(base_transformada, equipamientos_list$tiendas_departamentales, "tienda_dept")
+
+#=====================================================================
+# 4. CREACIÓN DE ÍNDICES COMPUESTOS
+#=====================================================================
+
+# 4.1 Índice de Accesibilidad a Servicios (actualizado con nuevos equipamientos)
+base_transformada <- base_transformada %>%
+  mutate(
+    indice_accesibilidad = (
+      (cercania_universidad * 3) +
+        (cercania_esc_priv * 2) +
+        (cercania_esc_pub * 1) +
+        (cercania_hospital * 3) +
+        (cercania_super * 2) +
+        (cercania_restau * 1) +
+        (cercania_oficina * 2) +
+        (cercania_tienda_dept * 2)
+    ) / 16  # Normalizar entre 0 y 1 (suma máxima de pesos)
+  )
+
+# 4.2 Índice de densidad educativa
+base_transformada <- base_transformada %>%
+  mutate(
+    densidad_educativa = cantidad_esc_priv_1km + cantidad_esc_pub_1km + cantidad_universidad_1km,
+    alta_densidad_educativa = case_when(
+      densidad_educativa >= 5 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+# 4.3 Índice de densidad comercial (nuevo)
+base_transformada <- base_transformada %>%
+  mutate(
+    densidad_comercial = cantidad_super_1km + cantidad_restau_1km + cantidad_tienda_dept_1km,
+    alta_densidad_comercial = case_when(
+      densidad_comercial >= 10 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+# 4.4 Índice de entorno laboral (nuevo)
+base_transformada <- base_transformada %>%
+  mutate(
+    entorno_laboral = cantidad_oficina_1km,
+    alto_entorno_laboral = case_when(
+      entorno_laboral >= 5 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+# 4.5 Índice de amenidades del proyecto (versión robusta)
+# Primero, verifiquemos qué columnas de amenidades existen y son potencialmente utilizables
+amenidades_cols <- c("alberca", "areas_verdes", "asadores", "bar", "campo_de_golf",
+                     "canchas_deportivas", "casa_club", "fogatero", "gimnasio", 
+                     "golf_virtual", "jacuzzi", "lounges", "ludoteca_juegos_infantiles",
+                     "patio_central", "pet_zone", "pista_de_jogging_vitapista",
+                     "roof_graden", "sala_de_cine_tv", "sala_de_lectura",
+                     "salon_usos_multiples", "salon_de_yoga", "sauna", "spa",
+                     "terraza", "vestidores")
+
+# Verificar cuáles columnas existen en el dataset
+cols_existentes <- amenidades_cols[amenidades_cols %in% names(base_transformada)]
+print(paste("Columnas de amenidades encontradas:", paste(cols_existentes, collapse=", ")))
+
+
+# Crear dataframe no espacial solo con las columnas de amenidades
+amenidades_df <- st_drop_geometry(base_transformada) %>% 
+  select(all_of(cols_existentes))
+
+# Asegurar que todas son numéricas
+amenidades_df <- as.data.frame(lapply(amenidades_df, function(x) as.numeric(as.character(x))))
+
+# Calcular la suma de amenidades
+num_amenidades <- rowSums(amenidades_df, na.rm = TRUE)
+
+# Añadir el resultado al dataset principal
+base_transformada$num_amenidades <- num_amenidades
+base_transformada$categoria_amenidades <- case_when(
+  base_transformada$num_amenidades >= 15 ~ "Premium",
+  base_transformada$num_amenidades >= 8 ~ "Alto",
+  base_transformada$num_amenidades >= 4 ~ "Medio",
+  TRUE ~ "Básico"
+)
+
+#=====================================================================
+# 5. ÍNDICES POTENCIALES (AVANZADOS)
+#=====================================================================
+
+# 5.1 Índice compuesto de inversión (actualizado)
+base_transformada <- base_transformada %>%
+  mutate(
+    potencial_inversion = (
+      (alto_crecimiento * 3) +
+        (cerca_parque_relevante * 2) +
+        (indice_accesibilidad * 4) +
+        (alta_densidad_comercial * 2) +
+        (alto_entorno_laboral * 2) +
+        (ifelse(Estatus == "Preventa", 1, 0) * 1)
+    ) / 14  # Normalizar entre 0 y 1
+  )
+
+# 5.2 Índice de balance uso/precio
+base_transformada <- base_transformada %>%
+  mutate(
+    relacion_precio_equipamiento = log_pm2 / (indice_accesibilidad + 0.1),
+    balance_precio_equipamiento = case_when(
+      relacion_precio_equipamiento <= quantile(relacion_precio_equipamiento, 0.25, na.rm=TRUE) ~ "Subvalorado",
+      relacion_precio_equipamiento >= quantile(relacion_precio_equipamiento, 0.75, na.rm=TRUE) ~ "Sobrevalorado",
+      TRUE ~ "Equilibrado"
+    )
+  )
+
+# 5.3 Índice de conveniencia urbana (nuevo)
+base_transformada <- base_transformada %>%
+  mutate(
+    indice_conveniencia = (
+      cercania_super * 0.25 +
+        cercania_restau * 0.15 +
+        cercania_hospital * 0.20 +
+        cercania_esc_priv * 0.15 +
+        cercania_tienda_dept * 0.15 +
+        cerca_parque_relevante * 0.10
+    ),
+    alta_conveniencia = case_when(
+      indice_conveniencia >= 0.7 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+#=====================================================================
+# 6. GUARDAR DATASET RESULTANTE
+#=====================================================================
+
+# Primero extraer coordenadas
+base_transformada <- base_transformada %>%
+  mutate(
+    longitud = st_coordinates(geom)[,1],
+    latitud = st_coordinates(geom)[,2]
+  )
+
+# Verificar nombres duplicados
+nombres_columnas <- names(base_transformada)
+duplicados <- duplicated(nombres_columnas)
+if(any(duplicados)) {
+  cat("Se encontraron nombres duplicados:\n")
+  tabla_freq <- table(nombres_columnas)
+  print(tabla_freq[tabla_freq > 1])
+  
+  # Renombrar columnas duplicadas añadiendo un sufijo
+  indices_duplicados <- which(duplicados)
+  for(i in indices_duplicados) {
+    nombres_columnas[i] <- paste0(nombres_columnas[i], "_", i)
+  }
+  names(base_transformada) <- nombres_columnas
+  cat("Nombres corregidos.\n")
+} else {
+  cat("No se encontraron nombres duplicados.\n")
+}
+
+# Regenerar completamente la geometría desde las coordenadas
+base_sin_geom <- st_drop_geometry(base_transformada)
+base_nueva_sf <- st_as_sf(base_sin_geom, 
+                          coords = c("longitud", "latitud"), 
+                          crs = 4326)
+
+# Guardar la versión con geometría regenerada
+st_write(base_nueva_sf, "base_inmobiliaria_transformada.gpkg", delete_dsn = TRUE)
+
+# Y para CSV
+write.csv(base_sin_geom, "base_inmobiliaria_transformada.csv", row.names = FALSE)
+
+print("Transformación de variables completada")
