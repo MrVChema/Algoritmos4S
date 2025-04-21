@@ -1,0 +1,501 @@
+# Índice de Valor por Ubicación (IVU)
+# Script para el cálculo y visualización del impacto de equipamientos urbanos en proyectos inmobiliarios
+
+# Limpiar el entorno y carga de bibliotecas necesarias
+rm(list = ls())
+
+library(dplyr)        # Para manipulación de datos
+library(ggplot2)      # Para visualizaciones
+library(sf)           # Para datos espaciales
+library(leaflet)      # Para mapas interactivos
+library(RColorBrewer) # Para esquemas de colores
+library(scales)       # Para formateo de escalas
+library(DT)           # Para tablas interactivas
+library(plotly)       # Para gráficos interactivos
+library(stringr)      # Para manipulación de texto
+library(extrafont)    # Para usar tipografías adicionales
+library(htmltools)    # Trabajar con las fuentes
+
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
+
+# 1. Cargar los datos
+datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_inmobiliaria_transformada.csv', stringsAsFactors = FALSE, encoding = "UTF-8")
+
+# 2. Definir los factores para el cálculo del IVU
+factores <- list(
+  # Índices existentes
+  indices = c("indice_accesibilidad", "potencial_inversion", "indice_conveniencia"),
+  
+  # Cercanías a equipamientos (0 o 1)
+  cercanias = c(
+    "cercania_hospital", 
+    "cercania_esc_priv", 
+    "cercania_esc_pub", 
+    "cercania_universidad", 
+    "cercania_super", 
+    "cercania_restau", 
+    "cercania_oficina", 
+    "cercania_tienda_dept"
+  ),
+  
+  # Cantidades de equipamientos en 1km
+  cantidades = c(
+    "cantidad_hospital_1km", 
+    "cantidad_esc_priv_1km", 
+    "cantidad_esc_pub_1km", 
+    "cantidad_universidad_1km", 
+    "cantidad_super_1km", 
+    "cantidad_restau_1km", 
+    "cantidad_oficina_1km", 
+    "cantidad_tienda_dept_1km"
+  ),
+  
+  # Otros factores relevantes
+  otros = c(
+    "cerca_parque_relevante",
+    "alta_densidad_pob",
+    "predominio_hogares_propios",
+    "alto_crecimiento",
+    "alta_densidad_educativa",
+    "alta_densidad_comercial",
+    "alto_entorno_laboral"
+  )
+)
+
+# 3. Función para normalizar valores entre 0 y 1
+normalizar <- function(valores) {
+  valores_numericos <- as.numeric(valores)
+  valores_validos <- valores_numericos[!is.na(valores_numericos)]
+  
+  if (length(valores_validos) == 0) return(rep(0, length(valores)))
+  
+  min_val <- min(valores_validos)
+  max_val <- max(valores_validos)
+  
+  # Si todos los valores son iguales, devolver 0.5 para evitar división por cero
+  if (max_val == min_val) {
+    resultado <- rep(0, length(valores))
+    resultado[!is.na(valores_numericos)] <- 0.5
+    return(resultado)
+  }
+  
+  # Normalizar valores
+  resultado <- rep(0, length(valores))
+  resultado[!is.na(valores_numericos)] <- (valores_numericos[!is.na(valores_numericos)] - min_val) / (max_val - min_val)
+  return(resultado)
+}
+
+# 4. Normalizar las cantidades de equipamientos
+cantidades_norm <- list()
+for (col in factores$cantidades) {
+  cantidades_norm[[col]] <- normalizar(datos[[col]])
+}
+
+# 5. Ponderaciones basadas en correlaciones con precio
+# Estos pesos se basan en el análisis previo
+pesos <- c(
+  # Cantidades
+  "cantidad_hospital_1km" = 0.0391,
+  "cantidad_esc_priv_1km" = 0.0077,
+  "cantidad_esc_pub_1km" = 0.0186,
+  "cantidad_universidad_1km" = 0.0134,
+  "cantidad_super_1km" = 0.0396,
+  "cantidad_restau_1km" = 0.0218,
+  "cantidad_oficina_1km" = 0.1013,
+  "cantidad_tienda_dept_1km" = 0.0345,
+  
+  # Cercanías
+  "cercania_hospital" = 0.0332,
+  "cercania_esc_priv" = 0.0820,
+  "cercania_esc_pub" = 0.0186,
+  "cercania_universidad" = 0.0847,
+  "cercania_super" = 0.0418,
+  "cercania_restau" = 0.0274,
+  "cercania_oficina" = 0.0476,
+  "cercania_tienda_dept" = 0.0986,
+  
+  # Índices
+  "indice_accesibilidad" = 0.0909,
+  "potencial_inversion" = 0.1029,
+  "indice_conveniencia" = 0.0963
+)
+
+# Agregar pesos para otros factores
+for (factor in factores$otros) {
+  pesos[factor] <- 0.021  # 2.1% para cada uno de los otros factores
+}
+
+# 6. Calcular el Índice de Valor por Ubicación (IVU)
+calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
+  n <- nrow(datos)
+  ivu <- numeric(n)
+  
+  for (i in 1:n) {
+    suma <- 0
+    peso_total <- 0
+    
+    # Sumar los índices existentes
+    for (indice in factores$indices) {
+      if (!is.na(datos[i, indice])) {
+        suma <- suma + datos[i, indice] * pesos[indice]
+        peso_total <- peso_total + pesos[indice]
+      }
+    }
+    
+    # Sumar las cercanías (ya son binarias 0-1)
+    for (cercania in factores$cercanias) {
+      if (!is.na(datos[i, cercania])) {
+        suma <- suma + datos[i, cercania] * pesos[cercania]
+        peso_total <- peso_total + pesos[cercania]
+      }
+    }
+    
+    # Sumar las cantidades normalizadas
+    for (cantidad in factores$cantidades) {
+      if (!is.na(cantidades_norm[[cantidad]][i])) {
+        suma <- suma + cantidades_norm[[cantidad]][i] * pesos[cantidad]
+        peso_total <- peso_total + pesos[cantidad]
+      }
+    }
+    
+    # Sumar otros factores binarios
+    for (otro in factores$otros) {
+      if (!is.na(datos[i, otro])) {
+        suma <- suma + datos[i, otro] * pesos[otro]
+        peso_total <- peso_total + pesos[otro]
+      }
+    }
+    
+    # Normalizar por el peso total usado
+    ivu[i] <- if (peso_total > 0) suma / peso_total else 0
+  }
+  
+  return(ivu)
+}
+
+# 7. Calcular el IVU para todos los proyectos
+datos$ivu <- calcular_ivu(datos, pesos, cantidades_norm, factores)
+
+# 8. Crear categorías para el IVU (para el termómetro)
+datos$ivu_categoria <- cut(
+  datos$ivu, 
+  breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+  labels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"),
+  include.lowest = TRUE
+)
+
+# 9. Estadísticas del IVU
+estadisticas_ivu <- list(
+  min = min(datos$ivu, na.rm = TRUE),
+  max = max(datos$ivu, na.rm = TRUE),
+  media = mean(datos$ivu, na.rm = TRUE),
+  mediana = median(datos$ivu, na.rm = TRUE)
+)
+
+print("Estadísticas del Índice de Valor por Ubicación (IVU):")
+print(paste("Mínimo:", round(estadisticas_ivu$min, 4)))
+print(paste("Máximo:", round(estadisticas_ivu$max, 4)))
+print(paste("Media:", round(estadisticas_ivu$media, 4)))
+print(paste("Mediana:", round(estadisticas_ivu$mediana, 4)))
+
+# 10. Distribución de proyectos por categoría
+tabla_categorias <- table(datos$ivu_categoria)
+tabla_categorias_percent <- prop.table(tabla_categorias) * 100
+
+print("\nDistribución de proyectos por categoría:")
+for (i in 1:length(tabla_categorias)) {
+  cat <- names(tabla_categorias)[i]
+  count <- tabla_categorias[i]
+  pct <- tabla_categorias_percent[i]
+  print(paste0(cat, ": ", count, " proyectos (", round(pct, 1), "%)"))
+}
+
+# 11. Promedio de IVU por municipio
+promedio_municipios <- datos %>%
+  group_by(Municipio) %>%
+  summarise(
+    PromedioIVU = mean(ivu, na.rm = TRUE),
+    Cantidad = n()
+  ) %>%
+  arrange(desc(PromedioIVU))
+
+print("\nPromedio de IVU por municipio:")
+for (i in 1:nrow(promedio_municipios)) {
+  print(paste0(
+    promedio_municipios$Municipio[i], ": ", 
+    round(promedio_municipios$PromedioIVU[i], 4),
+    " (", promedio_municipios$Cantidad[i], " proyectos)"
+  ))
+}
+
+#--------------------
+# Visualizaciones
+#--------------------
+# Función auxiliar para seleccionar un proyecto consistentemente
+seleccionar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Permitir selección por índice o por nombre
+  if (!is.null(indice_proyecto)) {
+    proyecto <- datos[indice_proyecto, ]
+  } else if (!is.null(nombre_proyecto)) {
+    proyecto <- datos[datos$Proyecto == nombre_proyecto, ]
+    if (nrow(proyecto) == 0) {
+      stop("Proyecto no encontrado: ", nombre_proyecto)
+    }
+  } else {
+    stop("Debe proporcionar un indice_proyecto o un nombre_proyecto")
+  }
+  
+  return(proyecto)
+}
+
+# Definir el proyecto a analizar de forma consistente
+indice_proyecto_seleccionado <- 8  # O el índice que prefieras
+# nombre_proyecto_seleccionado <- "Nombre del Proyecto"  # Alternativa por nombre
+
+# 1. Visualización del Termómetro Mejorado
+crear_termometro <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Usar la función auxiliar para seleccionar el proyecto
+  proyecto <- seleccionar_proyecto(datos, indice_proyecto, nombre_proyecto)
+  
+  valor <- proyecto$ivu
+  categoria <- proyecto$ivu_categoria
+  nombre <- proyecto$Proyecto
+  
+  colores <- c(
+    "Muy bajo" = "#EF6558",  # Rojo
+    "Bajo" = "#F8C579",      # Naranja
+    "Medio" = "#F4E785",     # Amarillo
+    "Alto" = "#68d192",      # Verde claro
+    "Muy alto" = "#9B87F4"   # Verde oscuro
+  )
+  
+  color <- colores[as.character(categoria)]
+  
+  # Empezar la escala desde un valor negativo para dar espacio a la etiqueta 0.0
+  escala <- data.frame(
+    y = seq(0, 1, 0.2),
+    labels = c("0.0", "0.2", "0.4", "0.6", "0.8", "1.0"),
+    categorias = c("", "Muy bajo", "Bajo", "Medio", "Alto", "Muy alto")
+  )
+  
+  # Crear gráfico base
+  p <- ggplot() +
+    # Fondo del termómetro
+    geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = 1), 
+              fill = "lightgrey", color = "black") +
+    # Contenido del termómetro
+    geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = valor), 
+              fill = color) +
+    # Líneas de escala
+    geom_segment(data = escala, 
+                 aes(x = 0.38, y = y, xend = 0.62, yend = y), 
+                 color = "black") +
+    # Etiquetas de escala
+    geom_text(data = escala, 
+              aes(x = 0.35, y = y, label = labels), 
+              hjust = 1) +
+    # Etiquetas de categorías
+    geom_text(data = escala[-1,], 
+              aes(x = 0.7, y = y - 0.1, label = categorias), 
+              hjust = 0) +
+    # Valor actual y nombre del proyecto
+    geom_text(aes(x = 0.5, y = 1.1, 
+                  label = paste0("Proyecto: ", nombre, 
+                                 "\nValor: ", round(valor, 2), 
+                                 "\nCategoría: ", categoria)),
+              fontface = "bold") +
+    # Ajustes estéticos
+    labs(title = "Termómetro de Valor por Ubicación",
+         x = NULL, y = NULL) +
+    theme_minimal() +
+    theme(axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          panel.grid = element_blank(),
+          plot.title = element_text(hjust = 0.5, face = "bold", size = 14)) +
+    # Extender el límite inferior para dar espacio a la etiqueta 0.0
+    coord_cartesian(xlim = c(0, 1), ylim = c(-0.05, 1.25), expand = FALSE)
+  
+  return(p)
+}
+
+# Ejemplos de uso:
+# Por índice (número de fila)
+termometro_ejemplo <- crear_termometro(datos, indice_proyecto = indice_proyecto_seleccionado)
+print(termometro_ejemplo)
+
+# 2. Gráfico de barras del IVU por municipio
+grafico_municipios <- ggplot(promedio_municipios, aes(x = reorder(Municipio, PromedioIVU), y = PromedioIVU)) +
+  geom_bar(stat = "identity", fill = "#6366f1") +
+  geom_text(aes(label = sprintf("%.2f", PromedioIVU)), vjust = -0.5) +
+  labs(title = "Índice de Valor por Ubicación promedio por Municipio",
+       x = "Municipio", y = "IVU Promedio") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_cartesian(ylim = c(0, 1))
+
+print(grafico_municipios)
+
+# 3. Distribución de categorías IVU
+grafico_categorias <- ggplot(data.frame(Categoria = names(tabla_categorias), 
+                                        Cantidad = as.numeric(tabla_categorias)), 
+                             aes(x = Categoria, y = Cantidad, fill = Categoria)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Cantidad), 
+            vjust = -0.5, 
+            family = "Inter",
+            size = 16/3) + # En ggplot2, el tamaño se divide entre ~3 para convertir de pt a unidades de ggplot
+  scale_fill_manual(values = c("Muy bajo" = "#EF6558", "Bajo" = "#F8C579", 
+                               "Medio" = "#F4E785", "Alto" = "#68d192", 
+                               "Muy alto" = "#9B87F4")) +
+  labs(title = "Distribución de proyectos por categoría de IVU",
+       x = "Categoría", y = "Número de proyectos") +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Inter", size = 14),
+    axis.title = element_text(family = "Inter", size = 13),
+    axis.text = element_text(family = "Inter", size = 11),
+    plot.title = element_text(family = "Inter", size = 18, face = "bold"),
+    legend.text = element_text(family = "Inter", size = 12)
+  )
+
+print(grafico_categorias)
+
+# 4. Relación entre IVU y precio por m²
+grafico_precio_ivu <- ggplot(datos, aes(x = ivu, y = p_m2, color = ivu_categoria)) +
+  geom_point(alpha = 0.7) +
+  scale_color_manual(values = c("Muy bajo" = "#EF6558", "Bajo" = "#F8C579", 
+                                "Medio" = "#F4E785", "Alto" = "#68d192", 
+                                "Muy alto" = "#9B87F4")) +
+  labs(title = "Relación entre IVU y Precio por m²",
+       x = "Índice de Valor por Ubicación", 
+       y = "Precio por m²",
+       color = "Categoría") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma) +
+  theme(
+    text = element_text(family = "Inter", size = 16),
+    axis.title = element_text(family = "Inter", size = 13),
+    axis.text = element_text(family = "Inter", size = 11),
+    plot.title = element_text(family = "Inter", size = 18, face = "bold"),
+    legend.title = element_text(family = "Inter", size = 14, face = "bold"),
+    legend.text = element_text(family = "Inter", size = 12)
+  )
+
+print(grafico_precio_ivu)
+
+# 5. Gráfico radar para un proyecto específico (usando plotly)
+crear_radar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Usar la función auxiliar para seleccionar el proyecto
+  proyecto <- seleccionar_proyecto(datos, indice_proyecto, nombre_proyecto)
+  
+  # Seleccionar las variables para el gráfico radar
+  vars <- c("indice_accesibilidad", "potencial_inversion", "indice_conveniencia", "ivu")
+  valores <- as.numeric(proyecto[vars])
+  nombres <- c("Accesibilidad", "Potencial Inversión", "Conveniencia", "IVU")
+  
+  # Crear dataframe para plotly
+  df <- data.frame(
+    variable = nombres,
+    valor = valores
+  )
+  
+  # Ajustar para cerrar el polígono
+  df <- rbind(df, df[1, ])
+  
+  # Crear gráfico radar
+  plot_ly(
+    r = df$valor,
+    theta = df$variable,
+    type = 'scatterpolar',
+    fill = 'toself',
+    fillcolor = 'rgba(99, 102, 241, 0.5)',
+    line = list(color = 'rgb(99, 102, 241)')
+  ) %>%
+    layout(
+      title = paste0("Índices para: ", proyecto$Proyecto),
+      polar = list(
+        radialaxis = list(
+          visible = TRUE,
+          range = c(0, 1)
+        )
+      )
+    )
+}
+
+# Ejemplo para el primer proyecto
+radar_ejemplo <- crear_radar_proyecto(datos, indice_proyecto = indice_proyecto_seleccionado)
+print(radar_ejemplo)
+
+
+# 6. Mapa interactivo
+crear_mapa <- function(datos) {
+  # Definir paleta de colores por categoría IVU
+  pal <- colorFactor(
+    palette = c("#EF6558", "#F8C579", "#F4E785", "#68d192", "#9B87F4"),
+    domain = datos$ivu_categoria
+  )
+  
+  # Estilo CSS para usar Inter en los popups
+  popup_style <- "font-family: 'Inter', sans-serif; font-size: 16px;"
+  
+  # Crear el mapa
+  leaflet(datos) %>%
+    addTiles() %>%  # Añadir mapa base de OpenStreetMap
+    addCircleMarkers(
+      # Reemplazar con tus columnas de lat/lon
+      lng = ~longitud,
+      lat = ~latitud,
+      radius = 8,
+      color = ~pal(ivu_categoria),
+      stroke = FALSE,
+      fillOpacity = 1,
+      popup = ~paste0(
+        "<div style='", popup_style, "'>",
+        "<b>", Proyecto, "</b><br>",
+        "Desarrollador: ", Desarrollador, "<br>",
+        "IVU: ", round(ivu, 2), " (", ivu_categoria, ")<br>",
+        "Precio/m²: $", format(p_m2, big.mark = ",", scientific = FALSE),
+        "</div>"
+      )
+    ) %>%
+    addLegend(
+      position = "bottomright",
+      pal = pal,
+      values = ~ivu_categoria,
+      title = "Categoría IVU",
+      opacity = 0.8
+    ) %>%
+    # Agregar CSS personalizado para cambiar la fuente de la leyenda
+    htmlwidgets::onRender("
+      function(el, x) {
+        // Aplicar estilo a la leyenda
+        var legends = document.querySelectorAll('.info.legend');
+        legends.forEach(function(legend) {
+          legend.style.fontFamily = 'Inter, sans-serif';
+          legend.style.fontSize = '12px';
+        });
+        
+        // Aplicar estilo al título de la leyenda
+        var legendTitles = document.querySelectorAll('.info.legend .legend-title');
+        legendTitles.forEach(function(title) {
+          title.style.fontFamily = 'Inter, sans-serif';
+          title.style.fontSize = '14px';
+          title.style.fontWeight = 'bold';
+        });
+        
+        // Aplicar estilo a los items de la leyenda
+        var legendItems = document.querySelectorAll('.info.legend .legend-item');
+        legendItems.forEach(function(item) {
+          item.style.fontFamily = 'Inter, sans-serif';
+          item.style.fontSize = '16px';
+        });
+      }
+    ")
+}
+
+mapa <- crear_mapa(datos)
+mapa
+
+# 7. Guardar el dataframe con el IVU calculado
+write.csv(datos, "proyectos_con_ivu.csv", row.names = FALSE)
