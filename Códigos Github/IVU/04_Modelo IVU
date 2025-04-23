@@ -25,7 +25,7 @@ datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmai
 # 2. Definir los factores para el cálculo del IVU
 factores <- list(
   # Índices existentes
-  indices = c("indice_accesibilidad", "potencial_inversion", "indice_conveniencia"),
+  indices = c("indice_accesibilidad", "potencial_inversion", "indice_conveniencia", "accesibilidad_vial"),
   
   # Cercanías a equipamientos (0 o 1)
   cercanias = c(
@@ -59,7 +59,8 @@ factores <- list(
     "alto_crecimiento",
     "alta_densidad_educativa",
     "alta_densidad_comercial",
-    "alto_entorno_laboral"
+    "alto_entorno_laboral",
+    "cerca_avenida_principal"
   )
 )
 
@@ -96,35 +97,39 @@ for (col in factores$cantidades) {
 # Estos pesos se basan en el análisis previo
 pesos <- c(
   # Cantidades
-  "cantidad_hospital_1km" = 0.0391,
-  "cantidad_esc_priv_1km" = 0.0077,
-  "cantidad_esc_pub_1km" = 0.0186,
-  "cantidad_universidad_1km" = 0.0134,
-  "cantidad_super_1km" = 0.0396,
-  "cantidad_restau_1km" = 0.0218,
-  "cantidad_oficina_1km" = 0.1013,
-  "cantidad_tienda_dept_1km" = 0.0345,
+  "cantidad_hospital_1km" = 0.0329,
+  "cantidad_esc_priv_1km" = 0.0065,
+  "cantidad_esc_pub_1km" = 0.0157,
+  "cantidad_universidad_1km" = 0.0113,
+  "cantidad_super_1km" = 0.0333,
+  "cantidad_restau_1km" = 0.0183,
+  "cantidad_oficina_1km" = 0.0852,
+  "cantidad_tienda_dept_1km" = 0.0291,
   
   # Cercanías
-  "cercania_hospital" = 0.0332,
-  "cercania_esc_priv" = 0.0820,
-  "cercania_esc_pub" = 0.0186,
-  "cercania_universidad" = 0.0847,
-  "cercania_super" = 0.0418,
-  "cercania_restau" = 0.0274,
-  "cercania_oficina" = 0.0476,
-  "cercania_tienda_dept" = 0.0986,
+  "cercania_hospital" = 0.0279,
+  "cercania_esc_priv" = 0.0689,
+  "cercania_esc_pub" = 0.0157,
+  "cercania_universidad" = 0.0712,
+  "cercania_super" = 0.0352,
+  "cercania_restau" = 0.0230,
+  "cercania_oficina" = 0.0400,
+  "cercania_tienda_dept" = 0.0829,
   
   # Índices
-  "indice_accesibilidad" = 0.0909,
-  "potencial_inversion" = 0.1029,
-  "indice_conveniencia" = 0.0963
+  "indice_accesibilidad" = 0.0765,
+  "potencial_inversion" = 0.0865,
+  "indice_conveniencia" = 0.0810
 )
 
 # Agregar pesos para otros factores
 for (factor in factores$otros) {
   pesos[factor] <- 0.021  # 2.1% para cada uno de los otros factores
 }
+
+# Añadir a los pesos
+pesos["cerca_avenida_principal"] <- 0.0300
+pesos["accesibilidad_vial"] <- 0.0500
 
 # 6. Calcular el Índice de Valor por Ubicación (IVU)
 calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
@@ -361,7 +366,8 @@ grafico_categorias <- ggplot(data.frame(Categoria = names(tabla_categorias),
 
 print(grafico_categorias)
 
-# 4. Relación entre IVU y precio por m²
+# 4. Relación de variables con precio por m²
+## 4.1 Relación entre IVU y precio por m²
 grafico_precio_ivu <- ggplot(datos, aes(x = ivu, y = p_m2, color = ivu_categoria)) +
   geom_point(alpha = 0.7) +
   scale_color_manual(values = c("Muy bajo" = "#EF6558", "Bajo" = "#F8C579", 
@@ -383,6 +389,22 @@ grafico_precio_ivu <- ggplot(datos, aes(x = ivu, y = p_m2, color = ivu_categoria
   )
 
 print(grafico_precio_ivu)
+
+## 4.2 Relación entre cercanía a avenidas y precio
+grafico_avenidas_precio <- ggplot(datos, 
+                                  aes(x = dist_to_avenue, y = p_m2, 
+                                      color = factor(cerca_avenida_principal))) +
+  geom_point(alpha = 0.7) +
+  scale_color_manual(values = c("0" = "#666666", "1" = "#3366FF"),
+                     labels = c("0" = "Lejano", "1" = "Cercano")) +
+  labs(title = "Relación entre distancia a avenidas principales y precio por m²",
+       x = "Distancia a avenida principal (m)", 
+       y = "Precio por m²",
+       color = "Cercanía") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma)
+
+print(grafico_avenidas_precio)
 
 # 5. Gráfico radar para un proyecto específico (usando plotly)
 crear_radar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
