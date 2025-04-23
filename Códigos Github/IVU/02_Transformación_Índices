@@ -94,6 +94,15 @@ base_transformada <- base_integrada %>%
       crecimiento_pob > 0.15 ~ 1, # Crecimiento mayor al 15% en 10 años
       TRUE ~ 0
     )
+  ) %>%
+  
+  # 2.6 Cercanía a avenidas
+  mutate(
+    cerca_avenida_principal = case_when(
+      is.na(dist_to_avenue) ~ NA_real_,
+      dist_to_avenue <= 200 ~ 1,  # A menos de 200 metros de una avenida principal
+      TRUE ~ 0
+    )
   )
 
 #=====================================================================
@@ -241,6 +250,18 @@ base_transformada$categoria_amenidades <- case_when(
   base_transformada$num_amenidades >= 4 ~ "Medio",
   TRUE ~ "Básico"
 )
+
+# 4.6 Índice de accesibilidad vial (nuevo)
+base_transformada <- base_transformada %>%
+  mutate(
+    accesibilidad_vial = case_when(
+      cerca_avenida_principal == 1 ~ 1,
+      dist_to_avenue <= 500 ~ 0.75,
+      dist_to_avenue <= 1000 ~ 0.5,
+      dist_to_avenue <= 2000 ~ 0.25,
+      TRUE ~ 0
+    )
+  )
 
 #=====================================================================
 # 5. ÍNDICES POTENCIALES (AVANZADOS)
