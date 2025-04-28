@@ -456,6 +456,9 @@ avenidas_kml_clasificadas <- avenidas_kml %>%
     tipo_via = ifelse(is.na(tipo_via), "Local", tipo_via)
   )
 
+avenidas_kml_clasificadas <- avenidas_kml_clasificadas %>%
+  mutate(Name = nombre_normalizado)
+
 # 8. Exportar resultados
 write_csv(avenidas_clasificadas, "clasificacion_avenidas.csv")
 
