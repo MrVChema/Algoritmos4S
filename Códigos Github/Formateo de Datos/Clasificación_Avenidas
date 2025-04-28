@@ -1,0 +1,493 @@
+# ----------------------------------------------------------
+# Script para generar clasificación jerárquica de avenidas
+# ----------------------------------------------------------
+
+# Limpiar el entorno y carga de bibliotecas necesarias
+rm(list = ls())
+
+library(tidyverse)
+library(readxl)
+library(writexl)
+library(sf) # Para operaciones espaciales
+library(stringr)
+
+# Establecer Directorio de Trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/VIALIDADES_PROCESADAS')
+
+# Función principal de normalización de nombres
+# --------------------------------------------
+normalizar_nombres_avenidas <- function(nombre_avenida) {
+  # Diccionario completo de normalización
+  normalizacion <- tribble(
+    ~patron,                                  ~nombre_estandar,
+    # Morones Prieto (todas sus variantes)
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*I\\.?\\s*Morones\\s*Prieto.*$", "Avenida Morones Prieto",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Ignacio\\s*Morones\\s*Prieto.*$", "Avenida Morones Prieto",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Morones\\s*Prieto.*$", "Avenida Morones Prieto",
+    
+    # Lázaro Cárdenas
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*L[aá]zaro\\s*C[aá]rdenas.*$", "Avenida Lázaro Cárdenas",
+    
+    # Gonzalitos (José Euleuterio González)
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Jos[eé]\\s*E[ul][el][ue]terio\\s*Gonz[aá]lez.*$", "Avenida Gonzalitos",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Dr\\.?\\s*Jos[eé]\\s*E[ul][el][ue]terio\\s*Gonz[aá]lez.*$", "Avenida Gonzalitos",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Gonzalitos.*$", "Avenida Gonzalitos",
+    
+    # Antonio L. Rodríguez
+    "(?i)^(Blvd\\.|Blv\\.|Boulevard)\\s*Antonio\\s*L\\.?\\s*Ro?dr[ií]gue?z.*$", "Boulevard Antonio L. Rodriguez",
+    "(?i)^Antonio\\s*L\\.?\\s*Ro?dr[ií]gue?z.*$", "Boulevard Antonio L. Rodriguez",
+    
+    # Constitución
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Constituci[oó]n.*$", "Avenida Constitución",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Constituci[oó]n\\s*\\(MTY\\-APO\\).*$", "Avenida Constitución",
+    
+    # Garza Sada
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Eugenio\\s*Garza\\s*Sada.*$", "Avenida Eugenio Garza Sada",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Garza\\s*Sada.*$", "Avenida Eugenio Garza Sada",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Roberto\\s*Garza\\s*Sada.*$", "Avenida Roberto Garza Sada",
+    
+    # Fidel Velázquez
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Fidel\\s*Vel[aá]zquez.*$", "Avenida Fidel Velazquez",
+    
+    # Universidad
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Universidad.*$", "Avenida Universidad",
+    
+    # Venustiano Carranza
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Venustiano\\s*Carranza.*$", "Avenida Venustiano Carranza",
+    
+    # Alfonso Reyes (MODIFICADO para mantener las dos avenidas separadas)
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Alfonso\\s*Reyes\\s*\\(MTY\\).*$", "Avenida Alfonso Reyes (MTY)",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Alfonso\\s*Reyes(?!\\s*\\(MTY\\)).*$", "Avenida Alfonso Reyes",
+    
+    # Miguel Alemán
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Miguel\\s*Alem[aá]n.*$", "Avenida Miguel Alemán",
+    
+    # Ruiz Cortines
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Ruiz\\s*Cort[ií]ne[sz].*$", "Avenida Ruiz Cortines",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Adolfo\\s*Ruiz\\s*Cort[ií]ne[sz].*$", "Avenida Ruiz Cortines",
+    
+    # Félix U. Gómez
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*F[eé]lix\\s*U\\.?\\s*G[oó]mez.*$", "Avenida Félix U. Gómez",
+    
+    # Paseo de los Leones
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Paseo\\s*de\\s*l[oa]s\\s*Leones.*$", "Paseo de los Leones",
+    
+    # Revolución
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Revoluci[oó]n.*$", "Avenida Revolución",
+    
+    # Abraham Lincoln
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Abraham\\s*Lincoln.*$", "Avenida Abraham Lincoln",
+    
+    # Bernardo Reyes
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Bernardo\\s*Reyes.*$", "Avenida Bernardo Reyes",
+    
+    # Cuauhtémoc
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Cuauht[eé]moc.*$", "Avenida Cuauhtémoc",
+    
+    # Manuel L. Barragán
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Manuel\\s*L\\.?\\s*Barrag[aá]n.*$", "Avenida Manuel L. Barragán",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Manuel\\s*Barrag[aá]n.*$", "Avenida Manuel L. Barragán",
+    "(?i)^Manuel\\s*Barrag[aá]n.*$", "Avenida Manuel L. Barragán",
+    
+    # Pablo Livas
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Pablo\\s*Livas.*$", "Avenida Pablo Livas",
+    
+    # Sendero Divisorio
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Sendero\\s*Divisorio.*$", "Avenida Sendero Divisorio",
+    
+    # Díaz Ordaz
+    "(?i)^(Blvd\\.|Blv\\.|Boulevard)\\s*D[ií]az\\s*Ordaz.*$", "Boulevard Díaz Ordaz",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*D[ií]az\\s*Ordaz.*$", "Boulevard Díaz Ordaz",
+    
+    # Gómez Morín
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*G[oó]mez\\s*Mor[ií]n.*$", "Avenida Gómez Morín",
+    
+    # Calzada del Valle
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Calzada\\s*del\\s*Valle.*$", "Avenida Calzada del Valle",
+    
+    # Calzada San Pedro
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Calzada\\s*San\\s*Pedro.*$", "Avenida Calzada San Pedro",
+    
+    # José Vasconcelos
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Jos[eé]\\s*Vasconcelos.*$", "Avenida José Vasconcelos",
+    
+    # Carretera Nacional
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Carretera\\s*Nacional.*$", "Carretera Nacional",
+    
+    # Raúl Rangel Frías
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Ra[uú]l\\s*Rangel\\s*Fr[ií]as.*$", "Avenida Raúl Rangel Frías",
+    
+    # Eugenio Garza Lagüera
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Eugenio\\s*Garza\\s*Lag[üu]era.*$", "Avenida Eugenio Garza Lagüera",
+    
+    # Real San Agustín
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Real\\s*San\\s*Agust[ií]n.*$", "Avenida Real San Agustín",
+    
+    # Humberto Lobo
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Humberto\\s*Lobo.*$", "Avenida Humberto Lobo",
+    
+    # Santa Bárbara
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Santa\\s*B[aá]rbara.*$", "Avenida Santa Bárbara",
+    
+    # Ricardo Margáin
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Ricardo\\s*Marga[ií]n.*$", "Avenida Ricardo Margáin",
+    
+    # Jerónimo Siller
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Jer[oó]nimo\\s*Siller.*$", "Avenida Jerónimo Siller",
+    
+    # Fundadores
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Fundadores.*$", "Avenida Fundadores",
+    
+    # Francisco I. Madero
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Francisco\\s*I\\.?\\s*Madero.*$", "Avenida Francisco I. Madero",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Madero.*$", "Avenida Francisco I. Madero",
+    "(?i)^Prol\\s*Madero.*$", "Prolongación Madero",
+    
+    # San Nicolás
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*San\\s*Nicol[aá]s.*$", "Avenida San Nicolás",
+    
+    # Diego Díaz de Berlanga
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Diego\\s*D[ií]az\\s*de\\s*Berlanga.*$", "Avenida Diego Díaz de Berlanga",
+    
+    # Calzada del Rosario
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Calzada\\s*del\\s*Rosario.*$", "Avenida Calzada del Rosario",
+    
+    # Vicente Guerrero
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Vicente\\s*Guerrero.*$", "Avenida Vicente Guerrero",
+    
+    # Washington
+    "(?i)^(C\\.|Calle)?\\s*Washington.*$", "Calle Washington",
+    
+    # Nuevo León
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Nuevo\\s*Le[oó]n.*$", "Avenida Nuevo León",
+    
+    # Pablo Livas 
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Pablo\\s*Livas.*$", "Avenida Pablo Livas",
+    
+    # Eloy Cavazos
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Eloy\\s*Cavazos.*$", "Avenida Eloy Cavazos",
+    
+    # Adolfo López Mateos
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Lic\\.?\\s*Adolfo\\s*L[oó]pez\\s*Mateos.*$", "Avenida Adolfo López Mateos",
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Adolfo\\s*L[oó]pez\\s*Mateos.*$", "Avenida Adolfo López Mateos",
+    
+    # Carlos Salinas de Gortari
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Carlos\\s*Salinas\\s*de\\s*Gortari.*$", "Avenida Carlos Salinas de Gortari",
+    
+    # Abraham Lincoln
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Abraham\\s*Lincoln.*$", "Avenida Abraham Lincoln",
+    
+    # Herberto Castillo
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Herberto\\s*Castillo\\s*Mart[ií]nez.*$", "Avenida Herberto Castillo Martínez",
+    
+    # Pablo González Garza
+    "(?i)^(Gral\\.|General)\\s*Pablo\\s*Gonz[aá]lez\\s*Garza.*$", "General Pablo González Garza",
+    
+    # San Francisco
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*San\\s*Francisco.*$", "Avenida San Francisco",
+    
+    # Bosques Del Valle
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Bosques\\s*Del\\s*Valle.*$", "Avenida Bosques Del Valle",
+    
+    # Lomas Del Valle
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Lomas\\s*Del\\s*Valle.*$", "Avenida Lomas Del Valle",
+    
+    # Puesta del Sol
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Puesta\\s*del\\s*Sol.*$", "Avenida Puesta del Sol",
+    
+    # Paseo de las Américas
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*P\\.?\\s*de\\s*las\\s*Am[eé]ricas.*$", "Paseo de las Américas",
+    
+    # José María Luis Mora
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Jos[eé]\\s*Mar[ií]a\\s*Luis\\s*Mora.*$", "Avenida José María Luis Mora",
+    
+    # Puerta del Sol
+    "(?i)^(Blvd\\.|Blv\\.|Boulevard)\\s*Puerta\\s*del\\s*Solo?.*$", "Boulevard Puerta del Sol",
+    
+    # Insurgentes
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Insurgentes.*$", "Avenida Insurgentes",
+    
+    # Acapulco
+    "(?i)^(Blvd\\.|Blv\\.|Boulevard)\\s*Acapulco.*$", "Boulevard Acapulco",
+    
+    # Benito Juárez
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Benito\\s*Ju[aá]rez.*$", "Avenida Benito Juárez",
+    
+    # Manuel Jesús Clouthier
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Manuel\\s*Jes[uú]s\\s*Clouthier.*$", "Avenida Manuel Jesús Clouthier",
+    
+    # Zaragoza
+    "(?i)^Zaragoza.*$", "Zaragoza",
+    
+    # Miguel Hidalgo
+    "(?i)^(Calle|C\\.)\\s*Miguel\\s*Hidalgo.*$", "Calle Miguel Hidalgo",
+    
+    # Luis Donaldo Colosio
+    "(?i)^Luis\\s*Donaldo\\s*Colosio\\s*Murrieta.*$", "Luis Donaldo Colosio Murrieta",
+    
+    # Rodrigo Gómez
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Rodrigo\\s*G[oó]mez.*$", "Avenida Rodrigo Gómez",
+    
+    # Simón Bolívar
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*S[Ii]m[oó]n\\s*Bol[ií]var.*$", "Avenida Simón Bolívar",
+    
+    # Mariano Matamoros
+    "(?i)^(C\\.|Calle)\\s*Mariano\\s*Matamoros.*$", "Calle Mariano Matamoros",
+    
+    # Corregidora
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Corregidora.*$", "Avenida Corregidora",
+    
+    # José Mariano Jiménez
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Jos[eé]\\s*Mariano\\s*Jim[eé]nez.*$", "Avenida José Mariano Jiménez",
+    
+    # Anillo Periférico
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Anillo\\s*Perif[eé]rico.*$", "Avenida Anillo Periférico",
+    
+    # Fray Bartolomé de las Casas
+    "(?i)^Fray\\s*Bartolom[eé]\\s*de\\s*las\\s*Casas.*$", "Fray Bartolomé de las Casas",
+    
+    # José Alvarado
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Jos[eé]\\s*Alvarado.*$", "Avenida José Alvarado",
+    
+    # Luis Elizondo
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Luis\\s*Elizondo.*$", "Avenida Luis Elizondo",
+    
+    # Junco de la Vega
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Junco\\s*de\\s*la\\s*Vega.*$", "Avenida Junco de la Vega",
+    
+    # José Ángel Conchello
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Jos[eé]\\s*[AÁ]ngel\\s*Conchello.*$", "Avenida José Ángel Conchello",
+    
+    # Aaron Sáenz Garza
+    "(?i)^Aaron\\s*S[aá]enz\\s*Garza.*$", "Aaron Sáenz Garza",
+    
+    # Los Ángeles
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*Los\\s*[AÁ]ngeles.*$", "Avenida Los Ángeles",
+    
+    # Rómulo Garza
+    "(?i)^(Av\\.|Ave\\.|Avenida)?\\s*R[oó]mulo\\s*Garza.*$", "Avenida Rómulo Garza"
+  )
+  
+  # Buscar coincidencia en el diccionario
+  nombre_normalizado <- nombre_avenida
+  for (i in 1:nrow(normalizacion)) {
+    if (str_detect(nombre_avenida, normalizacion$patron[i])) {
+      nombre_normalizado <- normalizacion$nombre_estandar[i]
+      break
+    }
+  }
+  
+  # Normalizar prefijos generales para los que no fueron capturados
+  if (nombre_normalizado == nombre_avenida) {
+    nombre_normalizado <- nombre_avenida %>%
+      str_replace("^Ave\\s+", "Avenida ") %>%
+      str_replace("^Av\\.\\s+", "Avenida ") %>%
+      str_replace("^Blvd\\.\\s+", "Boulevard ") %>%
+      str_replace("^Blv\\.\\s+", "Boulevard ") %>%
+      str_replace("\\s*\\([^\\)]+\\)$", "")
+  }
+  
+  return(nombre_normalizado)
+}
+
+# 1. Cargar datos
+trafico_data <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/InfoYalta/Puntos-ALGORITMO-FlujoVehicular.xlsx', sheet = "Tráfico")
+ubicaciones_data <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/InfoYalta/Puntos-ALGORITMO-FlujoVehicular.xlsx', sheet = "Ubicaciones")
+
+# Cargar KML de avenidas
+avenidas_kml_ruta <- '/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/Avenidas_ZMM.kml'
+avenidas_kml <- st_read(avenidas_kml_ruta, quiet = TRUE)
+
+# 2. Limpieza y normalización de nombres de avenidas (versión mejorada)
+avenidas_data <- trafico_data %>%
+  # Filtrar valores no válidos y convertir explícitamente flujo_diario a numérico
+  filter(!is.na(comercio), comercio != "N/A") %>%
+  # Convertir explícitamente valores de tipo texto "N/A" a NA real
+  mutate(
+    # Solucionar el problema de tipos de datos inconsistentes
+    flujo_diario = case_when(
+      flujo_diario == "N/A" ~ NA_real_,  # Convertir "N/A" de texto a NA numérico
+      TRUE ~ as.numeric(flujo_diario)    # Convertir todo a numérico
+    ),
+    # Agregar conversión a numérico para otros campos usados en cálculos
+    vel_prom = as.numeric(vel_prom)
+  ) %>%
+  # Aplicar la función completa de normalización
+  mutate(nombre_normalizado = sapply(comercio, normalizar_nombres_avenidas))
+
+# 2.1 Normalizar también los nombres en el KML
+avenidas_kml <- avenidas_kml %>%
+  mutate(nombre_normalizado = sapply(Name, normalizar_nombres_avenidas))
+
+# 2.2 Revisar la efectividad de la normalización
+resumen_normalizacion_trafico <- avenidas_data %>%
+  group_by(nombre_normalizado) %>%
+  summarise(
+    nombres_originales = n_distinct(comercio),
+    variantes = paste(unique(comercio), collapse = " | "),
+    n_puntos_total = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_puntos_total))
+
+resumen_normalizacion_kml <- avenidas_kml %>%
+  st_drop_geometry() %>%
+  group_by(nombre_normalizado) %>%
+  summarise(
+    nombres_originales = n_distinct(Name),  # Usando Name en lugar de nombre
+    variantes = paste(unique(Name), collapse = " | "),
+    n_segmentos = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_segmentos))
+
+# Imprimir resumen de normalización
+cat("\n=== RESUMEN DE NORMALIZACIÓN ===\n")
+cat("- Nombres únicos en datos de tráfico antes:", length(unique(avenidas_data$comercio)), "\n")
+cat("- Nombres únicos en datos de tráfico después:", length(unique(avenidas_data$nombre_normalizado)), "\n")
+cat("- Nombres únicos en KML antes:", length(unique(avenidas_kml$Name)), "\n")  # Usando Name
+cat("- Nombres únicos en KML después:", length(unique(avenidas_kml$nombre_normalizado)), "\n\n")
+
+# Algunos ejemplos de normalización
+cat("Ejemplos de normalización en datos de tráfico:\n")
+print(resumen_normalizacion_trafico %>% filter(nombres_originales > 1) %>% head(10))
+
+# 3. Calcular estadísticas por avenida normalizada (con enfoque más robusto)
+avenidas_stats <- avenidas_data %>%
+  # Filtrar valores válidos de flujo y asegurarse que todos son numéricos
+  filter(!is.na(flujo_diario), flujo_diario > 0, flujo_diario < 1000000) %>%
+  group_by(nombre_normalizado) %>%
+  summarise(
+    n_puntos = n(),
+    # Usar estadísticas robustas menos afectadas por valores extremos
+    flujo_promedio = mean(flujo_diario, na.rm = TRUE),
+    flujo_mediana = median(flujo_diario, na.rm = TRUE), # Menos sensible a extremos
+    vel_promedio = mean(vel_prom, na.rm = TRUE),
+    flujo_q25 = quantile(flujo_diario, 0.25, na.rm = TRUE),
+    flujo_q75 = quantile(flujo_diario, 0.75, na.rm = TRUE),
+    # Desviación y coeficiente de variación
+    desviacion = sd(flujo_diario, na.rm = TRUE),
+    coef_variacion = desviacion / flujo_promedio,
+    # Solo incluir avenidas con datos suficientes
+    .groups = "drop"
+  ) %>%
+  filter(n_puntos >= 3) # Mínimo 3 puntos para considerar el promedio confiable
+
+# 4. Clasificación en tres pasos
+
+# 4.1 Clasificación inicial usando la mediana de flujo 
+# (más robusta frente a valores extremos)
+avenidas_clasificadas <- avenidas_stats %>%
+  mutate(
+    jerarquia_inicial = case_when(
+      flujo_mediana >= 50000 ~ 4,  # Arterial
+      flujo_mediana >= 35000 ~ 3,  # Principal (umbral elevado de 25000 a 35000)
+      flujo_mediana >= 15000 ~ 2,  # Colectora (umbral elevado de 10000 a 15000)
+      TRUE ~ 1                     # Local
+    )
+  )
+
+# 4.2 Ajuste manual para avenidas con alta variabilidad pero conocidas como importantes
+# (basado en conocimiento local o designación oficial)
+avenidas_importantes <- c(
+  "Avenida Morones Prieto", 
+  "Boulevard Antonio L. Rodriguez",
+  "Avenida Gonzalitos",
+  "Avenida Constitución",
+  "Avenida Eugenio Garza Sada",
+  "Avenida Lázaro Cárdenas",
+  "Avenida Manuel L. Barragán",
+  "Avenida Miguel Alemán",
+  "Carretera Nacional",
+  "Paseo de los Leones"
+)
+
+avenidas_clasificadas <- avenidas_clasificadas %>%
+  mutate(
+    jerarquia_ajustada = case_when(
+      nombre_normalizado %in% avenidas_importantes & jerarquia_inicial < 3 ~ 3,
+      TRUE ~ jerarquia_inicial
+    )
+  )
+
+# 4.3 Clasificación final con nombres descriptivos
+avenidas_clasificadas <- avenidas_clasificadas %>%
+  mutate(
+    tipo_via = case_when(
+      jerarquia_ajustada == 4 ~ "Arterial",
+      jerarquia_ajustada == 3 ~ "Principal",
+      jerarquia_ajustada == 2 ~ "Colectora",
+      jerarquia_ajustada == 1 ~ "Local"
+    ),
+    jerarquia = jerarquia_ajustada # Campo final de jerarquía
+  ) %>%
+  select(-jerarquia_inicial, -jerarquia_ajustada) %>% # Limpiar campos temporales
+  arrange(desc(flujo_mediana)) # Ordenar por flujo mediano descendente
+
+# 5. Crear segmentos para avenidas con alta variabilidad
+# Para avenidas con CV > 0.8 podríamos subdividirlas en segmentos
+avenidas_segmentadas <- avenidas_clasificadas %>%
+  filter(coef_variacion > 0.8) %>%
+  pull(nombre_normalizado)
+
+# 6. Estadísticas por categoría 
+estadisticas_por_categoria <- avenidas_clasificadas %>%
+  group_by(jerarquia, tipo_via) %>%
+  summarise(
+    n_avenidas = n(),
+    flujo_promedio_categoria = mean(flujo_promedio),
+    flujo_mediana_categoria = mean(flujo_mediana),
+    velocidad_promedio = mean(vel_promedio, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print("Distribución de avenidas por categoría:")
+print(estadisticas_por_categoria)
+
+# 7. Unir la clasificación con el KML para facilitar visualización y uso posterior
+clasificacion_para_kml <- avenidas_clasificadas %>%
+  select(nombre_normalizado, flujo_promedio, flujo_mediana, jerarquia, tipo_via)
+
+avenidas_kml_clasificadas <- avenidas_kml %>%
+  left_join(clasificacion_para_kml, by = "nombre_normalizado") %>%
+  # Para avenidas sin datos de flujo, asignar jerarquía por defecto (1 - Local)
+  mutate(
+    jerarquia = ifelse(is.na(jerarquia), 1, jerarquia),
+    tipo_via = ifelse(is.na(tipo_via), "Local", tipo_via)
+  )
+
+# 8. Exportar resultados
+write_csv(avenidas_clasificadas, "clasificacion_avenidas.csv")
+
+# Versión simplificada para KML
+clasificacion_kml <- avenidas_clasificadas %>%
+  select(nombre = nombre_normalizado, flujo_promedio, flujo_mediana, jerarquia, tipo_via)
+
+write_csv(clasificacion_kml, "clasificacion_avenidas_kml.csv")
+
+# Guardar KML clasificado
+st_write(avenidas_kml_clasificadas, "avenidas_clasificadas.kml", append = FALSE)
+
+# Reporte de variabilidad
+write_csv(
+  avenidas_clasificadas %>% 
+    select(nombre_normalizado, n_puntos, flujo_promedio, flujo_mediana, 
+           coef_variacion, jerarquia, tipo_via) %>%
+    arrange(desc(coef_variacion)),
+  "variabilidad_avenidas.csv"
+)
+
+# Reporte de normalización
+write_csv(
+  bind_rows(
+    resumen_normalizacion_trafico %>% 
+      mutate(fuente = "Datos de tráfico") %>%
+      select(nombre_normalizado, fuente, nombres_originales, variantes, conteo = n_puntos_total),
+    resumen_normalizacion_kml %>% 
+      mutate(fuente = "KML") %>%
+      select(nombre_normalizado, fuente, nombres_originales, variantes, conteo = n_segmentos)
+  ),
+  "normalizacion_avenidas.csv"
+)
+
+print("Proceso de clasificación completado con normalización completa de nombres.")
