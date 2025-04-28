@@ -14,6 +14,7 @@ library(tidyr)
 library(tibble)
 library(leaflet)
 library(readr)  # para parse_number()
+library(stringr)
 
 ## Desactivar el uso de s2 (opcional, según complejidad de las geometrías)
 sf::sf_use_s2(FALSE)
@@ -188,14 +189,6 @@ if("Name" %in% names(parques_kml)){
   parques_kml <- parques_kml %>% rename(nombre = Name)
 }
 
-### Polígonos de avenidas principales (KML)
-avenidas_kml <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/Avenidas_ZMM.kml')
-
-#### Si en el KML de avenidas la columna que identifica la avenida se llama "Name", renómbrala a "nombre"
-if("Name" %in% names(avenidas_kml)){
-  avenidas_kml <- avenidas_kml %>% rename(nombre = Name)
-}
-
 ## 2.3. Cargar datos de amenidades
 amenidades <- read_excel('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[06] FUNCIONALIDAD Y AMENIDADES/Qlik Sense - Tabla Amenidades_ Desglose de Amenidades x Proy... MTY.xlsx')
 
@@ -206,9 +199,25 @@ amenidades_clean <- amenidades %>%
   mutate(across(c(control_de_acceso:vestidores), ~ ifelse(.x == "Sí", 1, 0))) %>%
   select(-c(segmento, ciudad, zona, precio_promedio_inventario, absorcion_historica, absorcioo_del_ult_q))
 
+## 2.4. Cargar archivo KML de avenidas
+avenidas_kml_path <- '/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/VIALIDADES_PROCESADAS/avenidas_clasificadas.kml'
+avenidas_layers <- st_layers(avenidas_kml_path)
+print(avenidas_layers)
+
+## Leer todas las capas del KML de avenidas y combinarlas
+avenidas_data_list <- lapply(avenidas_layers$name, function(x) {
+  st_read(avenidas_kml_path, layer = x)
+})
+avenidas_data <- do.call(rbind, avenidas_data_list)
+
+## Cambiar nombre de variable Name
+avenidas_data <- avenidas_data %>%
+  rename(nombre_normalizado = Name)
+
+## 2.5. Cargar clasificación de avenidas desde CSV
+clasificacion_avenidas <- read_csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/VIALIDADES_PROCESADAS/clasificacion_avenidas.csv')
 
 # ---- 3. Convertir los datos a objetos espaciales (sf) y renombrar columnas ----
-
 ## 3.1. Proyectos: Se asume que las columnas "Longitud" y "Latitud" contienen las coordenadas (WGS84)
 proyectos_sf <- st_as_sf(proyectos,
                          coords = c("Longitud", "Latitud"),
@@ -240,8 +249,18 @@ zonas_redi_renamed <- zonas_redi %>%
   rename(zona_name = Name,
          zona_description = Description)
 
-# ---- 4. Uniones espaciales e integración de la información ----
+## 3.5. Preparar datos de avenidas
+# Unir los datos de clasificación a las geometrías
+avenidas_data <- avenidas_data %>%
+  left_join(clasificacion_avenidas, by = "nombre_normalizado")
 
+# Verificar que las geometrías están bien formadas
+avenidas_data <- st_make_valid(avenidas_data)
+
+# Asegurarse que el CRS está en WGS84
+avenidas_data <- st_transform(avenidas_data, 4326)
+
+# ---- 4. Uniones espaciales e integración de la información ----
 ## 4.1. Calcular variables demográficas en radio de 1 km (nuevo enfoque)
 ### Ajustar variables a la categoría correcta
 demograficos_sf <- demograficos_sf %>%
@@ -327,14 +346,74 @@ proyectos_sf <- proyectos_sf %>%
   left_join(amenidades_clean, by = "Proyecto") %>%
   mutate(across(c(control_de_acceso:vestidores), ~ ifelse(is.na(.x), 0, .x)))  # Convertir NA a 0
 
-## 4.7. Calcular la avenida principal más cercana
-nearest_idx_av <- st_nearest_feature(proyectos_sf, avenidas_kml)
-proyectos_sf$nearest_avenue <- avenidas_kml$nombre[nearest_idx_av]
-proyectos_sf$dist_to_avenue <- st_distance(proyectos_sf, avenidas_kml[nearest_idx_av, ], by_element = TRUE)
-proyectos_sf$dist_to_avenue <- as.numeric(proyectos_sf$dist_to_avenue)
+## 4.7. Calcular la distancia a la avenida principal más cercana y su clasificación
+# Transformar a UTM para cálculos de distancia en metros
+proyectos_utm <- st_transform(proyectos_sf, 32614)  # UTM 14N para Monterrey
+avenidas_utm <- st_transform(avenidas_data, 32614)
+
+# Función para calcular la distancia a la avenida más cercana y sus características
+calcular_dist_avenidas <- function(proyectos_sf, avenidas_sf) {
+  # Inicializar columnas de resultado
+  n <- nrow(proyectos_sf)
+  dist_to_avenue <- numeric(n)
+  nearest_avenue_name <- character(n)
+  nearest_avenue_type <- character(n)
+  nearest_avenue_hierarchy <- numeric(n)
+  nearest_avenue_flow <- numeric(n)
+  
+  # Para cada proyecto, calcular distancia a la avenida más cercana
+  for (i in 1:n) {
+    proyecto <- proyectos_sf[i, ]
+    
+    # Calcular distancias a todas las avenidas
+    distancias <- st_distance(proyecto, avenidas_sf)
+    
+    # Encontrar la avenida más cercana
+    idx_min <- which.min(distancias)
+    
+    if (length(idx_min) > 0) {
+      dist_to_avenue[i] <- as.numeric(distancias[idx_min])
+      nearest_avenue_name[i] <- avenidas_sf$nombre_normalizado[idx_min]
+      nearest_avenue_type[i] <- avenidas_sf$tipo_via[idx_min]
+      nearest_avenue_hierarchy[i] <- avenidas_sf$jerarquia[idx_min]
+      nearest_avenue_flow[i] <- avenidas_sf$flujo_promedio[idx_min]
+    } else {
+      dist_to_avenue[i] <- NA
+      nearest_avenue_name[i] <- NA
+      nearest_avenue_type[i] <- NA
+      nearest_avenue_hierarchy[i] <- NA
+      nearest_avenue_flow[i] <- NA
+    }
+  }
+  
+  # Crear data frame con resultados
+  resultados <- data.frame(
+    dist_to_avenue = dist_to_avenue,
+    nearest_avenue_name = nearest_avenue_name,
+    nearest_avenue_type = nearest_avenue_type,
+    nearest_avenue_hierarchy = nearest_avenue_hierarchy,
+    nearest_avenue_flow = nearest_avenue_flow
+  )
+  
+  return(resultados)
+}
+
+# Calcular distancias
+distancias_avenidas <- calcular_dist_avenidas(proyectos_utm, avenidas_utm)
+
+# Unir resultados a proyectos_sf
+proyectos_sf <- cbind(proyectos_sf, distancias_avenidas)
+
+# Crear variables dicotómicas de cercanía a avenidas
+proyectos_sf <- proyectos_sf %>%
+  mutate(
+    # Cercanía a avenida (umbral de 200m)
+    cerca_avenida_principal = ifelse(!is.na(nearest_avenue_hierarchy) & 
+                                       dist_to_avenue <= 200 & 
+                                       nearest_avenue_hierarchy %in% c(1, 2), 1, 0)
+  )
 
 # ---- 5. Procesamiento adicional de variables ----
-
 ## Procesar la variable "nse_description" para extraer NSE, Personas, Hogares y Precio Promedio de Vivienda
 base_integrada <- proyectos_sf %>%
   extract(
@@ -344,7 +423,7 @@ base_integrada <- proyectos_sf %>%
     remove = FALSE
   ) %>%
   rename(
-    absorcion = `Absorcion por proyecto`,
+    absorcion = Absorcion.por.proyecto,
     nearest_relevant_park = nearest_park_kml,
     dist_to_relevant_park = dist_to_park_kml
   ) %>%
@@ -377,10 +456,23 @@ base_integrada <- base_integrada %>%
   ) %>%
   relocate(inv_dist_to_park, .after = dist_to_relevant_park)
 
-# ---- 6. Visualización en un mapa interactivo con Leaflet ----
+# Agregar la información de avenidas a base_integrada
+base_integrada <- base_integrada %>%
+  mutate(
+    dist_to_avenue = proyectos_sf$dist_to_avenue,
+    nearest_avenue_name = proyectos_sf$nearest_avenue_name,
+    nearest_avenue_type = proyectos_sf$nearest_avenue_type,
+    nearest_avenue_hierarchy = proyectos_sf$nearest_avenue_hierarchy,
+    nearest_avenue_flow = proyectos_sf$nearest_avenue_flow,
+    cerca_avenida_principal = proyectos_sf$cerca_avenida_principal
+  )
 
-# Preparar datos para leaflet sin usar objetos sf
+# ---- 6. Visualización en un mapa interactivo con Leaflet ----
+# Modificar para incluir información de avenidas en el popup
+
+# Actualizar datos_mapa para incluir información de avenidas
 datos_mapa <- data.frame(
+  # Variables existentes
   Proyecto = base_integrada$Proyecto,
   Desarrollador = base_integrada$Desarrollador,
   Municipio = base_integrada$Municipio,
@@ -391,24 +483,21 @@ datos_mapa <- data.frame(
   dist_to_park = base_integrada$dist_to_park,
   nearest_relevant_park = base_integrada$nearest_relevant_park,
   dist_to_relevant_park = base_integrada$dist_to_relevant_park,
-  nearest_avenue = base_integrada$nearest_avenue,
+  
+  # variables de avenidas
+  nearest_avenue = base_integrada$nearest_avenue_name,
   dist_to_avenue = base_integrada$dist_to_avenue,
+  cerca_avenida_principal = base_integrada$cerca_avenida_principal,
+  
+  # Coordenadas y marcador
   lat = base_integrada$Latitud,
   lng = base_integrada$Longitud,
   es_nuevo = base_integrada$Proyecto == nombre_proyecto
 ) %>%
   mutate_if(is.factor, as.character)
 
-# Filtrar solo las filas con coordenadas válidas
-datos_mapa <- datos_mapa %>%
-  filter(!is.na(lat) & !is.na(lng)) %>%
-  # Asegurarse que las coordenadas están en formato correcto
-  mutate(
-    lat = as.numeric(lat),
-    lng = as.numeric(lng)
-  )
-
-# Crear mapa con leaflet usando datos filtrados
+# Modificar el código de creación del mapa para incluir información de avenidas
+# Dentro de la función addCircleMarkers, actualizar popup:
 mapa <- leaflet(datos_mapa) %>%
   addTiles() %>%
   setView(lng = lon_decimal, lat = lat_decimal, zoom = 14) %>%
@@ -430,14 +519,13 @@ mapa <- leaflet(datos_mapa) %>%
       "<strong>Distancia (m) - Verdes:</strong>", round(dist_to_park, 1), "<br>",
       "<strong>Parque importante más cercano:</strong>", nearest_relevant_park, "<br>",
       "<strong>Distancia (m) - Parque importante:</strong>", round(dist_to_relevant_park, 1), "<br>",
-      "<strong>Avenida más cercana:</strong>", nearest_avenue, "<br>",
+      "<strong>Avenida más cercana:</strong>", ifelse(is.na(nearest_avenue), "Sin información", nearest_avenue), "<br>",
       "<strong>Distancia (m) - Avenida:</strong>", round(dist_to_avenue, 1)
     )
   ) %>%
   addScaleBar(position = "bottomleft")
 
-# Mostrar el mapa
-print(mapa)
+mapa
 
 # ---- 7. Exportar base de datos ----
 ## Exportar a GeoPackage para mantener geometrías.
@@ -459,3 +547,5 @@ cat("Parque más cercano:", as.character(nuevo_proyecto_info$nearest_park), "(",
 cat("Parque importante más cercano:", as.character(nuevo_proyecto_info$nearest_relevant_park), "(", round(nuevo_proyecto_info$dist_to_relevant_park), "m)\n")
 cat("Población en 1km:", round(nuevo_proyecto_info$pob2020_1km), "\n")
 cat("Hogares en 1km:", round(nuevo_proyecto_info$hogares2020_1km), "\n")
+cat("Avenida más cercana:", as.character(nuevo_proyecto_info$nearest_avenue_name), "(", round(nuevo_proyecto_info$dist_to_avenue), "m)\n")
+cat("Cercanía a avenida principal:", ifelse(nuevo_proyecto_info$cerca_avenida_principal == 1, "Sí", "No"), "\n")
