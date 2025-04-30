@@ -40,10 +40,19 @@ factores <- list(
     "cantidad_restau_1km", 
     "cantidad_oficina_1km", 
     "cantidad_tienda_dept_1km"
+  ),
+  
+  # Nueva categoría: Variables de vialidades
+  vialidades = c(
+    "cerca_avenida_principal",
+    "cercania_avenida",
+    "cercania_avenida_arterial",
+    "cercania_avenida_secundaria",
+    "accesibilidad_vial"
   )
 )
 
-# Añadir información de vialidades a la lista de factores
+# Añadir vialidades a la lista de otros factores
 factores$otros <- c(factores$otros, "cerca_avenida_principal", "accesibilidad_vial")
 
 # ---- 3. Calcular las correlaciones entre cada factor y el precio por m² ----
@@ -157,6 +166,7 @@ pesos_df <- data.frame(
 )
 
 # Categorizar factores para el gráfico
+# Actualizar categorización para incluir vialidades
 categorias_factores <- character(length(pesos_df$Factor))
 for (i in 1:length(pesos_df$Factor)) {
   factor <- pesos_df$Factor[i]
@@ -166,6 +176,8 @@ for (i in 1:length(pesos_df$Factor)) {
     categorias_factores[i] <- "Cercanías"
   } else if (factor %in% factores$cantidades) {
     categorias_factores[i] <- "Cantidades"
+  } else if (factor %in% factores$vialidades) {
+    categorias_factores[i] <- "Vialidades"  # Nueva categoría
   } else {
     categorias_factores[i] <- "Otros"
   }
@@ -209,38 +221,58 @@ print(grafico_pesos_agrupados)
 # ---- 10. Exportar los pesos finales para usar en el cálculo del IVU ----
 pesos_finales <- pesos_calculados
 
-# Añadir manualmente pesos para nuevas variables
-pesos_finales["cerca_avenida_principal"] <- 0.03
-pesos_finales["accesibilidad_vial"] <- 0.05
+# Asignar pesos específicos a variables viales si no existen en correlaciones
+if (!"cerca_avenida_principal" %in% names(pesos_finales)) {
+  pesos_finales["cerca_avenida_principal"] <- 0.0300
+}
+if (!"accesibilidad_vial" %in% names(pesos_finales)) {
+  pesos_finales["accesibilidad_vial"] <- 0.0500
+}
+if (!"cercania_avenida" %in% names(pesos_finales)) {
+  pesos_finales["cercania_avenida"] <- 0.0200
+}
+if (!"cercania_avenida_arterial" %in% names(pesos_finales)) {
+  pesos_finales["cercania_avenida_arterial"] <- 0.0250
+}
+if (!"cercania_avenida_secundaria" %in% names(pesos_finales)) {
+  pesos_finales["cercania_avenida_secundaria"] <- 0.0150
+}
 
-# Mostrar los pesos en formato código para copiar y pegar
+# Actualizar la sección de exportación de pesos para incluir vialidades
 cat("\n\nPESOS PARA USAR EN EL CÁLCULO DEL IVU:\n")
 cat("pesos <- c(\n")
 
 # Cantidades
 cat("  # Cantidades\n")
 for (factor in factores$cantidades) {
-  cat(sprintf('  "%s" = %.4f,\n', factor, pesos_finales[factor]))
+  if (factor %in% names(pesos_finales)) {
+    cat(sprintf('  "%s" = %.4f,\n', factor, pesos_finales[factor]))
+  }
 }
 
 # Cercanías
 cat("\n  # Cercanías\n")
 for (factor in factores$cercanias) {
-  cat(sprintf('  "%s" = %.4f,\n', factor, pesos_finales[factor]))
+  if (factor %in% names(pesos_finales)) {
+    cat(sprintf('  "%s" = %.4f,\n', factor, pesos_finales[factor]))
+  }
 }
 
 # Índices
 cat("\n  # Índices\n")
 for (factor in factores$indices) {
-  cat(sprintf('  "%s" = %.4f,\n', 
-              factor, 
-              pesos_finales[factor]))
+  if (factor %in% names(pesos_finales)) {
+    cat(sprintf('  "%s" = %.4f,\n', factor, pesos_finales[factor]))
+  }
 }
 
-# Nueva sección para variables de avenidas
-cat("\n  # Avenidas principales\n")
-cat(sprintf('  "%s" = %.4f,\n', "cerca_avenida_principal", pesos_finales["cerca_avenida_principal"]))
-cat(sprintf('  "%s" = %.4f\n', "accesibilidad_vial", pesos_finales["accesibilidad_vial"]))
+# Nueva sección para variables de vialidades
+cat("\n  # Vialidades\n")
+for (factor in factores$vialidades) {
+  if (factor %in% names(pesos_finales)) {
+    cat(sprintf('  "%s" = %.4f,\n', factor, pesos_finales[factor]))
+  }
+}
 
 cat(")\n")
 
@@ -251,3 +283,17 @@ print(summary_pesos)
 
 # Mostrar peso total para verificar normalización
 cat("\nSuma total de pesos:", sum(pesos_finales), "\n")
+
+# Agregar resumen por categoría incluyendo vialidades
+pesos_por_categoria <- data.frame(
+  Categoria = c("Cantidades", "Cercanías", "Índices", "Vialidades", "Otros"),
+  Peso_Total = c(
+    sum(pesos_finales[intersect(names(pesos_finales), factores$cantidades)], na.rm = TRUE),
+    sum(pesos_finales[intersect(names(pesos_finales), factores$cercanias)], na.rm = TRUE),
+    sum(pesos_finales[intersect(names(pesos_finales), factores$indices)], na.rm = TRUE),
+    sum(pesos_finales[intersect(names(pesos_finales), factores$vialidades)], na.rm = TRUE),
+    sum(pesos_finales[setdiff(names(pesos_finales), 
+                              unlist(factores[c("cantidades", "cercanias", "indices", "vialidades")]))], 
+        na.rm = TRUE)
+  )
+)
