@@ -474,28 +474,6 @@ grafico_accesibilidad_ivu <- ggplot(datos,
 
 print(grafico_accesibilidad_ivu)
 
-## Nueva visualización: Contribución de componentes al IVU
-ggplot(datos, aes(x = reorder(Proyecto, ivu), y = ivu)) +
-  geom_bar(aes(y = contrib_indices, fill = "Índices"), stat = "identity") +
-  geom_bar(aes(y = contrib_cercanias, fill = "Cercanías"), stat = "identity", position = "stack") +
-  geom_bar(aes(y = contrib_cantidades, fill = "Cantidades"), stat = "identity", position = "stack") +
-  geom_bar(aes(y = contrib_vialidades, fill = "Vialidades"), stat = "identity", position = "stack") +
-  geom_bar(aes(y = contrib_otros, fill = "Otros"), stat = "identity", position = "stack") +
-  scale_fill_manual(values = c(
-    "Índices" = "#4f46e5",
-    "Cercanías" = "#6366f1",
-    "Cantidades" = "#818cf8",
-    "Vialidades" = "#a5b4fc",
-    "Otros" = "#c7d2fe"
-  )) +
-  labs(title = "Contribución de componentes al IVU por proyecto",
-       x = "Proyecto",
-       y = "Valor del IVU",
-       fill = "Componente") +
-  theme_minimal() +
-  theme(axis.text.x = element_blank()) +
-  coord_flip()
-
 # 5. Gráfico radar para un proyecto específico (usando plotly)
 crear_radar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
   # Usar la función auxiliar para seleccionar el proyecto
