@@ -309,14 +309,14 @@ base_transformada <- base_transformada %>%
   mutate(
     potencial_inversion = (
       (alto_crecimiento * 3) +
-        (cerca_parque_relevante * 2) +
+        (cerca_parque_relevante * 3) +
         (indice_accesibilidad * 4) +
-        (alta_densidad_comercial * 2) +
+        (alta_densidad_comercial * 4) +
         (alto_entorno_laboral * 2) +
         (accesibilidad_vial * 3) +                # Nueva variable
         (cerca_avenida_principal * 2) +           # Nueva variable
         (ifelse(Estatus == "Preventa", 1, 0) * 1)
-    ) / 19  # Actualizar denominador (14 + 5)
+    ) / 22  # Actualizar denominador (14 + 5)
   )
 
 # 5.2 Índice de balance uso/precio
@@ -334,12 +334,12 @@ base_transformada <- base_transformada %>%
 base_transformada <- base_transformada %>%
   mutate(
     indice_conveniencia = (
-      cercania_super * 0.20 +
-        cercania_restau * 0.10 +
-        cercania_hospital * 0.15 +
+      cercania_super * 0.10 +
+        cercania_restau * 0.15 +
+        cercania_hospital * 0.10 +
         cercania_esc_priv * 0.10 +
         cercania_tienda_dept * 0.10 +
-        cerca_parque_relevante * 0.10 +
+        cerca_parque_relevante * 0.20 +
         cerca_avenida_principal * 0.15 +          # Nueva variable
         cercania_avenida_arterial * 0.10          # Nueva variable
     ),
@@ -640,9 +640,9 @@ if(ejecutar_justificacion) {
     indice_accesibilidad = 4,
     alto_crecimiento = 3,
     accesibilidad_vial = 3,
-    alta_densidad_comercial = 2,
+    alta_densidad_comercial = 4,
     alto_entorno_laboral = 2,
-    cerca_parque_relevante = 2,
+    cerca_parque_relevante = 3,
     cerca_avenida_principal = 2,
     Estatus_preventa = 1
   )
@@ -691,14 +691,14 @@ if(ejecutar_justificacion) {
   
   # Comparar con pesos del código
   pesos_codigo_conv <- c(
-    cercania_super = 0.20,
-    cercania_hospital = 0.15,
+    cercania_super = 0.10,
+    cercania_hospital = 0.10,
     cerca_avenida_principal = 0.15,
     cercania_avenida_arterial = 0.10,
-    cercania_restau = 0.10,
+    cercania_restau = 0.15,
     cercania_esc_priv = 0.10,
     cercania_tienda_dept = 0.10,
-    cerca_parque_relevante = 0.10
+    cerca_parque_relevante = 0.20
   )
   
   # Filtrar solo las variables existentes para comparación
