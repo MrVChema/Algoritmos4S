@@ -1,6 +1,12 @@
+###############################################################################
 # Índice de Valor por Ubicación (IVU)
-# Script para el cálculo y visualización del impacto de equipamientos urbanos en proyectos inmobiliarios
+# Script para el cálculo y visualización del impacto de equipamientos urbanos 
+# en proyectos inmobiliarios
+###############################################################################
 
+#------------------------------------------------------------------------------
+# 1. CONFIGURACIÓN INICIAL
+#------------------------------------------------------------------------------
 # Limpiar el entorno y carga de bibliotecas necesarias
 rm(list = ls())
 
@@ -17,12 +23,18 @@ library(extrafont)    # Para usar tipografías adicionales
 library(htmltools)    # Trabajar con las fuentes
 
 # Establecer directorio de trabajo
-setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
 
-# 1. Cargar los datos
+#------------------------------------------------------------------------------
+# 2. CARGAR DATOS
+#------------------------------------------------------------------------------
+# Cargar los datos
 datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_inmobiliaria_transformada.csv', stringsAsFactors = FALSE, encoding = "UTF-8")
 
-# 2. Definir los factores para el cálculo del IVU
+#------------------------------------------------------------------------------
+# 3. DEFINICIÓN DE FACTORES PARA EL CÁLCULO DEL IVU
+#------------------------------------------------------------------------------
+# Definir los factores para el cálculo del IVU
 factores <- list(
   # Índices existentes
   indices = c("indice_accesibilidad", "potencial_inversion", "indice_conveniencia"),
@@ -72,7 +84,10 @@ factores <- list(
   )
 )
 
-# 3. Función para normalizar valores entre 0 y 1
+#------------------------------------------------------------------------------
+# 4. FUNCIÓN PARA NORMALIZAR VALORES
+#------------------------------------------------------------------------------
+# Función para normalizar valores entre 0 y 1
 normalizar <- function(valores) {
   valores_numericos <- as.numeric(valores)
   valores_validos <- valores_numericos[!is.na(valores_numericos)]
@@ -95,46 +110,52 @@ normalizar <- function(valores) {
   return(resultado)
 }
 
-# 4. Normalizar las cantidades de equipamientos
+#------------------------------------------------------------------------------
+# 5. NORMALIZACIÓN DE CANTIDADES DE EQUIPAMIENTOS
+#------------------------------------------------------------------------------
+# Normalizar las cantidades de equipamientos
 cantidades_norm <- list()
 for (col in factores$cantidades) {
   cantidades_norm[[col]] <- normalizar(datos[[col]])
 }
 
-# 5. Ponderaciones basadas en correlaciones con precio
+#------------------------------------------------------------------------------
+# 6. DEFINICIÓN DE PONDERACIONES (PESOS)
+#------------------------------------------------------------------------------
+# Ponderaciones basadas en correlaciones con precio
 # Estos pesos se basan en el análisis previo
 pesos <- c(
   # Cantidades
-  "cantidad_hospital_1km" = 0.0289,
+  "cantidad_hospital_1km" = 0.0290,
   "cantidad_esc_priv_1km" = 0.0057,
   "cantidad_esc_pub_1km" = 0.0138,
   "cantidad_universidad_1km" = 0.0099,
-  "cantidad_super_1km" = 0.0293,
-  "cantidad_restau_1km" = 0.0161,
-  "cantidad_oficina_1km" = 0.0749,
-  "cantidad_tienda_dept_1km" = 0.0255,
+  "cantidad_super_1km" = 0.0294,
+  "cantidad_restau_1km" = 0.0162,
+  "cantidad_oficina_1km" = 0.0752,
+  "cantidad_tienda_dept_1km" = 0.0256,
   
   # Cercanías
-  "cercania_hospital" = 0.0245,
-  "cercania_esc_priv" = 0.0606,
+  "cercania_hospital" = 0.0246,
+  "cercania_esc_priv" = 0.0608,
   "cercania_esc_pub" = 0.0138,
-  "cercania_universidad" = 0.0626,
-  "cercania_super" = 0.0309,
-  "cercania_restau" = 0.0202,
-  "cercania_oficina" = 0.0352,
-  "cercania_tienda_dept" = 0.0729,
+  "cercania_universidad" = 0.0628,
+  "cercania_super" = 0.0310,
+  "cercania_restau" = 0.0203,
+  "cercania_oficina" = 0.0353,
+  "cercania_tienda_dept" = 0.0732,
   
   # Índices
-  "indice_accesibilidad" = 0.0672,
+  "indice_accesibilidad" = 0.0675,
   "potencial_inversion" = 0.0915,
-  "indice_conveniencia" = 0.0914,
+  "indice_conveniencia" = 0.0918,
   
   # Vialidades (nuevos)
-  "cerca_avenida_principal" = 0.0351,
-  "cercania_avenida" = 0.0512,
-  "cercania_avenida_arterial" = 0.0322,
+  "cerca_avenida_principal" = 0.0352,
+  "cercania_avenida" = 0.0514,
+  "cercania_avenida_arterial" = 0.0324,
   "cercania_avenida_secundaria" = 0.0109,
-  "accesibilidad_vial" = 0.0957
+  "accesibilidad_vial" = 0.0926
 )
 
 # Agregar pesos para otros factores
@@ -142,7 +163,10 @@ for (factor in factores$otros) {
   pesos[factor] <- 0.021  # 2.1% para cada uno de los otros factores
 }
 
-# 6. Calcular el Índice de Valor por Ubicación (IVU)
+#------------------------------------------------------------------------------
+# 7. CÁLCULO DEL ÍNDICE DE VALOR POR UBICACIÓN (IVU)
+#------------------------------------------------------------------------------
+# VERSIÓN MEJORADA: Calcular el IVU registrando todas las contribuciones
 calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
   n <- nrow(datos)
   ivu <- numeric(n)
@@ -156,7 +180,9 @@ calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
     # Sumar los índices existentes
     for (indice in factores$indices) {
       if (!is.na(datos[i, indice])) {
-        suma <- suma + datos[i, indice] * pesos[indice]
+        valor <- datos[i, indice] * pesos[indice]
+        suma <- suma + valor
+        contribuciones[i, indice] <- valor  # Registrar contribución
         peso_total <- peso_total + pesos[indice]
       }
     }
@@ -164,7 +190,9 @@ calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
     # Sumar las cercanías (ya son binarias 0-1)
     for (cercania in factores$cercanias) {
       if (!is.na(datos[i, cercania])) {
-        suma <- suma + datos[i, cercania] * pesos[cercania]
+        valor <- datos[i, cercania] * pesos[cercania]
+        suma <- suma + valor
+        contribuciones[i, cercania] <- valor  # Registrar contribución
         peso_total <- peso_total + pesos[cercania]
       }
     }
@@ -172,7 +200,9 @@ calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
     # Sumar las cantidades normalizadas
     for (cantidad in factores$cantidades) {
       if (!is.na(cantidades_norm[[cantidad]][i])) {
-        suma <- suma + cantidades_norm[[cantidad]][i] * pesos[cantidad]
+        valor <- cantidades_norm[[cantidad]][i] * pesos[cantidad]
+        suma <- suma + valor
+        contribuciones[i, cantidad] <- valor  # Registrar contribución
         peso_total <- peso_total + pesos[cantidad]
       }
     }
@@ -180,7 +210,9 @@ calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
     # Sumar otros factores binarios
     for (otro in factores$otros) {
       if (!is.na(datos[i, otro])) {
-        suma <- suma + datos[i, otro] * pesos[otro]
+        valor <- datos[i, otro] * pesos[otro]
+        suma <- suma + valor
+        contribuciones[i, otro] <- valor  # Registrar contribución
         peso_total <- peso_total + pesos[otro]
       }
     }
@@ -188,7 +220,18 @@ calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
     # Sumar variables de vialidades
     for (vialidad in factores$vialidades) {
       if (vialidad %in% names(datos) && !is.na(datos[i, vialidad])) {
-        valor <- datos[i, vialidad] * pesos[vialidad]
+        # Validación adicional para variables de vialidades
+        if (grepl("cercania_avenida|cerca_avenida", vialidad)) {
+          # Verificar la distancia real
+          if (is.na(datos[i, "dist_to_avenue"]) || datos[i, "dist_to_avenue"] > 3000) {
+            valor <- 0  # No contribuye si está demasiado lejos
+          } else {
+            valor <- datos[i, vialidad] * pesos[vialidad]
+          }
+        } else {
+          valor <- datos[i, vialidad] * pesos[vialidad]
+        }
+        
         suma <- suma + valor
         contribuciones[i, vialidad] <- valor
         peso_total <- peso_total + pesos[vialidad]
@@ -203,8 +246,7 @@ calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
   return(result)
 }
 
-# 7. Calcular el IVU para todos los proyectos
-# Añadir cálculo de contribución por categoría
+# Calcular el IVU para todos los proyectos y obtener las contribuciones
 resultado_ivu <- calcular_ivu(datos, pesos, cantidades_norm, factores)
 datos$ivu <- resultado_ivu$ivu
 contribuciones <- resultado_ivu$contribuciones
@@ -216,7 +258,7 @@ datos$contrib_cantidades <- rowSums(contribuciones[, intersect(factores$cantidad
 datos$contrib_vialidades <- rowSums(contribuciones[, intersect(factores$vialidades, colnames(contribuciones))], na.rm = TRUE)
 datos$contrib_otros <- rowSums(contribuciones[, intersect(factores$otros, colnames(contribuciones))], na.rm = TRUE)
 
-# 8. Crear categorías para el IVU (para el termómetro)
+# Crear categorías para el IVU (para el termómetro)
 datos$ivu_categoria <- cut(
   datos$ivu, 
   breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
@@ -224,7 +266,10 @@ datos$ivu_categoria <- cut(
   include.lowest = TRUE
 )
 
-# 9. Estadísticas del IVU
+#------------------------------------------------------------------------------
+# 8. ESTADÍSTICAS DEL IVU
+#------------------------------------------------------------------------------
+# Estadísticas del IVU
 estadisticas_ivu <- list(
   min = min(datos$ivu, na.rm = TRUE),
   max = max(datos$ivu, na.rm = TRUE),
@@ -253,7 +298,7 @@ print(paste("Media:", round(estadisticas_vialidades$media, 4)))
 print(paste("Porcentaje promedio del IVU:", round(estadisticas_vialidades$porcentaje, 1), "%"))
 
 
-# 10. Distribución de proyectos por categoría
+# Distribución de proyectos por categoría
 tabla_categorias <- table(datos$ivu_categoria)
 tabla_categorias_percent <- prop.table(tabla_categorias) * 100
 
@@ -265,7 +310,7 @@ for (i in 1:length(tabla_categorias)) {
   print(paste0(cat, ": ", count, " proyectos (", round(pct, 1), "%)"))
 }
 
-# 11. Promedio de IVU por municipio
+# Promedio de IVU por municipio
 promedio_municipios <- datos %>%
   group_by(Municipio) %>%
   summarise(
@@ -283,9 +328,9 @@ for (i in 1:nrow(promedio_municipios)) {
   ))
 }
 
-#--------------------
-# Visualizaciones
-#--------------------
+#------------------------------------------------------------------------------
+# 9. VISUALIZACIONES
+#------------------------------------------------------------------------------
 # Función auxiliar para seleccionar un proyecto consistentemente
 seleccionar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
   # Permitir selección por índice o por nombre
@@ -304,10 +349,12 @@ seleccionar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto 
 }
 
 # Definir el proyecto a analizar de forma consistente
-indice_proyecto_seleccionado <- 54  # O el índice que prefieras
+indice_proyecto_seleccionado <- 26  # O el índice que prefieras
 # nombre_proyecto_seleccionado <- "Nombre del Proyecto"  # Alternativa por nombre
 
-# 1. Visualización del Termómetro Mejorado
+#-------------------------------------------------------
+# 9.1 VISUALIZACIÓN DEL TERMÓMETRO MEJORADO
+#-------------------------------------------------------
 crear_termometro <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
   # Usar la función auxiliar para seleccionar el proyecto
   proyecto <- seleccionar_proyecto(datos, indice_proyecto, nombre_proyecto)
@@ -380,7 +427,9 @@ crear_termometro <- function(datos, indice_proyecto = NULL, nombre_proyecto = NU
 termometro_ejemplo <- crear_termometro(datos, indice_proyecto = indice_proyecto_seleccionado)
 print(termometro_ejemplo)
 
-# 2. Gráfico de barras del IVU por municipio
+#-------------------------------------------------------
+# 9.2 GRÁFICO DE BARRAS DEL IVU POR MUNICIPIO
+#-------------------------------------------------------
 grafico_municipios <- ggplot(promedio_municipios, aes(x = reorder(Municipio, PromedioIVU), y = PromedioIVU)) +
   geom_bar(stat = "identity", fill = "#6366f1") +
   geom_text(aes(label = sprintf("%.2f", PromedioIVU)), vjust = -0.5) +
@@ -392,7 +441,9 @@ grafico_municipios <- ggplot(promedio_municipios, aes(x = reorder(Municipio, Pro
 
 print(grafico_municipios)
 
-# 3. Distribución de categorías IVU
+#-------------------------------------------------------
+# 9.3 DISTRIBUCIÓN DE CATEGORÍAS IVU
+#-------------------------------------------------------
 grafico_categorias <- ggplot(data.frame(Categoria = names(tabla_categorias), 
                                         Cantidad = as.numeric(tabla_categorias)), 
                              aes(x = Categoria, y = Cantidad, fill = Categoria)) +
@@ -417,8 +468,10 @@ grafico_categorias <- ggplot(data.frame(Categoria = names(tabla_categorias),
 
 print(grafico_categorias)
 
-# 4. Relación de variables con precio por m²
-## 4.1 Relación entre IVU y precio por m²
+#-------------------------------------------------------
+# 9.4 RELACIÓN DE VARIABLES CON PRECIO POR M²
+#-------------------------------------------------------
+## 9.4.1 Relación entre IVU y precio por m²
 grafico_precio_ivu <- ggplot(datos, aes(x = ivu, y = p_m2, color = ivu_categoria)) +
   geom_point(alpha = 0.7) +
   scale_color_manual(values = c("Muy bajo" = "#EF6558", "Bajo" = "#F8C579", 
@@ -442,7 +495,7 @@ grafico_precio_ivu <- ggplot(datos, aes(x = ivu, y = p_m2, color = ivu_categoria
 
 print(grafico_precio_ivu)
 
-## 4.2 Relación entre IVU y absorcion
+## 9.4.2 Relación entre IVU y absorcion
 grafico_absorcion_ivu <- ggplot(datos, aes(x = ivu, y = absorcion, color = ivu_categoria)) +
   geom_point(alpha = 0.7) +
   scale_color_manual(values = c("Muy bajo" = "#EF6558", "Bajo" = "#F8C579", 
@@ -467,10 +520,9 @@ grafico_absorcion_ivu <- ggplot(datos, aes(x = ivu, y = absorcion, color = ivu_c
 
 print(grafico_absorcion_ivu)
 
-## 4.3 Relación entre cercanía a avenidas y precio
-
+## 9.4.3 Relación entre cercanía a avenidas y precio
 grafico_avenidas_precio <- ggplot(datos, 
-                                         aes(x = dist_to_avenue, y = p_m2)) +
+                                  aes(x = dist_to_avenue, y = p_m2)) +
   geom_point(alpha = 0.7, color = "#666666") +
   geom_smooth(method = "loess", se = TRUE, color = "#000000") +
   labs(title = "Relación entre distancia a avenidas\nprincipales y precio por m²",
@@ -488,8 +540,7 @@ grafico_avenidas_precio <- ggplot(datos,
 
 print(grafico_avenidas_precio)
 
-
-## 4.4 Nueva visualización: Relación entre accesibilidad vial e IVU
+## 9.4.4 Relación entre accesibilidad vial e IVU
 grafico_accesibilidad_ivu <- ggplot(datos, 
                                     aes(x = accesibilidad_vial, y = ivu, 
                                         color = factor(cerca_avenida_principal))) +
@@ -514,7 +565,9 @@ grafico_accesibilidad_ivu <- ggplot(datos,
 
 print(grafico_accesibilidad_ivu)
 
-# 5. Gráfico radar para un proyecto específico (usando plotly)
+#-------------------------------------------------------
+# 9.5 GRÁFICO RADAR PARA UN PROYECTO ESPECÍFICO
+#-------------------------------------------------------
 crear_radar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
   # Usar la función auxiliar para seleccionar el proyecto
   proyecto <- seleccionar_proyecto(datos, indice_proyecto, nombre_proyecto)
@@ -555,12 +608,13 @@ crear_radar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto 
     )
 }
 
-# Ejemplo para el primer proyecto
+# Ejemplo para el proyecto seleccionado
 radar_ejemplo <- crear_radar_proyecto(datos, indice_proyecto = indice_proyecto_seleccionado)
 print(radar_ejemplo)
 
-
-# 6. Mapa interactivo
+#-------------------------------------------------------
+# 9.6 MAPA INTERACTIVO
+#-------------------------------------------------------
 crear_mapa <- function(datos) {
   # Definir paleta de colores por categoría IVU
   pal <- colorFactor(
@@ -629,5 +683,280 @@ crear_mapa <- function(datos) {
 mapa <- crear_mapa(datos)
 mapa
 
-# 7. Guardar el dataframe con el IVU calculado
+#-------------------------------------------------------
+# 9.7 NUEVAS VISUALIZACIONES: ANÁLISIS DE FACTORES DEL IVU
+#-------------------------------------------------------
+
+# 9.7.1 Radar de factores individuales que más contribuyen al IVU
+crear_radar_factores <- function(datos, contribuciones, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Usar la función auxiliar para seleccionar el proyecto
+  proyecto <- seleccionar_proyecto(datos, indice_proyecto, nombre_proyecto)
+  indice <- if (!is.null(indice_proyecto)) indice_proyecto else which(datos$Proyecto == nombre_proyecto)
+  
+  # Extraer contribuciones para este proyecto
+  contribuciones_proyecto <- contribuciones[indice, ]
+  
+  # Calcular porcentajes de contribución
+  total_contrib <- sum(contribuciones_proyecto, na.rm = TRUE)
+  contribuciones_pct <- contribuciones_proyecto / total_contrib * 100
+  
+  # Crear un dataframe con las contribuciones
+  df_contrib <- data.frame(
+    factor = names(contribuciones_pct),
+    contribucion = as.numeric(contribuciones_pct),
+    stringsAsFactors = FALSE
+  )
+  
+  # Eliminar factores con contribución cero
+  df_contrib <- df_contrib[df_contrib$contribucion > 0, ]
+  
+  # Ordenar por contribución (descendente)
+  df_contrib <- df_contrib[order(-df_contrib$contribucion), ]
+  
+  # Tomar los 10 principales contribuyentes para mayor claridad
+  top_n <- 10
+  df_top <- df_contrib[1:min(top_n, nrow(df_contrib)), ]
+  
+  # Crear etiquetas más legibles
+  etiquetas <- c(
+    "indice_accesibilidad" = "Accesibilidad",
+    "potencial_inversion" = "Potencial Inversión",
+    "indice_conveniencia" = "Conveniencia",
+    "cercania_hospital" = "Hospital",
+    "cercania_esc_priv" = "Escuela Privada",
+    "cercania_esc_pub" = "Escuela Pública",
+    "cercania_universidad" = "Universidad",
+    "cercania_super" = "Supermercado",
+    "cercania_restau" = "Restaurante",
+    "cercania_oficina" = "Oficina",
+    "cercania_tienda_dept" = "Tienda Depto.",
+    "cerca_avenida_principal" = "Av. Principal",
+    "cercania_avenida" = "Av. General",
+    "cercania_avenida_arterial" = "Av. Arterial",
+    "cercania_avenida_secundaria" = "Av. Secundaria",
+    "accesibilidad_vial" = "Acc. Vial",
+    "cantidad_hospital_1km" = "Cant. Hospitales",
+    "cantidad_esc_priv_1km" = "Cant. Esc. Priv.",
+    "cantidad_esc_pub_1km" = "Cant. Esc. Pub.",
+    "cantidad_universidad_1km" = "Cant. Univs.",
+    "cantidad_super_1km" = "Cant. Supers",
+    "cantidad_restau_1km" = "Cant. Restaus.",
+    "cantidad_oficina_1km" = "Cant. Oficinas",
+    "cantidad_tienda_dept_1km" = "Cant. Tiendas",
+    "cerca_parque_relevante" = "Parque Relevante",
+    "predominio_hogares_propios" = "Hogares Propios",
+    "alto_crecimiento" = "Alto Crecimiento",
+    "alta_densidad_pob" = "Alta Densidad Pob.",
+    "alta_densidad_educativa" = "Densidad Educativa",
+    "alta_densidad_comercial" = "Densidad Comercial",
+    "alto_entorno_laboral" = "Entorno Laboral"
+  )
+  
+  # Aplicar etiquetas donde estén disponibles
+  df_top$etiqueta <- sapply(df_top$factor, function(f) {
+    if (f %in% names(etiquetas)) etiquetas[f] else f
+  })
+  
+  # Agregar una fila al final que duplique la primera fila para cerrar el polígono
+  radar_data <- rbind(df_top, df_top[1, ])
+  
+  # Crear el gráfico de radar con plotly
+  p <- plot_ly(
+    r = radar_data$contribucion,
+    theta = radar_data$etiqueta,
+    type = 'scatterpolar',
+    mode = 'lines+markers',
+    fill = 'toself',
+    fillcolor = 'rgba(99, 102, 241, 0.5)',
+    line = list(color = 'rgb(99, 102, 241)')
+  ) %>%
+    layout(
+      title = paste0("Factores con mayor contribución al IVU de ", proyecto$Proyecto),
+      polar = list(
+        radialaxis = list(
+          visible = TRUE,
+          range = c(0, max(radar_data$contribucion) * 1.1),
+          ticksuffix = "%"
+        )
+      )
+    )
+  
+  return(p)
+}
+
+# 9.7.2 Gráfico de fortalezas y debilidades vs promedio
+crear_grafico_fortalezas_debilidades <- function(datos, contribuciones, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Usar la función auxiliar para seleccionar el proyecto
+  proyecto <- seleccionar_proyecto(datos, indice_proyecto, nombre_proyecto)
+  indice <- if (!is.null(indice_proyecto)) indice_proyecto else which(datos$Proyecto == nombre_proyecto)
+  
+  # Calcular el promedio de contribuciones para todos los proyectos
+  contribuciones_promedio <- colMeans(contribuciones, na.rm = TRUE)
+  
+  # Extraer contribuciones para este proyecto
+  contribuciones_proyecto <- contribuciones[indice, ]
+  
+  # Calcular diferencias relativas (positivo = fortaleza, negativo = debilidad)
+  diferencias <- contribuciones_proyecto - contribuciones_promedio
+  
+  # Crear un dataframe con las diferencias
+  df_diferencias <- data.frame(
+    factor = names(diferencias),
+    diferencia = as.numeric(diferencias),
+    stringsAsFactors = FALSE
+  )
+  
+  # Eliminar factores con diferencia cero
+  df_diferencias <- df_diferencias[df_diferencias$diferencia != 0, ]
+  
+  # Ordenar por valor absoluto de la diferencia (descendente)
+  df_diferencias$abs_diferencia <- abs(df_diferencias$diferencia)
+  df_diferencias <- df_diferencias[order(-df_diferencias$abs_diferencia), ]
+  
+  # Tomar los principales factores para mayor claridad
+  top_n <- 10
+  df_top <- df_diferencias[1:min(top_n, nrow(df_diferencias)), ]
+  
+  # Usar las mismas etiquetas que en la función anterior
+  etiquetas <- c(
+    "indice_accesibilidad" = "Accesibilidad",
+    "potencial_inversion" = "Potencial Inversión",
+    "indice_conveniencia" = "Conveniencia",
+    "cercania_hospital" = "Hospital",
+    "cercania_esc_priv" = "Escuela Privada",
+    "cercania_esc_pub" = "Escuela Pública",
+    "cercania_universidad" = "Universidad",
+    "cercania_super" = "Supermercado",
+    "cercania_restau" = "Restaurante",
+    "cercania_oficina" = "Oficina",
+    "cercania_tienda_dept" = "Tienda Depto.",
+    "cerca_avenida_principal" = "Av. Principal",
+    "cercania_avenida" = "Av. General",
+    "cercania_avenida_arterial" = "Av. Arterial",
+    "cercania_avenida_secundaria" = "Av. Secundaria",
+    "accesibilidad_vial" = "Acc. Vial",
+    "cantidad_hospital_1km" = "Cant. Hospitales",
+    "cantidad_esc_priv_1km" = "Cant. Esc. Priv.",
+    "cantidad_esc_pub_1km" = "Cant. Esc. Pub.",
+    "cantidad_universidad_1km" = "Cant. Univs.",
+    "cantidad_super_1km" = "Cant. Supers",
+    "cantidad_restau_1km" = "Cant. Restaus.",
+    "cantidad_oficina_1km" = "Cant. Oficinas",
+    "cantidad_tienda_dept_1km" = "Cant. Tiendas",
+    "cerca_parque_relevante" = "Parque Relevante",
+    "predominio_hogares_propios" = "Hogares Propios",
+    "alto_crecimiento" = "Alto Crecimiento",
+    "alta_densidad_pob" = "Alta Densidad Pob.",
+    "alta_densidad_educativa" = "Densidad Educativa",
+    "alta_densidad_comercial" = "Densidad Comercial",
+    "alto_entorno_laboral" = "Entorno Laboral"
+  )
+  
+  # Aplicar etiquetas donde estén disponibles
+  df_top$etiqueta <- sapply(df_top$factor, function(f) {
+    if (f %in% names(etiquetas)) etiquetas[f] else f
+  })
+  
+  # Definir colores para fortalezas y debilidades
+  colores <- ifelse(df_top$diferencia > 0, "#68d192", "#EF6558")  # Verde para fortalezas, rojo para debilidades
+  
+  # Crear gráfico de barras para fortalezas y debilidades
+  p <- plot_ly(df_top, x = ~etiqueta, y = ~diferencia, type = 'bar',
+               marker = list(color = colores)) %>%
+    layout(
+      title = paste0("Fortalezas y Debilidades de ", proyecto$Proyecto, " vs. Promedio"),
+      xaxis = list(title = ""),
+      yaxis = list(title = "Diferencia vs. Promedio"),
+      margin = list(b = 120)
+    )
+  
+  return(p)
+}
+
+# 9.7.3 Radar de contribución por categorías
+crear_radar_categorias <- function(datos, contribuciones, factores, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Usar la función auxiliar para seleccionar el proyecto
+  proyecto <- seleccionar_proyecto(datos, indice_proyecto, nombre_proyecto)
+  indice <- if (!is.null(indice_proyecto)) indice_proyecto else which(datos$Proyecto == nombre_proyecto)
+  
+  # Definir las categorías
+  categorias <- list(
+    "Índices" = factores$indices,
+    "Cercanías" = factores$cercanias,
+    "Cantidades" = factores$cantidades,
+    "Vialidades" = factores$vialidades,
+    "Otros" = factores$otros
+  )
+  
+  # Calcular la contribución por categoría
+  contrib_categorias <- numeric(length(categorias))
+  names(contrib_categorias) <- names(categorias)
+  
+  for (i in 1:length(categorias)) {
+    cat_nombre <- names(categorias)[i]
+    cat_factores <- categorias[[i]]
+    
+    # Filtrar solo los factores que existen en las contribuciones
+    cat_factores <- intersect(cat_factores, colnames(contribuciones))
+    
+    # Sumar contribuciones para esta categoría
+    if (length(cat_factores) > 0) {
+      contrib_categorias[i] <- sum(contribuciones[indice, cat_factores], na.rm = TRUE)
+    }
+  }
+  
+  # Calcular porcentajes
+  total_contrib <- sum(contrib_categorias, na.rm = TRUE)
+  contrib_pct <- contrib_categorias / total_contrib * 100
+  
+  # Crear dataframe para plotly
+  df <- data.frame(
+    categoria = names(contrib_pct),
+    porcentaje = as.numeric(contrib_pct)
+  )
+  
+  # Ordenar por contribución (descendente)
+  df <- df[order(-df$porcentaje), ]
+  
+  # Agregar una fila al final que duplique la primera fila para cerrar el polígono
+  df <- rbind(df, df[1, ])
+  
+  # Crear el gráfico de radar con plotly
+  p <- plot_ly(
+    r = df$porcentaje,
+    theta = df$categoria,
+    type = 'scatterpolar',
+    mode = 'lines+markers',
+    fill = 'toself',
+    fillcolor = 'rgba(99, 102, 241, 0.5)',
+    line = list(color = 'rgb(99, 102, 241)')
+  ) %>%
+    layout(
+      title = paste0("Contribución por Categoría al IVU de ", proyecto$Proyecto),
+      polar = list(
+        radialaxis = list(
+          visible = TRUE,
+          range = c(0, max(df$porcentaje) * 1.1),
+          ticksuffix = "%"
+        )
+      )
+    )
+  
+  return(p)
+}
+
+# Crear las nuevas visualizaciones para el proyecto seleccionado
+radar_factores <- crear_radar_factores(datos, contribuciones, indice_proyecto = indice_proyecto_seleccionado)
+print(radar_factores)
+
+grafico_fortalezas <- crear_grafico_fortalezas_debilidades(datos, contribuciones, indice_proyecto = indice_proyecto_seleccionado)
+print(grafico_fortalezas)
+
+radar_categorias <- crear_radar_categorias(datos, contribuciones, factores, indice_proyecto = indice_proyecto_seleccionado)
+print(radar_categorias)
+
+#------------------------------------------------------------------------------
+# 10. GUARDAR RESULTADOS
+#------------------------------------------------------------------------------
+# Guardar el dataframe con el IVU calculado
 write.csv(datos, "proyectos_con_ivu.csv", row.names = FALSE)
