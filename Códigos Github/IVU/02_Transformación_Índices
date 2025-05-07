@@ -37,6 +37,45 @@ equipamientos_list <- list(
   tiendas_departamentales = tiendas_departamentales %>% filter(!is.na(latitud) & !is.na(longitud))
 )
 
+# Cargar la capa de avenidas desde el archivo KML
+avenidas_geometria <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/VIALIDADES_PROCESADAS/avenidas_clasificadas.kml')
+
+# Cargar la clasificación de avenidas desde CSV
+clasificacion_avenidas <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[05] VIALIDAD/VIALIDADES_PROCESADAS/clasificacion_avenidas_kml.csv', 
+                                   encoding = "UTF-8", 
+                                   stringsAsFactors = FALSE)
+
+# Examinar las estructuras
+print("Estructura de geometrías de avenidas:")
+str(avenidas_geometria)
+print("Estructura de clasificación de avenidas:")
+str(clasificacion_avenidas)
+
+# Unir la información geométrica con la clasificación
+# Asumiendo que ambos tienen un campo 'nombre' común para hacer el join
+avenidas_data <- avenidas_geometria %>%
+  # Normalizar el nombre para el join (convertir a minúsculas, quitar espacios extras)
+  mutate(nombre_norm = tolower(trimws(Name))) %>%
+  # Left join con la clasificación
+  left_join(
+    clasificacion_avenidas %>%
+      mutate(nombre_norm = tolower(trimws(nombre))),
+    by = "nombre_norm"
+  )
+
+# Verificar cuántas avenidas se pudieron clasificar
+total_avenidas <- nrow(avenidas_data)
+clasificadas <- sum(!is.na(avenidas_data$jerarquia))
+cat("Se clasificaron", clasificadas, "de", total_avenidas, "avenidas (", 
+    round(clasificadas/total_avenidas*100, 1), "%)\n")
+
+# Rellenar jerarquías faltantes (si alguna no se pudo clasificar)
+avenidas_data <- avenidas_data %>%
+  mutate(
+    jerarquia = ifelse(is.na(jerarquia), 5, jerarquia),  # 5 = Sin clasificar
+    nombre_normalizado = ifelse(is.na(nombre), Name, nombre)  # Usar nombre del CSV si existe
+  )
+
 #=====================================================================
 # 2. TRANSFORMACIÓN DE VARIABLES A DICOTÓMICAS
 #=====================================================================
@@ -179,9 +218,21 @@ base_transformada <- base_transformada %>%
     ),
     
     # Variables dicotómicas adicionales
-    cercania_avenida = ifelse(dist_to_avenue <= 200, 1, 0),
-    cercania_avenida_arterial = ifelse(dist_to_avenue <= 200 & nearest_avenue_hierarchy == 1, 1, 0),
-    cercania_avenida_secundaria = ifelse(dist_to_avenue <= 200 & nearest_avenue_hierarchy == 2, 1, 0),
+    cercania_avenida = ifelse(dist_to_avenue <= 200 & dist_to_avenue < 2000, 1, 0),
+    cercania_avenida_arterial = ifelse(
+      dist_to_avenue <= 200 & 
+        nearest_avenue_hierarchy == 1 & 
+        dist_to_avenue < 2000, 
+      1, 
+      0
+    ),
+    cercania_avenida_secundaria = ifelse(
+      dist_to_avenue <= 200 & 
+        nearest_avenue_hierarchy == 2 & 
+        dist_to_avenue < 2000, 
+      1, 
+      0
+    ),
     
     # Ponderaciones para el índice
     ponderacion_jerarquia = case_when(
@@ -351,18 +402,297 @@ base_transformada <- base_transformada %>%
   )
 
 #=====================================================================
-# 6. GUARDAR DATASET RESULTANTE
+# 6. HERRAMIENTAS DE DIAGNÓSTICO Y CORRECCIÓN DE VIALIDADES
 #=====================================================================
 
-# Primero extraer coordenadas
+# Función para diagnosticar problemas con avenidas
+diagnosticar_avenidas_completo <- function(datos, id_proyecto, capa_avenidas, radio_busqueda = 2000) {
+  # Extraer datos del proyecto seleccionado
+  proyecto <- datos[id_proyecto, ]
+  
+  cat("\n=== DIAGNÓSTICO DE AVENIDAS PARA PROYECTO ===\n")
+  cat("ID:", id_proyecto, "\n")
+  cat("Proyecto:", proyecto$Proyecto, "\n")
+  cat("Municipio:", proyecto$Municipio, "\n")
+  cat("Coordenadas:", proyecto$latitud, proyecto$longitud, "\n\n")
+  
+  cat("AVENIDA MÁS CERCANA\n")
+  cat("Nombre:", proyecto$nearest_avenue_name, "\n")
+  cat("Tipo:", proyecto$nearest_avenue_type, "\n")
+  cat("Jerarquía:", proyecto$nearest_avenue_hierarchy, "\n")
+  cat("Distancia:", round(proyecto$dist_to_avenue), "metros\n\n")
+  
+  cat("VARIABLES DERIVADAS\n")
+  cat("cercania_avenida:", proyecto$cercania_avenida, "\n")
+  cat("cercania_avenida_arterial:", proyecto$cercania_avenida_arterial, "\n")
+  cat("cercania_avenida_secundaria:", proyecto$cercania_avenida_secundaria, "\n")
+  cat("cerca_avenida_principal:", proyecto$cerca_avenida_principal, "\n")
+  cat("accesibilidad_vial:", round(proyecto$accesibilidad_vial, 4), "\n\n")
+  
+  # Verificar problemas comunes
+  if(!is.na(proyecto$dist_to_avenue) && proyecto$dist_to_avenue > 2000) {
+    cat("ALERTA: La avenida más cercana está a más de 2km de distancia.\n")
+    cat("Esto puede causar incorrecta valoración del índice de ubicación.\n\n")
+  }
+  
+  if(!is.na(proyecto$cercania_avenida_arterial) && proyecto$cercania_avenida_arterial == 1 && 
+     !is.na(proyecto$dist_to_avenue) && proyecto$dist_to_avenue > 200) {
+    cat("INCONSISTENCIA DETECTADA: El proyecto tiene cercania_avenida_arterial = 1\n")
+    cat("pero está a", round(proyecto$dist_to_avenue), "metros de la avenida más cercana.\n\n")
+  }
+  
+  # NUEVA SECCIÓN: Buscar avenidas cercanas directamente en la capa de avenidas original
+  if(inherits(capa_avenidas, "sf")) {
+    cat("ANÁLISIS DE AVENIDAS CERCANAS (USANDO CAPA COMPLETA)\n")
+    
+    # Asegurar que ambos objetos tienen el mismo CRS
+    st_crs_proyecto <- st_crs(proyecto)
+    st_crs_avenidas <- st_crs(capa_avenidas)
+    
+    # Transformar si es necesario para que coincidan los CRS
+    if(!identical(st_crs_proyecto, st_crs_avenidas)) {
+      cat("CRS diferentes detectados. Transformando coordenadas para coincidir...\n")
+      proyecto_punto <- st_transform(proyecto, st_crs(capa_avenidas))
+    } else {
+      proyecto_punto <- proyecto
+    }
+    
+    # Crear buffer alrededor del proyecto para buscar avenidas cercanas
+    proyecto_buffer <- st_buffer(proyecto_punto, radio_busqueda)
+    
+    # Encontrar avenidas que intersectan con el buffer
+    indices_avenidas_cercanas <- st_intersects(proyecto_buffer, capa_avenidas)
+    
+    if(length(indices_avenidas_cercanas[[1]]) > 0) {
+      # Extraer avenidas cercanas
+      avenidas_cercanas <- capa_avenidas[indices_avenidas_cercanas[[1]], ]
+      
+      # Calcular distancia exacta desde el proyecto a cada avenida
+      distancias <- st_distance(st_geometry(proyecto_punto), st_geometry(avenidas_cercanas))
+      avenidas_cercanas$distancia <- as.numeric(distancias[1,])
+      
+      # Ordenar por distancia
+      avenidas_cercanas <- avenidas_cercanas %>%
+        arrange(distancia)
+      
+      # Filtrar solo arteriales principales y secundarias (jerarquía 1 y 2)
+      avenidas_arteriales <- avenidas_cercanas %>%
+        filter(jerarquia %in% c(1, 2))
+      
+      if(nrow(avenidas_arteriales) > 0) {
+        cat("Avenidas arteriales en un radio de", radio_busqueda, "metros:\n")
+        for(i in 1:nrow(avenidas_arteriales)) {
+          cat("- ", avenidas_arteriales$nombre_normalizado[i], 
+              " (Jerarquía: ", avenidas_arteriales$jerarquia[i], 
+              ", Tipo: ", avenidas_arteriales$tipo_via[i],
+              ", Dist: ", round(avenidas_arteriales$distancia[i]), "m",
+              if(!is.na(avenidas_arteriales$flujo_promedio[i]) && avenidas_arteriales$flujo_promedio[i] > 0) {
+                paste0(", Flujo: ", round(avenidas_arteriales$flujo_promedio[i]), " veh/h")
+              } else {
+                ""
+              },
+              ")\n", sep="")
+        }
+      } else {
+        cat("No se encontraron avenidas arteriales en un radio de", radio_busqueda, "metros.\n")
+      }
+      
+      # Análisis de flujo vehicular (si hay datos disponibles)
+      if("flujo_promedio" %in% names(avenidas_cercanas) && 
+         sum(!is.na(avenidas_cercanas$flujo_promedio) & avenidas_cercanas$flujo_promedio > 0) > 0) {
+        
+        cat("\nANÁLISIS DE FLUJO VEHICULAR\n")
+        
+        # Avenida con mayor flujo en un radio cercano (500m)
+        avenidas_alto_flujo <- avenidas_cercanas %>%
+          filter(distancia <= 500, !is.na(flujo_promedio), flujo_promedio > 0) %>%
+          arrange(desc(flujo_promedio)) 
+        
+        if(nrow(avenidas_alto_flujo) > 0) {
+          cat("Avenida con mayor flujo vehicular (hasta 500m):\n")
+          cat("- ", avenidas_alto_flujo$nombre_normalizado[1], 
+              " (", round(avenidas_alto_flujo$flujo_promedio[1]), " veh/h)\n", sep="")
+        }
+        
+        # Flujo promedio en diferentes radios
+        flujo_100m <- mean(avenidas_cercanas$flujo_promedio[avenidas_cercanas$distancia <= 100], na.rm = TRUE)
+        flujo_300m <- mean(avenidas_cercanas$flujo_promedio[avenidas_cercanas$distancia <= 300], na.rm = TRUE)
+        flujo_500m <- mean(avenidas_cercanas$flujo_promedio[avenidas_cercanas$distancia <= 500], na.rm = TRUE)
+        
+        cat("\nFlujo vehicular promedio:\n")
+        cat("- En radio de 100m:", round(flujo_100m), "veh/h\n")
+        cat("- En radio de 300m:", round(flujo_300m), "veh/h\n")
+        cat("- En radio de 500m:", round(flujo_500m), "veh/h\n")
+      }
+      
+      # Análisis por tipo de vía (si está disponible)
+      if("tipo_via" %in% names(avenidas_cercanas)) {
+        cat("\nDISTRIBUCIÓN POR TIPO DE VÍA (hasta 1km):\n")
+        tipos_via <- avenidas_cercanas %>%
+          filter(distancia <= 1000) %>%
+          count(tipo_via) %>%
+          arrange(desc(n))
+        
+        for(i in 1:nrow(tipos_via)) {
+          cat("- ", tipos_via$tipo_via[i], ": ", tipos_via$n[i], " vías\n", sep="")
+        }
+      }
+      
+      # Listado completo más conciso
+      cat("\nLISTADO DE TODAS LAS AVENIDAS CERCANAS (máx. 10):\n")
+      avenidas_mostrar <- head(avenidas_cercanas, 10)
+      for(i in 1:nrow(avenidas_mostrar)) {
+        cat("- ", avenidas_mostrar$nombre_normalizado[i], 
+            " (", ifelse(!is.na(avenidas_mostrar$tipo_via[i]), avenidas_mostrar$tipo_via[i], "No clasificada"), 
+            ", Dist: ", round(avenidas_mostrar$distancia[i]), "m)\n", sep="")
+      }
+      
+      if(nrow(avenidas_cercanas) > 10) {
+        cat("... y ", nrow(avenidas_cercanas) - 10, " más.\n", sep="")
+      }
+    } else {
+      cat("No se encontraron avenidas en un radio de", radio_busqueda, "metros.\n")
+    }
+  } else {
+    cat("ADVERTENCIA: La capa de avenidas proporcionada no es un objeto sf válido.\n")
+    cat("No se puede realizar el análisis de avenidas cercanas utilizando la capa original.\n")
+  }
+  
+  return(invisible(NULL))
+}
+
+# Función original simplificada (por si no se tiene acceso a la capa de avenidas)
+diagnosticar_avenidas <- function(datos, id_proyecto, radio_busqueda = 2000) {
+  # Extraer datos del proyecto seleccionado
+  proyecto <- datos[id_proyecto, ]
+  
+  # Implementación básica (se mantiene igual)
+  cat("\n=== DIAGNÓSTICO DE AVENIDAS PARA PROYECTO ===\n")
+  cat("ID:", id_proyecto, "\n")
+  cat("Proyecto:", proyecto$Proyecto, "\n")
+  cat("Municipio:", proyecto$Municipio, "\n")
+  cat("Coordenadas:", proyecto$latitud, proyecto$longitud, "\n\n")
+  
+  cat("AVENIDA MÁS CERCANA\n")
+  cat("Nombre:", proyecto$nearest_avenue_name, "\n")
+  cat("Tipo:", proyecto$nearest_avenue_type, "\n")
+  cat("Jerarquía:", proyecto$nearest_avenue_hierarchy, "\n")
+  cat("Distancia:", round(proyecto$dist_to_avenue), "metros\n\n")
+  
+  cat("VARIABLES DERIVADAS\n")
+  cat("cercania_avenida:", proyecto$cercania_avenida, "\n")
+  cat("cercania_avenida_arterial:", proyecto$cercania_avenida_arterial, "\n")
+  cat("cercania_avenida_secundaria:", proyecto$cercania_avenida_secundaria, "\n")
+  cat("cerca_avenida_principal:", proyecto$cerca_avenida_principal, "\n")
+  cat("accesibilidad_vial:", round(proyecto$accesibilidad_vial, 4), "\n")
+  
+  # Verificar problemas comunes
+  if(!is.na(proyecto$dist_to_avenue) && proyecto$dist_to_avenue > 2000) {
+    cat("\nALERTA: La avenida más cercana está a más de 2km de distancia.\n")
+    cat("Esto puede causar incorrecta valoración del índice de ubicación.\n")
+  }
+  
+  if(!is.na(proyecto$cercania_avenida_arterial) && proyecto$cercania_avenida_arterial == 1 && 
+     !is.na(proyecto$dist_to_avenue) && proyecto$dist_to_avenue > 200) {
+    cat("\nINCONSISTENCIA DETECTADA: El proyecto tiene cercania_avenida_arterial = 1\n")
+    cat("pero está a", round(proyecto$dist_to_avenue), "metros de la avenida más cercana.\n")
+  }
+  
+  return(invisible(NULL))
+}
+
+# Función para recalcular variables de cercanía a avenidas
+recalcular_cercanias_avenidas <- function(datos, umbral_distancia = 2000) {
+  # Crear copia para no modificar el original
+  if(inherits(datos, "sf")) {
+    datos_nuevos <- datos
+  } else {
+    # Si no es objeto sf, convertirlo
+    datos_nuevos <- datos
+    warning("El objeto no es de tipo sf, algunas operaciones podrían no funcionar correctamente.")
+  }
+  
+  # Mensaje informativo
+  cat("Recalculando variables de cercanía a avenidas con umbral máximo de", umbral_distancia, "metros...\n")
+  
+  # Recalcular variables con umbral de distancia máxima
+  datos_nuevos <- datos_nuevos %>%
+    mutate(
+      # Cercanía a avenida (umbral de 200m y distancia máxima)
+      cercania_avenida = ifelse(
+        dist_to_avenue <= 200 & dist_to_avenue < umbral_distancia, 
+        1, 0
+      ),
+      
+      # Cercanía a avenida arterial
+      cercania_avenida_arterial = ifelse(
+        dist_to_avenue <= 200 & 
+          nearest_avenue_hierarchy == 1 & 
+          dist_to_avenue < umbral_distancia, 
+        1, 0
+      ),
+      
+      # Cercanía a avenida secundaria
+      cercania_avenida_secundaria = ifelse(
+        dist_to_avenue <= 200 & 
+          nearest_avenue_hierarchy == 2 & 
+          dist_to_avenue < umbral_distancia, 
+        1, 0
+      ),
+      
+      # Cercanía a avenida principal (arterial o secundaria)
+      cerca_avenida_principal = ifelse(
+        dist_to_avenue <= 200 & 
+          dist_to_avenue < umbral_distancia &
+          nearest_avenue_hierarchy %in% c(1, 2), 
+        1, 0
+      ),
+      
+      # Ajustar accesibilidad vial para distancias enormes
+      accesibilidad_vial_ajustada = case_when(
+        is.na(dist_to_avenue) ~ accesibilidad_vial,
+        dist_to_avenue >= umbral_distancia ~ accesibilidad_vial * 0.5,  # Reducir a la mitad si está muy lejos
+        TRUE ~ accesibilidad_vial
+      )
+    )
+  
+  # Contar cambios realizados
+  cambios <- data.frame(
+    cercania_avenida = sum(datos_nuevos$cercania_avenida != datos$cercania_avenida, na.rm = TRUE),
+    cercania_arterial = sum(datos_nuevos$cercania_avenida_arterial != datos$cercania_avenida_arterial, na.rm = TRUE),
+    cercania_secundaria = sum(datos_nuevos$cercania_avenida_secundaria != datos$cercania_avenida_secundaria, na.rm = TRUE),
+    cerca_principal = sum(datos_nuevos$cerca_avenida_principal != datos$cerca_avenida_principal, na.rm = TRUE)
+  )
+  
+  # Mostrar resumen de cambios
+  cat("\nResumen de cambios (número de registros modificados):\n")
+  print(cambios)
+  
+  return(datos_nuevos)
+}
+
+# Extraer coordenadas para posterior reconstrucción de geometrías
 base_transformada <- base_transformada %>%
   mutate(
     longitud = st_coordinates(geom)[,1],
     latitud = st_coordinates(geom)[,2]
   )
 
+# Diagnosticar el proyecto problemático (u otros que queramos revisar)
+# diagnosticar_avenidas(base_transformada, 26)  # Ajusta el índice según tu proyecto
+
+# Diagnosticar proyecto usando la capa completa de avenidas
+diagnosticar_avenidas_completo(base_transformada, 26, avenidas_data, radio_busqueda = 3000)
+
+# Aplicar correcciones a toda la base
+base_corregida <- recalcular_cercanias_avenidas(base_transformada, 3000)
+
+#=====================================================================
+# 7. GUARDAR DATASET RESULTANTE
+#=====================================================================
+
 # Verificar nombres duplicados
-nombres_columnas <- names(base_transformada)
+nombres_columnas <- names(base_corregida)
 duplicados <- duplicated(nombres_columnas)
 if(any(duplicados)) {
   cat("Se encontraron nombres duplicados:\n")
@@ -374,14 +704,14 @@ if(any(duplicados)) {
   for(i in indices_duplicados) {
     nombres_columnas[i] <- paste0(nombres_columnas[i], "_", i)
   }
-  names(base_transformada) <- nombres_columnas
+  names(base_corregida) <- nombres_columnas
   cat("Nombres corregidos.\n")
 } else {
   cat("No se encontraron nombres duplicados.\n")
 }
 
-# Regenerar completamente la geometría desde las coordenadas
-base_sin_geom <- st_drop_geometry(base_transformada)
+# Regenerar completamente la geometría desde las coordenadas (usando la base corregida)
+base_sin_geom <- st_drop_geometry(base_corregida)
 base_nueva_sf <- st_as_sf(base_sin_geom, 
                           coords = c("longitud", "latitud"), 
                           crs = 4326)
@@ -392,10 +722,11 @@ st_write(base_nueva_sf, "base_inmobiliaria_transformada.gpkg", delete_dsn = TRUE
 # Y para CSV
 write.csv(base_sin_geom, "base_inmobiliaria_transformada.csv", row.names = FALSE)
 
-print("Transformación de variables completada")
+print("Transformación y corrección de variables completada")
+
 
 #=====================================================================
-# 7. JUSTIFICACIÓN METODOLÓGICA DE LOS PESOS USADOS EN LOS ÍNDICES
+# 8. JUSTIFICACIÓN METODOLÓGICA DE LOS PESOS USADOS EN LOS ÍNDICES
 #=====================================================================
 # Esta sección realiza un análisis completo para justificar los pesos 
 # asignados a las variables en los índices compuestos del script.
@@ -423,7 +754,7 @@ if(ejecutar_justificacion) {
   cat("\n=== INICIANDO ANÁLISIS DE JUSTIFICACIÓN DE PESOS ===\n")
   
   #========================================================================
-  # 7.1. SIMULACIÓN DE DATOS PARA ANÁLISIS
+  # 8.1. SIMULACIÓN DE DATOS PARA ANÁLISIS
   #========================================================================
   # En un caso real, podríamos usar los datos del dataset, pero para este ejemplo
   # usaremos datos simulados que representen relaciones realistas
@@ -476,7 +807,7 @@ if(ejecutar_justificacion) {
   datos_simulados$log_pm2 <- log(datos_simulados$p_m2)
   
   #========================================================================
-  # 7.2. ANÁLISIS DE CORRELACIÓN
+  # 8.2. ANÁLISIS DE CORRELACIÓN
   #========================================================================
   # Seleccionamos variables para el análisis
   vars_analisis <- c("p_m2", "log_pm2", "alto_crecimiento", "cerca_parque_relevante", 
@@ -508,7 +839,7 @@ if(ejecutar_justificacion) {
   print(round(correlaciones_precio, 4))
   
   #========================================================================
-  # 7.3. ANÁLISIS DE IMPORTANCIA DE VARIABLES
+  # 8.3. ANÁLISIS DE IMPORTANCIA DE VARIABLES
   #========================================================================
   # Seleccionar variables predictoras para modelos
   predictores <- c("alto_crecimiento", "cerca_parque_relevante", "indice_accesibilidad", 
@@ -606,7 +937,7 @@ if(ejecutar_justificacion) {
   print(kable(resultados_importancia, digits = 4))
   
   #========================================================================
-  # 7.4. TRANSFORMACIÓN DE IMPORTANCIA A PESOS ENTEROS (POTENCIAL INVERSIÓN)
+  # 8.4. TRANSFORMACIÓN DE IMPORTANCIA A PESOS ENTEROS (POTENCIAL INVERSIÓN)
   #========================================================================
   # Función para transformar importancias normalizadas a pesos enteros
   importancia_a_pesos <- function(importancias, max_peso = 4, min_peso = 1) {
@@ -662,7 +993,7 @@ if(ejecutar_justificacion) {
   print(kable(comparacion_pesos_potencial, digits = 4))
   
   #========================================================================
-  # 7.5. TRANSFORMACIÓN A PESOS FRACCIONARIOS (ÍNDICE CONVENIENCIA)
+  # 8.5. TRANSFORMACIÓN A PESOS FRACCIONARIOS (ÍNDICE CONVENIENCIA)
   #========================================================================
   # Variables para el índice de conveniencia
   vars_conveniencia <- c("cercania_super", "cercania_hospital", "cerca_avenida_principal",
@@ -716,7 +1047,7 @@ if(ejecutar_justificacion) {
   print(kable(comparacion_pesos_conveniencia, digits = 4))
   
   #========================================================================
-  # 7.6. ANÁLISIS DE SENSIBILIDAD
+  # 8.6. ANÁLISIS DE SENSIBILIDAD
   #========================================================================
   tryCatch({
     # Función robusta para calcular índices con diferentes conjuntos de pesos
@@ -805,7 +1136,7 @@ if(ejecutar_justificacion) {
   })
   
   #========================================================================
-  # 7.7. CONCLUSIONES Y JUSTIFICACIÓN DE PESOS FINALES
+  # 8.7. CONCLUSIONES Y JUSTIFICACIÓN DE PESOS FINALES
   #========================================================================
   cat("\n=== JUSTIFICACIÓN DE PESOS PARA POTENCIAL DE INVERSIÓN ===\n")
   cat("Los pesos asignados reflejan la importancia relativa de cada factor en el potencial de valorización:\n")
