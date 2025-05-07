@@ -1,4 +1,3 @@
-
 # Índice de Valor por Ubicación (IVU)
 # Script para el cálculo y visualización del impacto de equipamientos urbanos en proyectos inmobiliarios
 
@@ -305,7 +304,7 @@ seleccionar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto 
 }
 
 # Definir el proyecto a analizar de forma consistente
-indice_proyecto_seleccionado <- 29  # O el índice que prefieras
+indice_proyecto_seleccionado <- 54  # O el índice que prefieras
 # nombre_proyecto_seleccionado <- "Nombre del Proyecto"  # Alternativa por nombre
 
 # 1. Visualización del Termómetro Mejorado
@@ -425,7 +424,7 @@ grafico_precio_ivu <- ggplot(datos, aes(x = ivu, y = p_m2, color = ivu_categoria
   scale_color_manual(values = c("Muy bajo" = "#EF6558", "Bajo" = "#F8C579", 
                                 "Medio" = "#F4E785", "Alto" = "#68d192", 
                                 "Muy alto" = "#9B87F4")) +
-  geom_smooth(method = "lm", se = TRUE, color = "#6366f1") +
+  geom_smooth(method = "lm", se = TRUE, color = "#000000") +
   labs(title = "Relación entre IVU y Precio por m²",
        x = "Índice de Valor por Ubicación", 
        y = "Precio por m²",
@@ -443,20 +442,20 @@ grafico_precio_ivu <- ggplot(datos, aes(x = ivu, y = p_m2, color = ivu_categoria
 
 print(grafico_precio_ivu)
 
-## Relación entre IVU y absorcion
+## 4.2 Relación entre IVU y absorcion
 grafico_absorcion_ivu <- ggplot(datos, aes(x = ivu, y = absorcion, color = ivu_categoria)) +
   geom_point(alpha = 0.7) +
   scale_color_manual(values = c("Muy bajo" = "#EF6558", "Bajo" = "#F8C579", 
                                 "Medio" = "#F4E785", "Alto" = "#68d192", 
                                 "Muy alto" = "#9B87F4")) +
-  geom_smooth(method = "lm", se = TRUE, color = "#6366f1") +
+  geom_smooth(method = "lm", se = TRUE, color = "#000000") +
   labs(title = "Relación entre IVU y Absorción",
        x = "Índice de Valor por Ubicación", 
        y = "Absorción",
        color = "Categoría") +
   theme_minimal() +
   scale_y_continuous(labels = scales::comma) +
-  coord_cartesian(ylim = c(0, 20)) +
+  coord_cartesian(ylim = c(0, 15)) +
   theme(
     text = element_text(family = "Inter", size = 16),
     axis.title = element_text(family = "Inter", size = 13),
@@ -468,37 +467,50 @@ grafico_absorcion_ivu <- ggplot(datos, aes(x = ivu, y = absorcion, color = ivu_c
 
 print(grafico_absorcion_ivu)
 
-## Nueva visualización: Relación entre cercanía a avenidas y precio
+## 4.3 Relación entre cercanía a avenidas y precio
+
 grafico_avenidas_precio <- ggplot(datos, 
-                                  aes(x = dist_to_avenue, y = p_m2, 
-                                      color = factor(cerca_avenida_principal))) +
-  geom_point(alpha = 0.7) +
-  scale_color_manual(values = c("0" = "#666666", "1" = "#3366FF"),
-                     labels = c("0" = "Lejano", "1" = "Cercano")) +
-  geom_smooth(method = "loess", se = TRUE, aes(group = factor(cerca_avenida_principal))) +
-  labs(title = "Relación entre distancia a avenidas principales y precio por m²",
+                                         aes(x = dist_to_avenue, y = p_m2)) +
+  geom_point(alpha = 0.7, color = "#666666") +
+  geom_smooth(method = "loess", se = TRUE, color = "#000000") +
+  labs(title = "Relación entre distancia a avenidas\nprincipales y precio por m²",
        x = "Distancia a avenida principal (m)", 
-       y = "Precio por m²",
-       color = "Cercanía a avenida") +
+       y = "Precio por m²") +
   coord_cartesian(xlim = c(0, 1000)) +
   theme_minimal() +
+  theme(
+    text = element_text(family = "Inter", size = 16),
+    axis.title = element_text(family = "Inter", size = 13),
+    axis.text = element_text(family = "Inter", size = 11),
+    plot.title = element_text(family = "Inter", size = 18, face = "bold", hjust = 0.5)
+  ) +
   scale_y_continuous(labels = scales::comma)
 
 print(grafico_avenidas_precio)
 
-## Nueva visualización: Relación entre accesibilidad vial e IVU
+
+## 4.4 Nueva visualización: Relación entre accesibilidad vial e IVU
 grafico_accesibilidad_ivu <- ggplot(datos, 
                                     aes(x = accesibilidad_vial, y = ivu, 
                                         color = factor(cerca_avenida_principal))) +
   geom_point(alpha = 0.7) +
-  scale_color_manual(values = c("0" = "#666666", "1" = "#3366FF"),
+  scale_color_manual(values = c("0" = "#666666", "1" = "#45A3A1"),
                      labels = c("0" = "Lejano", "1" = "Cercano")) +
-  geom_smooth(method = "lm", se = TRUE, color = "#6366f1") +
+  geom_smooth(method = "lm", se = TRUE, color = "#000000") +
   labs(title = "Relación entre accesibilidad vial e IVU",
        x = "Índice de accesibilidad vial", 
        y = "Índice de Valor por Ubicación",
        color = "Cercanía a avenida") +
-  theme_minimal()
+  theme_minimal() + 
+  theme(
+    text = element_text(family = "Inter", size = 16),
+    axis.title = element_text(family = "Inter", size = 13),
+    axis.text = element_text(family = "Inter", size = 11),
+    plot.title = element_text(family = "Inter", size = 18, face = "bold", hjust = 0.5),
+    legend.title = element_text(family = "Inter", size = 14, face = "bold"),
+    legend.text = element_text(family = "Inter", size = 12),
+    legend.position = "bottom"
+  )
 
 print(grafico_accesibilidad_ivu)
 
