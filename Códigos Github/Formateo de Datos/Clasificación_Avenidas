@@ -400,12 +400,12 @@ avenidas_importantes <- c(
   "Avenida Miguel Alemán",
   "Carretera Nacional",
   "Paseo de los Leones"
-)
+  )
 
 avenidas_clasificadas <- avenidas_clasificadas %>%
   mutate(
     jerarquia_ajustada = case_when(
-      nombre_normalizado %in% avenidas_importantes & jerarquia_inicial < 3 ~ 3,
+      nombre_normalizado %in% avenidas_importantes & jerarquia_inicial < 3 ~ 4,
       TRUE ~ jerarquia_inicial
     )
   )
