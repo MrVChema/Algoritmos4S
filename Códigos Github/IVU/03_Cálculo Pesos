@@ -10,6 +10,9 @@ library(ggplot2)
 library(knitr)
 library(kableExtra)
 
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[01] PESOS')
+
 # ---- 1. Cargar los datos ---- 
 datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_inmobiliaria_transformada.csv', stringsAsFactors = FALSE, encoding = "UTF-8")
 
@@ -138,12 +141,75 @@ for (factor in factores_negativos) {
 }
 
 # ---- 6. Convertir correlaciones a pesos ----
-# Tomar el valor absoluto de las correlaciones ajustadas
+## 6.1 Tomar el valor absoluto de las correlaciones ajustadas
 correlaciones_abs <- abs(correlaciones_ajustadas)
 
-# Normalizar para que sumen 1 (o 100%)
+### Normalizar para que sumen 1 (o 100%)
 suma_correlaciones <- sum(correlaciones_abs, na.rm = TRUE)
 pesos_calculados <- correlaciones_abs / suma_correlaciones
+
+## 6.2 Función para calcular pesos por segmento
+calcular_pesos_por_segmento <- function(datos) {
+  # Obtener segmentos únicos
+  segmentos <- unique(datos$Segmento)
+  segmentos <- segmentos[!is.na(segmentos)]
+  
+  # Inicializar lista para almacenar pesos por segmento
+  pesos_por_segmento <- list()
+  
+  # Calcular pesos para cada segmento
+  for (segmento in segmentos) {
+    # Filtrar datos para este segmento
+    datos_segmento <- datos[datos$Segmento == segmento, ]
+    
+    # Omitir si no hay suficientes datos
+    if (nrow(datos_segmento) < 25) {
+      warning(paste("Omitiendo segmento", segmento, "por datos insuficientes"))
+      next
+    }
+    
+    # Calcular correlaciones específicas para este segmento
+    correlaciones <- numeric()
+    precio_m2 <- datos_segmento$p_m2
+    
+    for (categoria in names(factores)) {
+      for (factor in factores[[categoria]]) {
+        if (factor %in% colnames(datos_segmento)) {
+          # Código existente para calcular correlaciones...
+          valores_factor <- datos_segmento[[factor]]
+          pares_completos <- !is.na(valores_factor) & !is.na(precio_m2)
+          
+          if (sum(pares_completos) > 2) {
+            corr <- calcular_correlacion(valores_factor[pares_completos], 
+                                         precio_m2[pares_completos])
+            correlaciones[factor] <- corr
+          } else {
+            correlaciones[factor] <- 0
+          }
+        }
+      }
+    }
+    
+    # Convertir correlaciones a pesos (similar al código original)
+    correlaciones_ajustadas <- correlaciones
+    correlaciones_abs <- abs(correlaciones_ajustadas)
+    suma_correlaciones <- sum(correlaciones_abs, na.rm = TRUE)
+    pesos_calculados <- correlaciones_abs / suma_correlaciones
+    
+    # Guardar pesos para este segmento
+    pesos_por_segmento[[segmento]] <- pesos_calculados
+    
+    # Visualizaciones específicas por segmento
+    cat("\nPesos calculados para segmento:", segmento, "\n")
+    print(head(sort(pesos_calculados, decreasing = TRUE), 10))
+  }
+  
+  return(pesos_por_segmento)
+}
+
+### Calcular y guardar pesos por segmento
+pesos_por_segmento <- calcular_pesos_por_segmento(datos)
+saveRDS(pesos_por_segmento, "pesos_por_segmento.rds")
 
 # ---- 7. Crear tabla comparativa de correlaciones originales, ajustadas y pesos finales ----
 tabla_resultados <- data.frame(
@@ -299,4 +365,367 @@ pesos_por_categoria <- data.frame(
                               unlist(factores[c("cantidades", "cercanias", "indices", "vialidades")]))], 
         na.rm = TRUE)
   )
+  
+# ---- 12. NUEVA SECCIÓN: Análisis de correlaciones por segmento ----
+
+# Función para calcular y visualizar correlaciones por segmento
+visualizar_correlaciones_por_segmento <- function(datos, factores) {
+  # Obtener segmentos únicos
+  segmentos <- unique(datos$Segmento)
+  segmentos <- segmentos[!is.na(segmentos)]
+  
+  # Inicializar lista para almacenar gráficos y dataframe para comparaciones
+  graficos_correlaciones <- list()
+  todas_correlaciones <- data.frame()
+  
+  # Para cada segmento, calcular correlaciones y crear gráfico
+  for (segmento in segmentos) {
+    # Filtrar datos para este segmento
+    datos_segmento <- datos[datos$Segmento == segmento, ]
+    
+    # Omitir si no hay suficientes datos
+    if (nrow(datos_segmento) < 5) {
+      warning(paste("Omitiendo segmento", segmento, "por datos insuficientes"))
+      next
+    }
+    
+    # Calcular correlaciones específicas para este segmento
+    correlaciones_segmento <- numeric()
+    precio_m2 <- datos_segmento$p_m2
+    
+    for (categoria in names(factores)) {
+      for (factor in factores[[categoria]]) {
+        if (factor %in% colnames(datos_segmento)) {
+          valores_factor <- datos_segmento[[factor]]
+          pares_completos <- !is.na(valores_factor) & !is.na(precio_m2)
+          
+          if (sum(pares_completos) > 2) {
+            corr <- calcular_correlacion(valores_factor[pares_completos], 
+                                         precio_m2[pares_completos])
+            correlaciones_segmento[factor] <- corr
+          } else {
+            correlaciones_segmento[factor] <- 0
+          }
+        }
+      }
+    }
+    
+    # Ordenar correlaciones
+    correlaciones_ordenadas <- sort(correlaciones_segmento, decreasing = TRUE)
+    
+    # Convertir a dataframe para visualización
+    correlaciones_df <- data.frame(
+      Factor = names(correlaciones_ordenadas),
+      Correlacion = correlaciones_ordenadas,
+      Segmento = segmento
+    )
+    
+    # Añadir al dataframe para comparación posterior
+    todas_correlaciones <- rbind(todas_correlaciones, correlaciones_df)
+    
+    # Crear gráfico de barras de correlaciones para este segmento
+    graficos_correlaciones[[segmento]] <- ggplot(correlaciones_df, 
+                                                 aes(x = reorder(Factor, Correlacion), 
+                                                     y = Correlacion)) +
+      geom_bar(stat = "identity", fill = "#4285F4") +
+      geom_text(aes(label = sprintf("%.3f", Correlacion)), 
+                hjust = ifelse(correlaciones_df$Correlacion >= 0, -0.3, 1.3),
+                size = 3.5) +
+      coord_flip(ylim = c(-0.8, 0.8)) +
+      labs(title = paste("Correlación de factores con Precio por m² -", segmento),
+           subtitle = paste(nrow(datos_segmento), "proyectos analizados"),
+           x = "Factor",
+           y = "Coeficiente de correlación") +
+      theme_minimal() +
+      theme(axis.text.y = element_text(size = 8),
+            plot.margin = unit(c(5, 50, 5, 5), "pt"))
+    
+    # Imprimir gráfico individual
+    print(graficos_correlaciones[[segmento]])
+  }
+  
+  return(list(graficos = graficos_correlaciones, datos = todas_correlaciones))
+}
+
+# Calcular correlaciones por segmento
+resultado_correlaciones <- visualizar_correlaciones_por_segmento(datos, factores)
+
+# Factores destacados para análisis comparativo entre segmentos
+# Elegir factores clave que suelen ser importantes
+factores_destacados <- c(
+  "indice_accesibilidad", 
+  "cercania_esc_priv",
+  "cercania_hospital", 
+  "cerca_avenida_principal",
+  "accesibilidad_vial", 
+  "cercania_super",
+  "cerca_parque_relevante",
+  "cantidad_restau_1km",
+  "alta_densidad_comercial"
 )
+
+# Filtrar datos de correlaciones para estos factores destacados
+correlaciones_destacadas <- resultado_correlaciones$datos[
+  resultado_correlaciones$datos$Factor %in% factores_destacados, ]
+
+# Crear heatmap de correlaciones por segmento para factores destacados
+heatmap_correlaciones <- ggplot(correlaciones_destacadas, 
+                                aes(x = Factor, y = Segmento, fill = Correlacion)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "#EF6558", mid = "white", high = "#68d192", 
+                       midpoint = 0, limits = c(-0.6, 0.6)) +
+  labs(title = "Mapa de calor: Correlaciones por segmento",
+       subtitle = "Factores clave de ubicación vs. precio por m²",
+       x = "Factor", 
+       y = "Segmento", 
+       fill = "Correlación") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(heatmap_correlaciones)
+
+# Gráfico de barras para comparar correlaciones entre segmentos
+grafico_comparativo <- ggplot(correlaciones_destacadas, 
+                              aes(x = Factor, y = Correlacion, fill = Segmento)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparación de correlaciones por segmento",
+       subtitle = "Factores clave de ubicación vs. precio por m²",
+       x = "Factor", 
+       y = "Coeficiente de correlación",
+       fill = "Segmento") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(grafico_comparativo)
+
+# Guardar resultado para uso posterior
+saveRDS(resultado_correlaciones, "correlaciones_por_segmento.rds")
+
+# ---- 13. IDENTIFICAR CORRELACIONES PROBLEMÁTICAS ----
+# Identificar correlaciones problemáticas por segmento
+problematicas <- data.frame(
+  Segmento = character(),
+  Factor = character(),
+  Correlacion_Empirica = numeric(),
+  Valor_Esperado = numeric(),
+  Problema = character(),
+  stringsAsFactors = FALSE
+)
+
+# Añadir casos conocidos manualmente basados en conocimiento experto
+problematicas <- rbind(problematicas, data.frame(
+  Segmento = "Premium Plus",
+  Factor = "cercania_esc_pub", 
+  Correlacion_Empirica = resultado_correlaciones$datos$Correlacion[
+    resultado_correlaciones$datos$Segmento == "Premium Plus" & 
+      resultado_correlaciones$datos$Factor == "cercania_esc_pub"],
+  Valor_Esperado = -0.4,
+  Problema = "Debería ser negativa para segmento Premium Plus"
+))
+
+problematicas <- rbind(problematicas, data.frame(
+  Segmento = "Premium Plus",
+  Factor = "cercania_esc_priv", 
+  Correlacion_Empirica = resultado_correlaciones$datos$Correlacion[
+    resultado_correlaciones$datos$Segmento == "Premium Plus" & 
+      resultado_correlaciones$datos$Factor == "cercania_esc_priv"],
+  Valor_Esperado = 0.4,
+  Problema = "Debería ser positiva para segmento Premium Plus"
+))
+
+problematicas <- rbind(problematicas, data.frame(
+  Segmento = "Premium Plus",
+  Factor = "cerca_avenida_principal", 
+  Correlacion_Empirica = resultado_correlaciones$datos$Correlacion[
+    resultado_correlaciones$datos$Segmento == "Premium Plus" & 
+      resultado_correlaciones$datos$Factor == "cerca_avenida_principal"],
+  Valor_Esperado = 0.25,
+  Problema = "Debe ser positiva para segmento Premium Plus"
+))
+
+problematicas <- rbind(problematicas, data.frame(
+  Segmento = "Premium Plus",
+  Factor = "cercania_avenida_arterial", 
+  Correlacion_Empirica = resultado_correlaciones$datos$Correlacion[
+    resultado_correlaciones$datos$Segmento == "Premium Plus" & 
+      resultado_correlaciones$datos$Factor == "cercania_avenida_arterial"],
+  Valor_Esperado = 0.35,
+  Problema = "Debe ser positiva para segmento Premium Plus"
+))
+
+print("Correlaciones identificadas como problemáticas:")
+print(problematicas)
+
+# Crear visualización de correlaciones problemáticas
+if(nrow(problematicas) > 0) {
+  ggplot(problematicas, aes(x = Factor, y = Correlacion_Empirica)) +
+    geom_bar(stat = "identity", fill = "#EF6558", alpha = 0.7) +
+    geom_point(aes(y = Valor_Esperado), color = "#68d192", size = 3) +
+    facet_wrap(~Segmento) +
+    labs(title = "Correlaciones problemáticas vs. valores esperados",
+         subtitle = "Barras: correlación empírica, Puntos: valor esperado",
+         x = "Factor", y = "Correlación") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+
+# ---- 14. APLICAR AJUSTES BASADOS EN REGLAS DE NEGOCIO ----
+# Función para ajustar correlaciones según reglas de negocio
+ajustar_correlaciones_con_reglas <- function(correlaciones_df, reglas) {
+  # Asegurar que existe la columna Ajustado
+  if(!"Ajustado" %in% colnames(correlaciones_df)) {
+    correlaciones_df$Ajustado <- FALSE
+  }
+  
+  for (i in 1:nrow(reglas)) {
+    segmento <- reglas$Segmento[i]
+    factor <- reglas$Factor[i]
+    valor_esperado <- reglas$Valor_Esperado[i]
+    
+    # Encontrar índice en el dataframe de correlaciones
+    idx <- correlaciones_df$Segmento == segmento & correlaciones_df$Factor == factor
+    
+    if (sum(idx) > 0) {
+      # Aplicar ajuste
+      cat("Ajustando", factor, "en segmento", segmento, 
+          "de", correlaciones_df$Correlacion[idx], 
+          "a", valor_esperado, "(", reglas$Problema[i], ")\n")
+      
+      correlaciones_df$Correlacion[idx] <- valor_esperado
+      correlaciones_df$Ajustado[idx] <- TRUE
+    }
+  }
+  
+  return(correlaciones_df)
+}
+
+# Preparar dataframe de correlaciones
+correlaciones_df <- resultado_correlaciones$datos
+correlaciones_df$Ajustado <- FALSE
+
+# Aplicar ajustes
+correlaciones_df_ajustado <- ajustar_correlaciones_con_reglas(correlaciones_df, problematicas)
+
+# Recalcular pesos por segmento utilizando correlaciones ajustadas
+recalcular_pesos_ajustados <- function(correlaciones_ajustadas) {
+  pesos_ajustados <- list()
+  
+  # Obtener segmentos únicos
+  segmentos <- unique(correlaciones_ajustadas$Segmento)
+  
+  for (segmento in segmentos) {
+    # Filtrar correlaciones para este segmento
+    corr_segmento <- correlaciones_ajustadas[correlaciones_ajustadas$Segmento == segmento, ]
+    
+    # Extraer valores de correlación
+    correlaciones <- corr_segmento$Correlacion
+    names(correlaciones) <- corr_segmento$Factor
+    
+    # Convertir a valores absolutos
+    correlaciones_abs <- abs(correlaciones)
+    
+    # Normalizar para que sumen 1
+    suma_correlaciones <- sum(correlaciones_abs, na.rm = TRUE)
+    pesos <- correlaciones_abs / suma_correlaciones
+    
+    # Guardar pesos para este segmento
+    pesos_ajustados[[segmento]] <- pesos
+  }
+  
+  return(pesos_ajustados)
+}
+
+# Recalcular pesos con correlaciones ajustadas
+pesos_por_segmento_ajustados <- recalcular_pesos_ajustados(correlaciones_df_ajustado)
+
+# Guardar pesos ajustados
+saveRDS(pesos_por_segmento_ajustados, "pesos_por_segmento_ajustados.rds")
+
+# ---- 15. DOCUMENTAR Y HACER TRANSPARENTE EL PROCESO ----
+# Guardar un registro de los ajustes realizados
+ajustes_log <- correlaciones_df_ajustado[correlaciones_df_ajustado$Ajustado, 
+                                         c("Segmento", "Factor", "Correlacion", "Ajustado")]
+write.csv(ajustes_log, "ajustes_correlaciones_log.csv", row.names = FALSE)
+
+# Crear visualización que muestre antes y después
+# Primero, juntar datos originales y ajustados
+correlaciones_comparacion <- merge(
+  resultado_correlaciones$datos[, c("Segmento", "Factor", "Correlacion")],
+  correlaciones_df_ajustado[, c("Segmento", "Factor", "Correlacion", "Ajustado")],
+  by = c("Segmento", "Factor"),
+  suffixes = c(".original", ".ajustado")
+)
+
+# Filtrar solo los que cambiaron
+correlaciones_comparacion <- correlaciones_comparacion[
+  correlaciones_comparacion$Ajustado == TRUE, ]
+
+# Visualizar cambios en formato largo
+if(nrow(correlaciones_comparacion) > 0) {
+  comparacion_largo <- reshape2::melt(
+    correlaciones_comparacion[, c("Segmento", "Factor", "Correlacion.original", "Correlacion.ajustado")], 
+    id.vars = c("Segmento", "Factor"),
+    variable.name = "Tipo",
+    value.name = "Correlacion"
+  )
+  
+  # Renombrar niveles para mejor visualización
+  comparacion_largo$Tipo <- ifelse(
+    comparacion_largo$Tipo == "Correlacion.original", 
+    "Original", "Ajustado"
+  )
+  
+  # Crear gráfico comparativo
+  ggplot(comparacion_largo, aes(x = Factor, y = Correlacion, fill = Tipo)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~Segmento) +
+    scale_fill_manual(values = c("Original" = "#EF6558", "Ajustado" = "#68d192")) +
+    labs(title = "Comparación de correlaciones originales vs ajustadas",
+         subtitle = "Basado en conocimiento experto del mercado inmobiliario",
+         x = "Factor", y = "Correlación", fill = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Exportar comparación para referencia
+  write.csv(correlaciones_comparacion, "comparacion_correlaciones.csv", row.names = FALSE)
+}
+
+# Documentar el impacto de los ajustes en los pesos finales
+cat("\nIMPACTO DE LOS AJUSTES EN PESOS POR SEGMENTO:\n")
+for (segmento in names(pesos_por_segmento_ajustados)) {
+  if (segmento %in% names(pesos_por_segmento)) {
+    cat("\nSegmento:", segmento, "\n")
+    
+    # Obtener factores comunes
+    factores_comunes <- intersect(
+      names(pesos_por_segmento[[segmento]]), 
+      names(pesos_por_segmento_ajustados[[segmento]])
+    )
+    
+    # Mostrar comparación de top 10 pesos
+    pesos_orig <- pesos_por_segmento[[segmento]][factores_comunes]
+    pesos_ajust <- pesos_por_segmento_ajustados[[segmento]][factores_comunes]
+    
+    comparacion <- data.frame(
+      Factor = factores_comunes,
+      Peso_Original = pesos_orig,
+      Peso_Ajustado = pesos_ajust,
+      Diferencia = pesos_ajust - pesos_orig
+    )
+    
+    comparacion <- comparacion[order(-abs(comparacion$Diferencia)), ]
+    print(head(comparacion, Inf))
+  }
+}
+
+# Generar explicación metodológica para incluir en documentación
+cat("\n=== NOTA METODOLÓGICA ===\n")
+cat("Los pesos del modelo IVU fueron calculados basándose en correlaciones estadísticas\n")
+cat("entre factores de ubicación y precios por m², complementadas con conocimiento experto\n")
+cat("del mercado inmobiliario. Se realizaron", nrow(ajustes_log), "ajustes manuales\n")
+cat("en factores donde la correlación estadística no representaba adecuadamente\n")
+cat("el valor percibido por los compradores en cada segmento.\n\n")
+cat("Estos ajustes permiten un modelo más alineado con la realidad del mercado\n")
+cat("y están documentados en los archivos 'ajustes_correlaciones_log.csv'\n")
+cat("y 'comparacion_correlaciones.csv' para garantizar transparencia.\n")
