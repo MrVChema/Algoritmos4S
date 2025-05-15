@@ -1,12 +1,8 @@
-###############################################################################
 # Índice de Valor por Ubicación (IVU)
 # Script para el cálculo y visualización del impacto de equipamientos urbanos 
 # en proyectos inmobiliarios
-###############################################################################
 
-#------------------------------------------------------------------------------
-# 1. CONFIGURACIÓN INICIAL
-#------------------------------------------------------------------------------
+# ---- 1. CONFIGURACIÓN INICIAL----
 # Limpiar el entorno y carga de bibliotecas necesarias
 rm(list = ls())
 
@@ -25,15 +21,12 @@ library(htmltools)    # Trabajar con las fuentes
 # Establecer directorio de trabajo
 setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
 
-#------------------------------------------------------------------------------
-# 2. CARGAR DATOS
-#------------------------------------------------------------------------------
+# ---- 2. CARGAR DATOS ----
 # Cargar los datos
 datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_inmobiliaria_transformada.csv', stringsAsFactors = FALSE, encoding = "UTF-8")
 
-#------------------------------------------------------------------------------
-# 3. DEFINICIÓN DE FACTORES PARA EL CÁLCULO DEL IVU
-#------------------------------------------------------------------------------
+
+# ---- 3. DEFINICIÓN DE FACTORES PARA EL CÁLCULO DEL IVU ----
 # Definir los factores para el cálculo del IVU
 factores <- list(
   # Índices existentes
@@ -84,9 +77,7 @@ factores <- list(
   )
 )
 
-#------------------------------------------------------------------------------
-# 4. FUNCIÓN PARA NORMALIZAR VALORES
-#------------------------------------------------------------------------------
+# ---- 4. FUNCIÓN PARA NORMALIZAR VALORES ---- 
 # Función para normalizar valores entre 0 y 1
 normalizar <- function(valores) {
   valores_numericos <- as.numeric(valores)
@@ -110,18 +101,14 @@ normalizar <- function(valores) {
   return(resultado)
 }
 
-#------------------------------------------------------------------------------
-# 5. NORMALIZACIÓN DE CANTIDADES DE EQUIPAMIENTOS
-#------------------------------------------------------------------------------
+# ----  5. NORMALIZACIÓN DE CANTIDADES DE EQUIPAMIENTOS ---- 
 # Normalizar las cantidades de equipamientos
 cantidades_norm <- list()
 for (col in factores$cantidades) {
   cantidades_norm[[col]] <- normalizar(datos[[col]])
 }
 
-#------------------------------------------------------------------------------
-# 6. DEFINICIÓN DE PONDERACIONES (PESOS)
-#------------------------------------------------------------------------------
+# ----  6. DEFINICIÓN DE PONDERACIONES (PESOS) ---- 
 # Ponderaciones basadas en correlaciones con precio
 # Estos pesos se basan en el análisis previo
 pesos <- c(
@@ -163,78 +150,126 @@ for (factor in factores$otros) {
   pesos[factor] <- 0.021  # 2.1% para cada uno de los otros factores
 }
 
-#------------------------------------------------------------------------------
-# 7. CÁLCULO DEL ÍNDICE DE VALOR POR UBICACIÓN (IVU)
-#------------------------------------------------------------------------------
+# Cargar pesos calculados y ajustados
+if (file.exists("/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[01] PESOS/pesos_por_segmento_ajustados.rds")) {
+  pesos_por_segmento <- readRDS("/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[01] PESOS/pesos_por_segmento_ajustados.rds")
+  cat("Pesos ajustados por segmento cargados. Segmentos disponibles:", 
+      paste(names(pesos_por_segmento), collapse = ", "), "\n")
+} else if (file.exists("pesos_por_segmento.rds")) {
+  pesos_por_segmento <- readRDS("pesos_por_segmento.rds")
+  cat("Pesos originales por segmento cargados (no ajustados).\n")
+} else {
+  # Si no existen, usar pesos generales para todos
+  pesos_por_segmento <- list()
+  segmentos_unicos <- unique(datos$Segmento)
+  segmentos_unicos <- segmentos_unicos[!is.na(segmentos_unicos)]
+  
+  for (segmento in segmentos_unicos) {
+    pesos_por_segmento[[segmento]] <- pesos
+  }
+  cat("Archivos de pesos por segmento no encontrados. Usando pesos generales.\n")
+}
+
+# ----  7. CÁLCULO DEL ÍNDICE DE VALOR POR UBICACIÓN (IVU) ---- 
 # VERSIÓN MEJORADA: Calcular el IVU registrando todas las contribuciones
-calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
+calcular_ivu_por_segmento <- function(datos, pesos_generales, pesos_por_segmento, cantidades_norm, factores) {
   n <- nrow(datos)
   ivu <- numeric(n)
-  contribuciones <- matrix(0, nrow = n, ncol = length(names(pesos)))
-  colnames(contribuciones) <- names(pesos)
   
+  # Crear una lista con TODOS los posibles factores
+  # Esto es crucial: incluir todos los factores de la lista 'factores'
+  todos_factores_posibles <- unique(c(
+    names(pesos_generales),
+    unlist(lapply(pesos_por_segmento, names)),
+    unlist(factores)  # Incluir factores de todas las categorías
+  ))
+  
+  # Crear la matriz de contribuciones con TODOS los factores posibles
+  contribuciones <- matrix(0, nrow = n, ncol = length(todos_factores_posibles))
+  colnames(contribuciones) <- todos_factores_posibles
+  
+  cat("Matriz de contribuciones creada con", length(todos_factores_posibles), "factores\n")
+  
+  # Resto de la función sin cambios, verificando cada acceso a la matriz
   for (i in 1:n) {
     suma <- 0
     peso_total <- 0
     
+    # Determinar qué pesos usar según el segmento del proyecto
+    segmento <- datos$Segmento[i]
+    
+    # Si no hay segmento o no tenemos pesos para ese segmento, usar pesos generales
+    if (is.na(segmento) || !(segmento %in% names(pesos_por_segmento))) {
+      pesos_a_usar <- pesos_generales
+      if (is.na(segmento)) {
+        cat("Proyecto", datos$Proyecto[i], "no tiene segmento asignado. Usando pesos generales.\n")
+      } else {
+        cat("No hay pesos específicos para segmento", segmento, "del proyecto", 
+            datos$Proyecto[i], ". Usando pesos generales.\n")
+      }
+    } else {
+      # Usar pesos específicos para este segmento
+      pesos_a_usar <- pesos_por_segmento[[segmento]]
+    }
+    
     # Sumar los índices existentes
     for (indice in factores$indices) {
-      if (!is.na(datos[i, indice])) {
-        valor <- datos[i, indice] * pesos[indice]
+      if (!is.na(datos[i, indice]) && indice %in% names(pesos_a_usar)) {
+        valor <- datos[i, indice] * pesos_a_usar[indice]
         suma <- suma + valor
         contribuciones[i, indice] <- valor  # Registrar contribución
-        peso_total <- peso_total + pesos[indice]
+        peso_total <- peso_total + pesos_a_usar[indice]
       }
     }
     
     # Sumar las cercanías (ya son binarias 0-1)
     for (cercania in factores$cercanias) {
-      if (!is.na(datos[i, cercania])) {
-        valor <- datos[i, cercania] * pesos[cercania]
+      if (!is.na(datos[i, cercania]) && cercania %in% names(pesos_a_usar)) {
+        valor <- datos[i, cercania] * pesos_a_usar[cercania]
         suma <- suma + valor
         contribuciones[i, cercania] <- valor  # Registrar contribución
-        peso_total <- peso_total + pesos[cercania]
+        peso_total <- peso_total + pesos_a_usar[cercania]
       }
     }
     
     # Sumar las cantidades normalizadas
     for (cantidad in factores$cantidades) {
-      if (!is.na(cantidades_norm[[cantidad]][i])) {
-        valor <- cantidades_norm[[cantidad]][i] * pesos[cantidad]
+      if (!is.na(cantidades_norm[[cantidad]][i]) && cantidad %in% names(pesos_a_usar)) {
+        valor <- cantidades_norm[[cantidad]][i] * pesos_a_usar[cantidad]
         suma <- suma + valor
         contribuciones[i, cantidad] <- valor  # Registrar contribución
-        peso_total <- peso_total + pesos[cantidad]
+        peso_total <- peso_total + pesos_a_usar[cantidad]
       }
     }
     
     # Sumar otros factores binarios
     for (otro in factores$otros) {
-      if (!is.na(datos[i, otro])) {
-        valor <- datos[i, otro] * pesos[otro]
+      if (!is.na(datos[i, otro]) && otro %in% names(pesos_a_usar)) {
+        valor <- datos[i, otro] * pesos_a_usar[otro]
         suma <- suma + valor
         contribuciones[i, otro] <- valor  # Registrar contribución
-        peso_total <- peso_total + pesos[otro]
+        peso_total <- peso_total + pesos_a_usar[otro]
       }
     }
     
     # Sumar variables de vialidades
     for (vialidad in factores$vialidades) {
-      if (vialidad %in% names(datos) && !is.na(datos[i, vialidad])) {
+      if (vialidad %in% names(datos) && !is.na(datos[i, vialidad]) && vialidad %in% names(pesos_a_usar)) {
         # Validación adicional para variables de vialidades
         if (grepl("cercania_avenida|cerca_avenida", vialidad)) {
           # Verificar la distancia real
           if (is.na(datos[i, "dist_to_avenue"]) || datos[i, "dist_to_avenue"] > 3000) {
             valor <- 0  # No contribuye si está demasiado lejos
           } else {
-            valor <- datos[i, vialidad] * pesos[vialidad]
+            valor <- datos[i, vialidad] * pesos_a_usar[vialidad]
           }
         } else {
-          valor <- datos[i, vialidad] * pesos[vialidad]
+          valor <- datos[i, vialidad] * pesos_a_usar[vialidad]
         }
         
         suma <- suma + valor
         contribuciones[i, vialidad] <- valor
-        peso_total <- peso_total + pesos[vialidad]
+        peso_total <- peso_total + pesos_a_usar[vialidad]
       }
     }
     
@@ -247,8 +282,11 @@ calcular_ivu <- function(datos, pesos, cantidades_norm, factores) {
 }
 
 # Calcular el IVU para todos los proyectos y obtener las contribuciones
-resultado_ivu <- calcular_ivu(datos, pesos, cantidades_norm, factores)
+resultado_ivu <- calcular_ivu_por_segmento(datos, pesos, pesos_por_segmento, cantidades_norm, factores)
 datos$ivu <- resultado_ivu$ivu
+datos$segmento_utilizado <- ifelse(is.na(datos$Segmento), "General", 
+                                   ifelse(datos$Segmento %in% names(pesos_por_segmento), 
+                                          as.character(datos$Segmento), "General"))
 contribuciones <- resultado_ivu$contribuciones
 
 # Calcular contribución por categoría
@@ -258,6 +296,7 @@ datos$contrib_cantidades <- rowSums(contribuciones[, intersect(factores$cantidad
 datos$contrib_vialidades <- rowSums(contribuciones[, intersect(factores$vialidades, colnames(contribuciones))], na.rm = TRUE)
 datos$contrib_otros <- rowSums(contribuciones[, intersect(factores$otros, colnames(contribuciones))], na.rm = TRUE)
 
+
 # Crear categorías para el IVU (para el termómetro)
 datos$ivu_categoria <- cut(
   datos$ivu, 
@@ -266,9 +305,7 @@ datos$ivu_categoria <- cut(
   include.lowest = TRUE
 )
 
-#------------------------------------------------------------------------------
-# 8. ESTADÍSTICAS DEL IVU
-#------------------------------------------------------------------------------
+# ----  8. ESTADÍSTICAS DEL IVU ---- 
 # Estadísticas del IVU
 estadisticas_ivu <- list(
   min = min(datos$ivu, na.rm = TRUE),
@@ -328,9 +365,44 @@ for (i in 1:nrow(promedio_municipios)) {
   ))
 }
 
-#------------------------------------------------------------------------------
-# 9. VISUALIZACIONES
-#------------------------------------------------------------------------------
+# Agregar resumen por segmento
+print("\nResumen del IVU por segmento:")
+resumen_segmento <- datos %>%
+  group_by(segmento_utilizado) %>%
+  summarise(
+    Proyectos = n(),
+    Media_IVU = mean(ivu, na.rm = TRUE),
+    Mediana_IVU = median(ivu, na.rm = TRUE),
+    Min_IVU = min(ivu, na.rm = TRUE),
+    Max_IVU = max(ivu, na.rm = TRUE),
+    Desv_Est = sd(ivu, na.rm = TRUE),
+    Media_Precio_m2 = mean(p_m2, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Media_IVU))
+
+print(knitr::kable(resumen_segmento, digits = 4))
+
+# Calcular correlación IVU-precio por segmento
+correlaciones_segmento <- datos %>%
+  # Agrupar por segmento
+  group_by(segmento_utilizado) %>%
+  # Filtrar para asegurar que hay suficientes datos para la correlación (al menos 3 proyectos)
+  filter(n() >= 3) %>%
+  # Calcular correlaciones solo cuando hay suficientes pares válidos
+  summarise(
+    Num_Proyectos = n(),
+    Num_Pares_Validos_Precio = sum(!is.na(p_m2) & !is.na(ivu)),
+    Num_Pares_Validos_Absorcion = sum(!is.na(absorcion) & !is.na(ivu)),
+    Correlacion_IVU_Precio = if(sum(!is.na(p_m2) & !is.na(ivu)) >= 3) 
+      cor(ivu, p_m2, use = "complete.obs", method = "pearson") else NA,
+    Correlacion_IVU_Absorcion = if(sum(!is.na(absorcion) & !is.na(ivu)) >= 3) 
+      cor(ivu, absorcion, use = "complete.obs", method = "pearson") else NA
+  )
+
+print("\nCorrelaciones por segmento:")
+print(knitr::kable(correlaciones_segmento, digits = 4))
+
+# ----  9. VISUALIZACIONES ---- 
 # Función auxiliar para seleccionar un proyecto consistentemente
 seleccionar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
   # Permitir selección por índice o por nombre
@@ -349,12 +421,10 @@ seleccionar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto 
 }
 
 # Definir el proyecto a analizar de forma consistente
-indice_proyecto_seleccionado <- 26  # O el índice que prefieras
+indice_proyecto_seleccionado <- 21  # O el índice que prefieras
 # nombre_proyecto_seleccionado <- "Nombre del Proyecto"  # Alternativa por nombre
 
-#-------------------------------------------------------
-# 9.1 VISUALIZACIÓN DEL TERMÓMETRO MEJORADO
-#-------------------------------------------------------
+# ----  9.1 VISUALIZACIÓN DEL TERMÓMETRO MEJORADO ---- 
 crear_termometro <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
   # Usar la función auxiliar para seleccionar el proyecto
   proyecto <- seleccionar_proyecto(datos, indice_proyecto, nombre_proyecto)
@@ -427,9 +497,7 @@ crear_termometro <- function(datos, indice_proyecto = NULL, nombre_proyecto = NU
 termometro_ejemplo <- crear_termometro(datos, indice_proyecto = indice_proyecto_seleccionado)
 print(termometro_ejemplo)
 
-#-------------------------------------------------------
-# 9.2 GRÁFICO DE BARRAS DEL IVU POR MUNICIPIO
-#-------------------------------------------------------
+# ----  9.2 GRÁFICO DE BARRAS DEL IVU POR MUNICIPIO ---- 
 grafico_municipios <- ggplot(promedio_municipios, aes(x = reorder(Municipio, PromedioIVU), y = PromedioIVU)) +
   geom_bar(stat = "identity", fill = "#6366f1") +
   geom_text(aes(label = sprintf("%.2f", PromedioIVU)), vjust = -0.5) +
@@ -441,9 +509,7 @@ grafico_municipios <- ggplot(promedio_municipios, aes(x = reorder(Municipio, Pro
 
 print(grafico_municipios)
 
-#-------------------------------------------------------
-# 9.3 DISTRIBUCIÓN DE CATEGORÍAS IVU
-#-------------------------------------------------------
+# ----  9.3 DISTRIBUCIÓN DE CATEGORÍAS IVU ---- 
 grafico_categorias <- ggplot(data.frame(Categoria = names(tabla_categorias), 
                                         Cantidad = as.numeric(tabla_categorias)), 
                              aes(x = Categoria, y = Cantidad, fill = Categoria)) +
@@ -468,9 +534,50 @@ grafico_categorias <- ggplot(data.frame(Categoria = names(tabla_categorias),
 
 print(grafico_categorias)
 
-#-------------------------------------------------------
-# 9.4 RELACIÓN DE VARIABLES CON PRECIO POR M²
-#-------------------------------------------------------
+# 9.3b DISTRIBUCIÓN DE IVU POR SEGMENTO
+# Crear boxplot de IVU por segmento
+if (length(unique(datos$segmento_utilizado)) > 1) {
+  ggplot(datos, aes(x = segmento_utilizado, y = ivu, fill = segmento_utilizado)) +
+    geom_boxplot() +
+    stat_summary(fun = mean, geom = "point", shape = 23, size = 3, fill = "white") +
+    labs(title = "Distribución del IVU por segmento",
+         x = "Segmento", y = "Índice de Valor por Ubicación",
+         fill = "Segmento") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+# Comparación de contribuciones por categoría y segmento
+contribuciones_por_segmento <- datos %>%
+  filter(!is.na(segmento_utilizado)) %>%
+  group_by(segmento_utilizado) %>%
+  summarise(
+    Índices = mean(contrib_indices, na.rm = TRUE),
+    Cercanías = mean(contrib_cercanias, na.rm = TRUE),
+    Cantidades = mean(contrib_cantidades, na.rm = TRUE),
+    Vialidades = mean(contrib_vialidades, na.rm = TRUE),
+    Otros = mean(contrib_otros, na.rm = TRUE)
+  )
+
+# Convertir a formato largo para ggplot
+contribuciones_segmento_largo <- reshape2::melt(
+  contribuciones_por_segmento, 
+  id.vars = "segmento_utilizado",
+  variable.name = "Categoría",
+  value.name = "Contribución"
+)
+
+# Gráfico de barras apiladas
+ggplot(contribuciones_segmento_largo, 
+       aes(x = segmento_utilizado, y = Contribución, fill = Categoría)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_brewer(palette = "Set1") +
+  labs(title = "Contribución de cada categoría al IVU por segmento",
+       x = "Segmento", y = "Contribución al IVU") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ----  9.4 RELACIÓN DE VARIABLES CON PRECIO POR M² ---- 
 ## 9.4.1 Relación entre IVU y precio por m²
 grafico_precio_ivu <- ggplot(datos, aes(x = ivu, y = p_m2, color = ivu_categoria)) +
   geom_point(alpha = 0.7) +
@@ -565,9 +672,53 @@ grafico_accesibilidad_ivu <- ggplot(datos,
 
 print(grafico_accesibilidad_ivu)
 
-#-------------------------------------------------------
-# 9.5 GRÁFICO RADAR PARA UN PROYECTO ESPECÍFICO
-#-------------------------------------------------------
+## 9.4.5 Crear tabla con los 5 factores más importantes por segmento
+factores_por_segmento <- lapply(names(pesos_por_segmento), function(segmento) {
+  pesos_seg <- pesos_por_segmento[[segmento]]
+  top_5 <- sort(pesos_seg, decreasing = TRUE)[1:5]
+  data.frame(
+    Segmento = segmento,
+    Factor = names(top_5),
+    Peso = as.numeric(top_5),
+    Ranking = 1:5
+  )
+})
+factores_por_segmento <- do.call(rbind, factores_por_segmento)
+factores_por_segmento
+
+## 9.4.6 Crear visualización comparativa
+ggplot(factores_por_segmento, aes(x = reorder(Factor, -Peso), y = Peso, fill = Segmento)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Top 5 factores por segmento de mercado",
+       x = "Factor", y = "Peso") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+## 9.4.7 Diferencias Específicas por Segmento
+# Seleccionar factores interesantes para comparar entre segmentos
+factores_interes <- c("cercania_esc_priv", "cercania_esc_pub", "cerca_parque_relevante", 
+                      "accesibilidad_vial", "cercania_tienda_dept")
+
+# Extraer pesos para estos factores por segmento
+comparacion_factores <- lapply(names(pesos_por_segmento), function(segmento) {
+  pesos_seg <- pesos_por_segmento[[segmento]]
+  data.frame(
+    Segmento = segmento,
+    Factor = names(pesos_seg)[names(pesos_seg) %in% factores_interes],
+    Peso = as.numeric(pesos_seg[names(pesos_seg) %in% factores_interes])
+  )
+})
+comparacion_factores <- do.call(rbind, comparacion_factores)
+
+# Visualizar comparación 
+ggplot(comparacion_factores, aes(x = Segmento, y = Peso, fill = Factor)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparación de pesos de factores clave por segmento",
+       x = "Segmento", y = "Peso") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ----  9.5 GRÁFICO RADAR PARA UN PROYECTO ESPECÍFICO ---- 
 crear_radar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
   # Usar la función auxiliar para seleccionar el proyecto
   proyecto <- seleccionar_proyecto(datos, indice_proyecto, nombre_proyecto)
@@ -612,9 +763,7 @@ crear_radar_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto 
 radar_ejemplo <- crear_radar_proyecto(datos, indice_proyecto = indice_proyecto_seleccionado)
 print(radar_ejemplo)
 
-#-------------------------------------------------------
-# 9.6 MAPA INTERACTIVO
-#-------------------------------------------------------
+# ----  9.6 MAPA INTERACTIVO ---- 
 crear_mapa <- function(datos) {
   # Definir paleta de colores por categoría IVU
   pal <- colorFactor(
@@ -683,9 +832,7 @@ crear_mapa <- function(datos) {
 mapa <- crear_mapa(datos)
 mapa
 
-#-------------------------------------------------------
-# 9.7 NUEVAS VISUALIZACIONES: ANÁLISIS DE FACTORES DEL IVU
-#-------------------------------------------------------
+# ----  9.7 NUEVAS VISUALIZACIONES: ANÁLISIS DE FACTORES DEL IVU ---- 
 
 # 9.7.1 Radar de factores individuales que más contribuyen al IVU
 crear_radar_factores <- function(datos, contribuciones, indice_proyecto = NULL, nombre_proyecto = NULL) {
@@ -955,8 +1102,27 @@ print(grafico_fortalezas)
 radar_categorias <- crear_radar_categorias(datos, contribuciones, factores, indice_proyecto = indice_proyecto_seleccionado)
 print(radar_categorias)
 
-#------------------------------------------------------------------------------
-# 10. GUARDAR RESULTADOS
-#------------------------------------------------------------------------------
+# ---- 10. GUARDAR RESULTADOS ----
 # Guardar el dataframe con el IVU calculado
 write.csv(datos, "proyectos_con_ivu.csv", row.names = FALSE)
+
+# Guardar un resumen de los pesos utilizados por segmento
+pesos_summary <- lapply(names(pesos_por_segmento), function(segmento) {
+  top_10 <- sort(pesos_por_segmento[[segmento]], decreasing = TRUE)[1:10]
+  data.frame(
+    Segmento = segmento,
+    Factor = names(top_10),
+    Peso = as.numeric(top_10),
+    Ranking = 1:length(top_10)
+  )
+})
+pesos_summary <- do.call(rbind, pesos_summary)
+write.csv(pesos_summary, "pesos_por_segmento_top10.csv", row.names = FALSE)
+
+# Si estás utilizando RMarkdown, puedes generar un informe HTML
+if (requireNamespace("rmarkdown", quietly = TRUE)) {
+  cat("Generando informe HTML...\n")
+  # Aquí podrías crear un template de Rmd y renderizarlo con los datos
+}
+
+
