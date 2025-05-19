@@ -6,6 +6,7 @@
 rm(list = ls())
 
 library(sf)
+library(lwgeom)
 library(readr)
 library(readxl)
 library(dplyr)
@@ -111,7 +112,11 @@ convertir_coordenadas_manualmente <- function(dms_str, tipo) {
   return(convertir_dms(dms_str))
 }
 
-# Datos del nuevo proyecto - MODIFICAR ESTOS DATOS
+# ----- Control de evaluación de nuevos proyectos -----
+
+evaluar_nuevo_proyecto <- FALSE  # Cambiar a TRUE cuando se quiera evaluar un nuevo proyecto
+
+# Datos del nuevo proyecto - SOLO SE USARÁN SI evaluar_nuevo_proyecto = TRUE
 nombre_proyecto <- "Proyecto: Frida Chilaquiles"
 desarrollador <- "Desarrollador XYZ"
 municipio <- "San Pedro Garza García"
@@ -120,47 +125,59 @@ municipio <- "San Pedro Garza García"
 latitud_dms <- "25°39'24.18\"N"
 longitud_dms <- "100°21'50.10\"W"
 
-# Convertir coordenadas manualmente para mayor seguridad
-lat_decimal <- convertir_coordenadas_manualmente(latitud_dms, "latitud")
-lon_decimal <- convertir_coordenadas_manualmente(longitud_dms, "longitud")
+# Definir valores predeterminados para el centro del mapa
+# (coordenadas aproximadas del centro de Monterrey)
+lat_decimal <- 25.6866  # Centro de Monterrey
+lon_decimal <- -100.3161  # Centro de Monterrey
 
-# También probar con la función general
-lat_decimal2 <- convertir_dms(latitud_dms)
-lon_decimal2 <- convertir_dms(longitud_dms)
-
-# Imprimir todas las conversiones para verificar
-cat("Coordenadas convertidas (método manual):", lat_decimal, lon_decimal, "\n")
-cat("Coordenadas convertidas (método general):", lat_decimal2, lon_decimal2, "\n")
-
-# Verificación de coordenadas
-coords_correctas <- lat_decimal >= -90 && lat_decimal <= 90 && 
-  lon_decimal >= -180 && lon_decimal <= 180
-
-if(!coords_correctas) {
-  # Si la conversión automática falló, usar coordenadas conocidas para Monterrey
-  cat("ADVERTENCIA: ¡Conversión de coordenadas incorrecta! Usando coordenadas aproximadas para San Pedro Garza García\n")
-  lat_decimal <- 25.6667  # Aproximado para San Pedro Garza García
-  lon_decimal <- -100.4167  # Aproximado para San Pedro Garza García
+# Solo procesar el nuevo proyecto si la bandera está activada
+if(evaluar_nuevo_proyecto) {
+  # Convertir coordenadas manualmente para mayor seguridad
+  lat_decimal <- convertir_coordenadas_manualmente(latitud_dms, "latitud")
+  lon_decimal <- convertir_coordenadas_manualmente(longitud_dms, "longitud")
+  
+  # También probar con la función general
+  lat_decimal2 <- convertir_dms(latitud_dms)
+  lon_decimal2 <- convertir_dms(longitud_dms)
+  
+  # Imprimir todas las conversiones para verificar
+  cat("Coordenadas convertidas (método manual):", lat_decimal, lon_decimal, "\n")
+  cat("Coordenadas convertidas (método general):", lat_decimal2, lon_decimal2, "\n")
+  
+  # Verificación de coordenadas
+  coords_correctas <- lat_decimal >= -90 && lat_decimal <= 90 && 
+    lon_decimal >= -180 && lon_decimal <= 180
+  
+  if(!coords_correctas) {
+    # Si la conversión automática falló, usar coordenadas conocidas para Monterrey
+    cat("ADVERTENCIA: ¡Conversión de coordenadas incorrecta! Usando coordenadas aproximadas para San Pedro Garza García\n")
+    lat_decimal <- 25.6667  # Aproximado para San Pedro Garza García
+    lon_decimal <- -100.4167  # Aproximado para San Pedro Garza García
+  }
+  
+  # Crear dataframe para el nuevo proyecto
+  nuevo_proyecto <- data.frame(
+    Proyecto = nombre_proyecto,
+    Desarrollador = desarrollador,
+    Municipio = municipio,
+    Latitud = lat_decimal,
+    Longitud = lon_decimal,
+    Estatus = "Nuevo"
+  )
+  
+  # Añadir otras columnas existentes en proyectos con NA
+  cols_faltantes <- setdiff(names(proyectos), names(nuevo_proyecto))
+  for(col in cols_faltantes) {
+    nuevo_proyecto[[col]] <- NA
+  }
+  
+  # Integrar el nuevo proyecto a la base existente
+  proyectos <- bind_rows(proyectos, nuevo_proyecto)
+  
+  cat("Nuevo proyecto añadido:", nombre_proyecto, "\n")
+} else {
+  cat("Evaluación de nuevos proyectos desactivada. Cambiar 'evaluar_nuevo_proyecto' a TRUE para activar.\n")
 }
-
-# Crear dataframe para el nuevo proyecto
-nuevo_proyecto <- data.frame(
-  Proyecto = nombre_proyecto,
-  Desarrollador = desarrollador,
-  Municipio = municipio,
-  Latitud = lat_decimal,
-  Longitud = lon_decimal,
-  Estatus = "Nuevo"
-)
-
-# Añadir otras columnas existentes en proyectos con NA
-cols_faltantes <- setdiff(names(proyectos), names(nuevo_proyecto))
-for(col in cols_faltantes) {
-  nuevo_proyecto[[col]] <- NA
-}
-
-# Integrar el nuevo proyecto a la base existente
-proyectos <- bind_rows(proyectos, nuevo_proyecto)
 
 ### Variables de áreas verdes y datos demográficos
 verdes <- read_xlsx('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[03] VARIABLES/[01] AREAS VERDES/AreasVerdes_Zona_V2.xlsx')
