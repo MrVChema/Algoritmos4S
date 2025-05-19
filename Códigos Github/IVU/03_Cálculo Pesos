@@ -365,6 +365,7 @@ pesos_por_categoria <- data.frame(
                               unlist(factores[c("cantidades", "cercanias", "indices", "vialidades")]))], 
         na.rm = TRUE)
   )
+)
   
 # ---- 12. NUEVA SECCIÓN: Análisis de correlaciones por segmento ----
 
