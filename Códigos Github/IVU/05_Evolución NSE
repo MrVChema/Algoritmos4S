@@ -1,0 +1,408 @@
+# Script 5: Evolución NSE
+# Modelo predictivo para la evolución del nivel socioeconómico de zonas inmobiliarias
+
+# ---- 1. CONFIGURACIÓN INICIAL ----
+rm(list = ls())
+
+library(dplyr)
+library(sf)
+library(leaflet)
+library(ggplot2)
+library(reshape2)  # Añadir para melt()
+
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
+
+# ---- 2. CARGAR DATOS PROCESADOS ----
+datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/proyectos_con_ivu.csv', stringsAsFactors = FALSE)
+datos_sf <- st_read('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/base_inmobiliaria_transformada.gpkg')
+
+# ---- 3. MAPEO DE NSE Y SEGMENTOS A VALORES NUMÉRICOS ----
+# Verificar valores únicos para depuración
+print("Valores únicos NSE:")
+print(unique(datos$nse))
+print("Valores únicos Segmento:")
+print(unique(datos$Segmento))
+
+# Mapeo NSE
+nse_valores <- c(
+  "A+" = 7, "A" = 6, "B" = 5, "C+" = 4, "C" = 3, "D+" = 2, "D" = 1, "E" = 0
+)
+
+# Mapeo Segmento
+segmento_valores <- c(
+  "Premium Plus" = 7, "Premium" = 6, "Residencial Plus" = 5, 
+  "Residencial" = 4, "Medio" = 3, "Económico" = 2, "Social" = 1
+)
+
+# Convertir categorías a valores numéricos
+datos$nse_valor <- sapply(datos$nse, function(x) {
+  if (is.na(x)) return(NA)
+  if (x %in% names(nse_valores)) return(nse_valores[x]) else return(NA)
+})
+
+datos$segmento_valor <- sapply(datos$Segmento, function(x) {
+  if (is.na(x)) return(NA)
+  if (x %in% names(segmento_valores)) return(segmento_valores[x]) else return(NA)
+})
+
+# ---- 4. CÁLCULO DE FACTORES PREDICTIVOS ----
+
+# Factor 1: Brecha entre segmento del proyecto y NSE de la zona
+datos$brecha_nse_segmento <- datos$segmento_valor - datos$nse_valor
+
+# Factor 2: Análisis de NSE de zonas vecinas
+# Añadir datos de NSE al objeto espacial
+datos_sf$nse_valor <- datos$nse_valor
+datos_sf$segmento_valor <- datos$segmento_valor  # Añadir también el valor del segmento
+
+# VERSIÓN CORREGIDA: Calcular el NSE promedio de proyectos en un radio de 1.5km
+calcular_nse_vecinos <- function(datos_sf) {
+  n <- nrow(datos_sf)
+  nse_vecinos <- numeric(n)
+  
+  for (i in 1:n) {
+    # Obtener la geometría directamente
+    geom_i <- st_geometry(datos_sf)[i]
+    
+    # Verificar que la geometría existe y no está vacía
+    if (!st_is_empty(geom_i)) {
+      # Crear buffer de 1.5km
+      buffer <- st_buffer(st_transform(geom_i, 32614), 1500)
+      buffer <- st_transform(buffer, 4326)
+      
+      # Identificar proyectos vecinos
+      vecinos_indices <- st_intersects(buffer, st_geometry(datos_sf))[[1]]
+      vecinos_indices <- vecinos_indices[vecinos_indices != i]  # Excluir el proyecto actual
+      
+      if (length(vecinos_indices) > 0) {
+        # Calcular NSE promedio de vecinos
+        nse_vecinos[i] <- mean(datos_sf$nse_valor[vecinos_indices], na.rm = TRUE)
+      } else {
+        nse_vecinos[i] <- NA
+      }
+    } else {
+      nse_vecinos[i] <- NA
+    }
+  }
+  
+  return(nse_vecinos)
+}
+
+datos$nse_vecinos <- calcular_nse_vecinos(datos_sf)
+datos$influencia_vecinos <- datos$nse_vecinos - datos$nse_valor
+
+# Factor 3: Rendimiento de absorción comparado con similares
+# Calcular absorción promedio por NSE
+absorcion_por_nse <- datos %>%
+  group_by(nse) %>%
+  summarize(absorcion_promedio = mean(absorcion, na.rm = TRUE))
+
+# Unir con datos principales
+datos <- datos %>%
+  left_join(absorcion_por_nse, by = "nse") %>%
+  mutate(
+    rendimiento_relativo = absorcion / absorcion_promedio,
+    rendimiento_ajustado = ifelse(is.na(rendimiento_relativo) | 
+                                    is.infinite(rendimiento_relativo), 
+                                  1, rendimiento_relativo)
+  )
+
+# Factor 4: Proporción de unidades vendidas
+datos$ratio_ventas <- datos$unidades_vendidas / datos$unidades_totales
+datos$ratio_ventas[is.na(datos$ratio_ventas) | is.infinite(datos$ratio_ventas)] <- 0.5
+
+# FACTOR 5: SEGMENTO PREDOMINANTE EN LA ZONA
+# Calcular el segmento predominante en el vecindario (similar al cálculo de NSE vecinos)
+calcular_segmento_predominante <- function(datos_sf, datos) {
+  n <- nrow(datos_sf)
+  segmento_predominante <- numeric(n)
+  
+  for (i in 1:n) {
+    # Obtener la geometría directamente
+    geom_i <- st_geometry(datos_sf)[i]
+    
+    # Verificar que la geometría existe y no está vacía
+    if (!st_is_empty(geom_i)) {
+      # Crear buffer de 1.5km
+      buffer <- st_buffer(st_transform(geom_i, 32614), 1500)
+      buffer <- st_transform(buffer, 4326)
+      
+      # Identificar proyectos vecinos
+      vecinos_indices <- st_intersects(buffer, st_geometry(datos_sf))[[1]]
+      vecinos_indices <- vecinos_indices[vecinos_indices != i]  # Excluir el proyecto actual
+      
+      if (length(vecinos_indices) > 0) {
+        # Obtener segmentos de vecinos
+        segmentos_vecinos <- datos$segmento_valor[vecinos_indices]
+        
+        # Eliminar NA si hay alguno
+        segmentos_vecinos <- segmentos_vecinos[!is.na(segmentos_vecinos)]
+        
+        if (length(segmentos_vecinos) > 0) {
+          # Calcular el segmento predominante (usamos el percentil 75 para capturar tendencia hacia arriba)
+          segmento_predominante[i] <- quantile(segmentos_vecinos, 0.75, na.rm = TRUE)
+        } else {
+          segmento_predominante[i] <- NA
+        }
+      } else {
+        segmento_predominante[i] <- NA
+      }
+    } else {
+      segmento_predominante[i] <- NA
+    }
+  }
+  
+  return(segmento_predominante)
+}
+
+# Calcular segmento predominante y su brecha con el NSE actual
+datos$segmento_predominante <- calcular_segmento_predominante(datos_sf, datos)
+datos$brecha_segmento_predominante_nse <- datos$segmento_predominante - datos$nse_valor
+
+# ----- 3b. FUNCIONES PARA CONVERTIR VALORES NUMÉRICOS A ETIQUETAS (AHORA SÍ SE PUEDEN USAR) -----
+# Función para convertir valor numérico a NSE
+valor_a_nse <- function(valor) {
+  if (is.na(valor)) return(NA)
+  
+  # Crear mapeo inverso
+  nse_nombres <- names(nse_valores)[match(valor, nse_valores)]
+  if (is.na(nse_nombres)) {
+    # Para valores intermedios (como 4.5), asignar al NSE más cercano
+    diferencias <- abs(nse_valores - valor)
+    indice_cercano <- which.min(diferencias)
+    return(names(nse_valores)[indice_cercano])
+  }
+  return(nse_nombres)
+}
+
+# Función para convertir valor numérico a Segmento
+valor_a_segmento <- function(valor) {
+  if (is.na(valor)) return(NA)
+  
+  # Crear mapeo inverso
+  segmento_nombres <- names(segmento_valores)[match(valor, segmento_valores)]
+  if (is.na(segmento_nombres)) {
+    # Para valores intermedios (como 4.5), asignar al segmento más cercano
+    diferencias <- abs(segmento_valores - valor)
+    indice_cercano <- which.min(diferencias)
+    return(names(segmento_valores)[indice_cercano])
+  }
+  return(segmento_nombres)
+}
+
+# Aplicar conversiones para obtener etiquetas legibles (DESPUÉS de calcular valores)
+datos$segmento_predominante_etiqueta <- sapply(datos$segmento_predominante, valor_a_segmento)
+datos$nse_vecinos_etiqueta <- sapply(datos$nse_vecinos, valor_a_nse)
+
+# ---- 5. MODELO PREDICTIVO DE EVOLUCIÓN NSE ----
+# Ponderación de factores
+datos$score_evolucion_nse <- with(datos, {
+  w1 <- 0.30  # Peso brecha NSE-Segmento del proyecto
+  w2 <- 0.20  # Peso influencia de vecinos
+  w3 <- 0.15  # Peso rendimiento de absorción
+  w4 <- 0.10  # Peso ratio de ventas
+  w5 <- 0.25  # Peso segmento predominante en la zona
+  
+  # Cálculo ponderado con el nuevo factor
+  (w1 * pmax(0, brecha_nse_segmento)) +      # Brecha del proyecto individual
+    (w2 * pmax(0, influencia_vecinos)) +       # Influencia de NSE vecinos
+    (w3 * pmax(0, rendimiento_ajustado - 1)) + # Rendimiento de absorción
+    (w4 * ratio_ventas) +                      # Ratio de ventas
+    (w5 * pmax(0, brecha_segmento_predominante_nse))  # Brecha entre segmento predominante y NSE
+})
+
+# Normalizar score (0-1)
+min_score <- min(datos$score_evolucion_nse, na.rm = TRUE)
+max_score <- max(datos$score_evolucion_nse, na.rm = TRUE)
+datos$score_norm <- (datos$score_evolucion_nse - min_score) / (max_score - min_score)
+
+# Calcular probabilidad de incremento NSE
+datos$prob_incremento_nse <- pmin(1, pmax(0, datos$score_norm))
+
+# Clasificar en categorías
+datos$tendencia_nse <- cut(
+  datos$prob_incremento_nse,
+  breaks = c(0, 0.3, 0.7, 1),
+  labels = c("Estable", "Potencial incremento", "Alto potencial de incremento"),
+  include.lowest = TRUE
+)
+
+# ---- 6. ANÁLISIS DE TIEMPO ESTIMADO PARA CAMBIO DE NSE ----
+datos$tiempo_estimado_cambio <- case_when(
+  datos$prob_incremento_nse >= 0.7 ~ "1-3 años",
+  datos$prob_incremento_nse >= 0.5 ~ "3-5 años",
+  datos$prob_incremento_nse >= 0.3 ~ "5-10 años",
+  TRUE ~ "Más de 10 años o sin cambio previsible"
+)
+
+# ---- 7. VISUALIZACIÓN DE RESULTADOS ----
+## 7.1 Mapa de calor de probabilidad de incremento NSE
+pal <- colorNumeric(
+  palette = colorRampPalette(c("#FFFFCC", "#FEB24C", "#F03B20"))(100),
+  domain = c(0, 1)
+)
+
+mapa_evolucion_nse <- leaflet(datos) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~longitud, 
+    lat = ~latitud,
+    radius = 8,
+    color = ~pal(prob_incremento_nse),
+    stroke = FALSE,
+    fillOpacity = 0.8,
+    popup = ~paste0(
+      "<b>Proyecto:</b> ", Proyecto, "<br>",
+      "<b>NSE actual:</b> ", nse, "<br>",
+      "<b>Segmento:</b> ", Segmento, "<br>",
+      "<b>Segmento predominante en zona:</b> ", segmento_predominante_etiqueta, "<br>",
+      "<b>NSE vecinos:</b> ", nse_vecinos_etiqueta, "<br>",
+      "<b>Prob. incremento NSE:</b> ", round(prob_incremento_nse * 100), "%<br>",
+      "<b>Tendencia:</b> ", tendencia_nse, "<br>",
+      "<b>Tiempo estimado:</b> ", tiempo_estimado_cambio
+    )
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    pal = pal,
+    values = ~prob_incremento_nse,
+    title = "Probabilidad de incremento NSE",
+    opacity = 0.8
+  )
+
+print(mapa_evolucion_nse)
+
+## 7.2 Segmento Predominante vs NSE
+# Crear paleta de colores para la brecha
+pal_brecha <- colorNumeric(
+  palette = colorRampPalette(c("#FFFFFF", "#000000"))(100),
+  domain = c(0, max(datos$brecha_segmento_predominante_nse, na.rm = TRUE))
+)
+
+# Mapa de burbujas mostrando la brecha
+mapa_brecha <- leaflet(datos) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~longitud, 
+    lat = ~latitud,
+    radius = ~pmax(3, 5 * brecha_segmento_predominante_nse),  # Tamaño proporcional a la brecha
+    color = ~pal_brecha(pmax(0, brecha_segmento_predominante_nse)),
+    stroke = TRUE,
+    weight = 1,
+    fillOpacity = 0.7,
+    popup = ~paste0(
+      "<b>Proyecto:</b> ", Proyecto, "<br>",
+      "<b>NSE actual:</b> ", nse, "<br>",
+      "<b>Segmento proyecto:</b> ", Segmento, "<br>",
+      "<b>Segmento predominante:</b> ", segmento_predominante_etiqueta, "<br>",
+      "<b>Brecha Segmento-NSE:</b> ", round(brecha_segmento_predominante_nse, 2)
+    )
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    pal = pal_brecha,
+    values = ~pmax(0, brecha_segmento_predominante_nse),
+    title = "Brecha Segmento-NSE",
+    opacity = 0.8
+  )
+
+print(mapa_brecha)
+
+# 7.3 Dispersión de Factores Principales
+# Comparar los dos factores principales para ver su relación
+ggplot(datos, aes(x = brecha_nse_segmento, y = brecha_segmento_predominante_nse, color = tendencia_nse)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey30") +
+  scale_color_manual(values = c("Estable" = "#FFFFCC", 
+                                "Potencial incremento" = "#FEB24C",
+                                "Alto potencial de incremento" = "#F03B20")) +
+  labs(title = "Relación entre la brecha NSE-Segmento y Segmento Predominante",
+       x = "Brecha NSE-Segmento del Proyecto",
+       y = "Brecha Segmento Predominante-NSE en la Zona",
+       color = "Tendencia NSE") +
+  theme_minimal()
+
+## 7.4 Proyectos con mayor potencial (Segmento-NSE)
+# Proyectos con mayor potencial de evolución NSE
+top_proyectos <- datos %>%
+  filter(prob_incremento_nse >= 0.5) %>%
+  select(Proyecto, Municipio, nse, Segmento, 
+         segmento_predominante_etiqueta, brecha_segmento_predominante_nse, 
+         nse_vecinos_etiqueta, rendimiento_ajustado,
+         prob_incremento_nse, tendencia_nse, tiempo_estimado_cambio) %>%
+  arrange(desc(prob_incremento_nse))
+
+# Renombrar columnas para mejor legibilidad en la tabla
+names(top_proyectos) <- c("Proyecto", "Municipio", "NSE", "Segmento", 
+                          "Segmento Predominante", "Brecha Seg-NSE", 
+                          "NSE Vecinos", "Rend. Absorción",
+                          "Prob. Incremento", "Tendencia", "Tiempo Estimado")
+
+# Ver tabla resumen
+print(head(top_proyectos, 15))
+
+# 7.5 Matriz de transición NSE-Segmento Predominante
+# Convertir variables numéricas a factores ordenados para mejor visualización
+datos$nse_factor <- factor(datos$nse, 
+                           levels = names(nse_valores)[order(nse_valores, decreasing = TRUE)])
+
+datos$segmento_predominante_factor <- factor(datos$segmento_predominante_etiqueta,
+                                             levels = names(segmento_valores)[order(segmento_valores, decreasing = TRUE)])
+
+# Crear tabla de frecuencias
+tabla_transicion <- table(NSE_Actual = datos$nse_factor, 
+                          Segmento_Predominante = datos$segmento_predominante_factor)
+
+# Visualizar como mapa de calor
+ggplot(as.data.frame.table(tabla_transicion), 
+       aes(x = NSE_Actual, y = Segmento_Predominante, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white", size = 4) +
+  scale_fill_gradient(low = "steelblue", high = "darkred") +
+  labs(title = "Matriz de Relación NSE Actual - Segmento Predominante",
+       subtitle = "Las zonas con segmento predominante superior al NSE tienen mayor potencial de evolución",
+       x = "NSE Actual", y = "Segmento Predominante", fill = "Proyectos") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# 7.6 Contribución de cada factor al potencial de evolución
+# Preparar datos
+factores_contribucion <- datos %>%
+  mutate(
+    Brecha_NSE_Segmento = 0.30 * pmax(0, brecha_nse_segmento),
+    Influencia_Vecinos = 0.20 * pmax(0, influencia_vecinos),
+    Rendimiento_Absorcion = 0.15 * pmax(0, rendimiento_ajustado - 1),
+    Ratio_Ventas = 0.10 * ratio_ventas,
+    Brecha_Seg_Predominante = 0.25 * pmax(0, brecha_segmento_predominante_nse)
+  ) %>%
+  select(Proyecto, tendencia_nse, Brecha_NSE_Segmento, Influencia_Vecinos, 
+         Rendimiento_Absorcion, Ratio_Ventas, Brecha_Seg_Predominante)
+
+# Convertir a formato largo
+factores_long <- reshape2::melt(
+  factores_contribucion, 
+  id.vars = c("Proyecto", "tendencia_nse"),
+  variable.name = "Factor",
+  value.name = "Contribución"
+)
+
+# Graficar para los 15 proyectos con mayor potencial
+proyectos_top <- top_proyectos$Proyecto[1:15]
+factores_top <- factores_long %>%
+  filter(Proyecto %in% proyectos_top)
+
+# Visualizar factores
+ggplot(factores_top, aes(x = Proyecto, y = Contribución, fill = Factor)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_brewer(palette = "Set1") +
+  labs(title = "Factores que contribuyen al potencial de evolución NSE",
+       subtitle = "Proyectos con mayor probabilidad de incremento",
+       x = "", y = "Contribución ponderada") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8),
+        legend.position = "bottom")
+
+# ---- 8. GUARDAR RESULTADOS ----
+write.csv(datos, "proyectos_con_prediccion_nse.csv", row.names = FALSE)
