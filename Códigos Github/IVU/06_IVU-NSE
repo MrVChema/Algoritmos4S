@@ -1,0 +1,377 @@
+# Script 6: Integración IVU-NSE
+# Integración del Índice de Valor por Ubicación (IVU) con el modelo de evolución de NSE
+
+# ---- 1. CONFIGURACIÓN INICIAL ----
+rm(list = ls())
+
+library(dplyr)
+library(ggplot2)
+library(leaflet)
+library(plotly)
+library(sf)
+library(DT)        # Para tablas interactivas
+library(tidyr)     # Para pivot_longer
+library(viridis)   # Para paletas de colores avanzadas
+
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
+
+# ---- 2. CARGAR DATOS PROCESADOS ----
+# Cargar datos con IVU
+datos_ivu <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/proyectos_con_ivu.csv', stringsAsFactors = FALSE)
+
+# Cargar datos con predicción NSE
+datos_nse <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/proyectos_con_prediccion_nse.csv', stringsAsFactors = FALSE)
+
+# ---- 3. INTEGRAR DATOS ----
+# Asegurar que estamos trabajando con los mismos proyectos
+if (all(datos_ivu$Proyecto == datos_nse$Proyecto)) {
+  cat("Los conjuntos de datos tienen los mismos proyectos en el mismo orden.\n")
+  
+  # Seleccionar columnas relevantes del modelo NSE
+  cols_nse <- c("prob_incremento_nse", "tendencia_nse", "tiempo_estimado_cambio", 
+                "segmento_predominante_etiqueta", "brecha_segmento_predominante_nse")
+  
+  # Añadir columnas de evolución NSE a datos_ivu
+  datos_integrados <- datos_ivu
+  for (col in cols_nse) {
+    datos_integrados[[col]] <- datos_nse[[col]]
+  }
+} else {
+  # Si no coinciden, hacer un join
+  cat("Los conjuntos de datos no coinciden exactamente. Realizando join por Proyecto...\n")
+  
+  # Seleccionar columnas relevantes del modelo NSE
+  datos_nse_slim <- datos_nse %>%
+    select(Proyecto, prob_incremento_nse, tendencia_nse, tiempo_estimado_cambio, 
+           segmento_predominante_etiqueta, brecha_segmento_predominante_nse,
+           score_evolucion_nse)
+  
+  # Join con el dataset IVU
+  datos_integrados <- datos_ivu %>%
+    left_join(datos_nse_slim, by = "Proyecto")
+}
+
+# ---- 4. CREAR NUEVAS MÉTRICAS INTEGRADAS ----
+## 4.1 IVU Proyectado
+# IVU ajustado considerando el potencial de evolución futura
+datos_integrados <- datos_integrados %>%
+  mutate(
+    # IVU Proyectado: Combina el IVU actual con el potencial de incremento NSE
+    ivu_proyectado = ivu * (1 + (prob_incremento_nse * 0.3)),
+    
+    # Incremento potencial en valor
+    incremento_valor = ivu_proyectado - ivu,
+    
+    # Categoría de IVU Proyectado
+    ivu_proyectado_categoria = cut(
+      ivu_proyectado, 
+      breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+      labels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"),
+      include.lowest = TRUE
+    )
+  )
+
+## 4.2 Índice de Potencial de Inversión (IPI)
+# Nueva métrica que enfatiza el potencial de apreciación a largo plazo
+datos_integrados <- datos_integrados %>%
+  mutate(
+    # Ponderación entre valor actual (IVU) y potencial futuro (prob_incremento_nse)
+    indice_potencial_inversion = (ivu * 0.6) + (prob_incremento_nse * 0.4),
+    
+    # Categoría IPI
+    categoria_potencial_inversion = cut(
+      indice_potencial_inversion,
+      breaks = c(0, 0.3, 0.5, 0.7, 1),
+      labels = c("Bajo potencial", "Potencial moderado", "Alto potencial", "Excelente potencial"),
+      include.lowest = TRUE
+    )
+  )
+
+# ---- 5. VISUALIZACIONES INTEGRADAS ----
+## 5.1 Mapa de burbujas con IVU y Evolución NSE
+# Paleta de colores para IVU
+pal_ivu <- colorNumeric(
+  palette = viridis(100, option = "D"),
+  domain = c(0, 1)
+)
+
+# Paleta de Colores 4S
+## Grises
+grises_4S <- c("#212121", "#424242", "#797979", "#a9a9a9", "#c0c0c0", "#ebebeb")
+
+## Azules
+azules_4S <- c("#2C6C66", "#3A8E95", "#45A3A1", "#50BAAD", "#54C1C4", "#7ACEC8")
+
+## Varios
+varios_4S <- c("#F4BCCD", "#F4E785", "#F8C579", "#9B87F4", "#EF6558", "#68D192")
+varios_4S_v2 <- c("#EF6558", "#F8C579", "#68D192", "#9B87F4")
+
+# Funciones de paleta para cada conjunto de colores
+pal_grises <- colorNumeric(
+  palette = colorRampPalette(grises_4S)(100),
+  domain = c(0, 1)
+)
+
+pal_azules <- colorNumeric(
+  palette = colorRampPalette(azules_4S)(100),
+  domain = c(0, 1)
+)
+
+pal_varios <- colorNumeric(
+  palette = colorRampPalette(varios_4S_v2)(100),
+  domain = c(0, 1)
+)
+
+# Definir Orden y Color de los Segmentos
+  ## Definir el orden deseado de los segmentos
+  orden_segmentos <- c("Premium Plus", "Premium", "Residencial Plus", "Residencial", "Medio")
+  
+  ## Convertir la columna Segmento a factor con el orden específico
+  datos_integrados$Segmento <- factor(datos_integrados$Segmento, 
+                                      levels = orden_segmentos)
+  
+  # Definir colores específicos para cada segmento (manteniendo el orden)
+  colores_segmento <- c(
+    "Premium Plus" = "#68D192",   # Verde
+    "Premium" = "#F4E785",        # Amarillo
+    "Residencial Plus" = "#54C1C4", # Morado
+    "Residencial" = "#F8C579",    # Azul claro
+    "Medio" = "#EF6558"           # Rojo
+  )
+
+# Crear el mapa
+mapa_integrado <- leaflet(datos_integrados) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~longitud, 
+    lat = ~latitud,
+    radius = ~prob_incremento_nse * 15,  # Tamaño según potencial evolución NSE
+    color = ~pal_varios(ivu),               # Color según IVU actual
+    stroke = TRUE,
+    weight = 1,
+    fillOpacity = 0.9,
+    popup = ~paste0(
+      "<b>Proyecto:</b> ", Proyecto, "<br>",
+      "<b>NSE actual:</b> ", nse, "<br>",
+      "<b>Segmento:</b> ", Segmento, "<br>",
+      "<b>IVU:</b> ", round(ivu, 2), " (", ivu_categoria, ")<br>",
+      "<b>IVU Proyectado:</b> ", round(ivu_proyectado, 2), " (", ivu_proyectado_categoria, ")<br>",
+      "<b>Prob. incremento NSE:</b> ", round(prob_incremento_nse * 100), "%<br>",
+      "<b>Tiempo estimado:</b> ", tiempo_estimado_cambio, "<br>",
+      "<b>Índice Potencial Inversión:</b> ", round(indice_potencial_inversion, 2)
+    )
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    pal = pal_varios,
+    values = ~ivu,
+    title = "Índice Valor Ubicación",
+    opacity = 0.7
+  )
+
+print(mapa_integrado)
+
+## 5.2 Matriz de Decisión IVU vs Evolución NSE
+# Crear gráfico de dispersión
+grafico_matriz <- ggplot(datos_integrados, 
+                         aes(x = ivu, y = prob_incremento_nse, 
+                             color = indice_potencial_inversion)) +
+  geom_point(size = 3, alpha = 0.9) +
+  scale_color_gradientn(colors = varios_4S_v2) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "grey50") +
+  annotate("text", x = 0.25, y = 0.75, label = "Futuro Prometedor\nValor Actual Bajo", color = "#000000") +
+  annotate("text", x = 0.75, y = 0.75, label = "Inversión Óptima\nAlto Valor Actual y Futuro", color = "#000000") +
+  annotate("text", x = 0.25, y = 0.25, label = "Evitar\nBajo Valor Actual y Futuro", color = "#000000") +
+  annotate("text", x = 0.75, y = 0.25, label = "Valor Establecido\nAlto Valor Actual Estable", color = "#000000") +
+  labs(title = "Matriz de Decisión de Inversión",
+       subtitle = "Balanceando valor actual (IVU) y potencial futuro (Evolución NSE)",
+       x = "Índice de Valor por Ubicación (IVU)",
+       y = "Probabilidad de Incremento NSE",
+       color = "Índice de Potencial\nde Inversión") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(family = "Inter", face = "bold", size = 16),
+    plot.subtitle = element_text(family = "Inter", size = 12),
+    axis.title = element_text(family = "Inter", size = 12),
+    legend.title = element_text(family = "Inter", size = 10),
+    legend.text = element_text(family = "Inter", size = 8)
+  )
+
+# Convertir a plotly para interactividad
+matriz_interactiva <- ggplotly(grafico_matriz, tooltip = c("x", "y", "color", "text")) %>%
+  layout(
+    hoverlabel = list(
+      bgcolor = "white",
+      font = list(size = 12)
+    )
+  )
+
+print(matriz_interactiva)
+
+## 5.3 Comparación de métricas por Municipio
+comparacion_municipios <- datos_integrados %>%
+  group_by(Municipio) %>%
+  summarise(
+    IVU_Promedio = mean(ivu, na.rm = TRUE),
+    IVU_Proyectado_Promedio = mean(ivu_proyectado, na.rm = TRUE),
+    Prob_Incremento_NSE_Promedio = mean(prob_incremento_nse, na.rm = TRUE),
+    Indice_Potencial_Inversion = mean(indice_potencial_inversion, na.rm = TRUE),
+    Proyectos = n()
+  ) %>%
+  arrange(desc(Indice_Potencial_Inversion))
+
+# Convertir a formato largo para gráfico
+comparacion_long <- comparacion_municipios %>%
+  select(Municipio, IVU_Promedio, IVU_Proyectado_Promedio, Prob_Incremento_NSE_Promedio, Indice_Potencial_Inversion) %>%
+  pivot_longer(
+    cols = -Municipio,
+    names_to = "Métrica",
+    values_to = "Valor"
+  )
+
+# Gráfico comparativo
+grafico_municipios <- ggplot(comparacion_long, 
+                             aes(x = reorder(Municipio, Valor), y = Valor, fill = Métrica)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  scale_color_gradientn(colors = varios_4S_v2) +
+  labs(title = "Comparación de Métricas por Municipio",
+       x = "Municipio", y = "Valor") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+print(grafico_municipios)
+
+## 5.4 Proyectos Top según Potencial de Inversión
+proyectos_top_inversion <- datos_integrados %>%
+  arrange(desc(indice_potencial_inversion)) %>%
+  select(Proyecto, Municipio, Segmento, nse, p_m2, 
+         ivu, ivu_categoria, prob_incremento_nse, tendencia_nse,
+         ivu_proyectado, ivu_proyectado_categoria,
+         indice_potencial_inversion, categoria_potencial_inversion,
+         tiempo_estimado_cambio) %>%
+  head(20)
+
+# Renombrar columnas para visualización
+names(proyectos_top_inversion) <- c("Proyecto", "Municipio", "Segmento", "NSE", "Precio/m²", 
+                                    "IVU", "Categoría IVU", "Prob. Incremento NSE", "Tendencia NSE",
+                                    "IVU Proyectado", "Categoría IVU Proyectado",
+                                    "Índice Potencial Inversión", "Categoría Potencial",
+                                    "Tiempo Est. Cambio NSE")
+
+# Crear tabla HTML interactiva
+tabla_top <- DT::datatable(
+  proyectos_top_inversion,
+  options = list(
+    pageLength = 10,
+    autoWidth = TRUE,
+    scrollX = TRUE
+  ),
+  caption = "Top 20 Proyectos según Índice de Potencial de Inversión"
+)
+
+print(tabla_top)
+
+## 5.5 Distribución de proyectos en la matriz de decisión
+grafico_matriz_segmentos <- ggplot(datos_integrados, 
+                                   aes(x = ivu, y = prob_incremento_nse, 
+                                       color = Segmento)) +
+  # Rectángulos de cuadrantes
+  annotate("rect", xmin = 0, xmax = 0.5, ymin = 0.5, ymax = 1, fill = "#9B87F4", alpha = 0.1) +
+  annotate("rect", xmin = 0.5, xmax = 1, ymin = 0.5, ymax = 1, fill = "#68D192", alpha = 0.1) +
+  annotate("rect", xmin = 0, xmax = 0.5, ymin = 0, ymax = 0.5, fill = "#EF6558", alpha = 0.1) +
+  annotate("rect", xmin = 0.5, xmax = 1, ymin = 0, ymax = 0.5, fill = "#F4E785", alpha = 0.1) +
+  # Puntos con escala de color
+  geom_point(size = 3, alpha = 0.7) +
+  scale_color_manual(values = colores_segmento) +  # Usar los mismos colores ordenados
+  # Líneas divisorias
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "grey50") +
+  # Etiquetas de cuadrantes
+  annotate("text", x = 0.25, y = 0.75, label = "Futuro Prometedor\nValor Actual Bajo", 
+           color = "#000000", fontface = "bold") +
+  annotate("text", x = 0.75, y = 0.75, label = "Alto Valor Actual y Futuro", 
+           color = "#000000", fontface = "bold") +
+  annotate("text", x = 0.25, y = 0.25, label = "Bajo Valor Actual y Futuro", 
+           color = "#000000", fontface = "bold") +
+  annotate("text", x = 0.75, y = 0.25, label = "Valor Establecido\nAlto Valor Actual", 
+           color = "#000000", fontface = "bold") +
+  # Títulos y tema
+  labs(title = "Matriz de Decisión por Segmento",
+       x = "Índice de Valor por Ubicación (IVU)",
+       y = "Probabilidad de Incremento NSE",
+       color = "Segmento") +
+  theme_minimal()
+
+print(grafico_matriz_segmentos)
+
+# 5.6 Relación entre Precio/m² y Potencial de Inversión
+grafico_precio_potencial <- ggplot(datos_integrados, 
+                                   aes(x = indice_potencial_inversion, y = p_m2, 
+                                       color = Segmento)) +
+  geom_point(alpha = 0.7) +
+  scale_color_manual(values = colores_segmento) +  # Colores personalizados
+  scale_x_continuous(labels = scales::comma) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  labs(title = "Relación entre Precio por m² y Potencial de Inversión",
+       subtitle = "Tamaño del punto representa el valor actual (IVU)",
+       x = "Índice de Potencial de Inversión", 
+       y = "Precio por m²",
+       color = "Segmento") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right",
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 8)
+  )
+
+print(grafico_precio_potencial)
+
+## 5.7 Evolución esperada de precio vs IVU Proyectado
+# Crear una estimación simplificada de % incremento valor a 5 años
+datos_integrados <- datos_integrados %>%
+  mutate(
+    # Estimación simplificada basada en la probabilidad de incremento NSE
+    # Se podría refinar este modelo con datos históricos de apreciación
+    incremento_estimado_5a = case_when(
+      tiempo_estimado_cambio == "1-3 años" ~ prob_incremento_nse * 0.30,
+      tiempo_estimado_cambio == "3-5 años" ~ prob_incremento_nse * 0.20,
+      tiempo_estimado_cambio == "5-10 años" ~ prob_incremento_nse * 0.10,
+      TRUE ~ prob_incremento_nse * 0.05
+    ),
+    
+    # Precio estimado a 5 años
+    precio_estimado_5a = p_m2 * (1 + incremento_estimado_5a)
+  )
+
+# Gráfico de incremento estimado por segmento
+grafico_incremento <- ggplot(datos_integrados, 
+                             aes(x = ivu_proyectado, y = incremento_estimado_5a, 
+                                 color = Segmento)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "IVU Proyectado vs Incremento Estimado de Valor (5 años)",
+       x = "IVU Proyectado", 
+       y = "% Incremento Estimado de Valor",
+       color = "Segmento") +
+  theme_minimal()
+
+print(grafico_incremento)
+
+# ---- 6. GUARDAR RESULTADOS ----
+write.csv(datos_integrados, "proyectos_ivu_nse_integrados.csv", row.names = FALSE)
+
+# Mensaje de finalización
+cat("\n=== INTEGRACIÓN COMPLETA ===\n")
+cat("Se ha creado el archivo proyectos_ivu_nse_integrados.csv con las siguientes métricas adicionales:\n")
+cat("- IVU Proyectado\n")
+cat("- Índice de Potencial de Inversión (IPI)\n")
+cat("- Categoría de Potencial de Inversión\n")
+cat("- Cuadrante en la Matriz de Decisión\n")
+cat("- Estimaciones de incremento de valor\n\n")
+cat("Las visualizaciones muestran la relación entre el valor actual (IVU) y el potencial futuro (Evolución NSE).\n")
