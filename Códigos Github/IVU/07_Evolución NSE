@@ -1,0 +1,422 @@
+# Script 7: Visualización Evolución NSE - VERSIÓN CON D/E UNIFICADO
+# Esta versión mantiene D/E como una sola categoría
+
+# ---- 1. CONFIGURACIÓN INICIAL ----
+rm(list = ls())
+
+library(dplyr)
+library(sf)
+library(leaflet)
+library(ggplot2)
+
+# Suprimir warnings de s2
+sf::sf_use_s2(FALSE)
+
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
+
+# ---- 2. CARGAR DATOS ----
+datos_proyectos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/proyectos_ivu_nse_integrados.csv', stringsAsFactors = FALSE)
+
+# Cargar archivo KML
+kml_path <- '/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[02] KML_KMZ/[01] NSE/NSE-Monterrey.kml'
+
+if (file.exists(kml_path)) {
+  capas_nse <- st_layers(kml_path)
+  cat("Cargando", length(capas_nse$name), "capas NSE del KML...\n")
+  
+  poligonos_nse_list <- list()
+  
+  for (i in 1:length(capas_nse$name)) {
+    capa_nombre <- capas_nse$name[i]
+    capa_data <- st_read(kml_path, layer = capa_nombre, quiet = TRUE)
+    capa_data$nse_capa <- capa_nombre
+    
+    # Convertir a 2D y limpiar geometrías
+    if (st_is_longlat(capa_data)) {
+      capa_data <- st_zm(capa_data)
+    }
+    capa_data <- st_make_valid(capa_data)
+    
+    poligonos_nse_list[[i]] <- capa_data
+  }
+  
+  poligonos_nse <- do.call(rbind, poligonos_nse_list)
+  cat("KML cargado exitosamente:", nrow(poligonos_nse), "polígonos.\n")
+  
+} else {
+  stop("Archivo KML no encontrado en la ruta especificada.")
+}
+
+# ---- 3. FUNCIONES AUXILIARES ACTUALIZADAS PARA D/E UNIFICADO ----
+nse_a_valor <- function(nse) {
+  mapeo <- c("A+" = 7, "A" = 6, "B" = 5, "C+" = 4, "C" = 3, "D+" = 2, "D/E" = 1)
+  return(ifelse(is.na(nse) | !nse %in% names(mapeo), NA, mapeo[nse]))
+}
+
+valor_a_nse <- function(valor) {
+  if (is.na(valor)) return(NA)
+  mapeo <- c("7" = "A+", "6" = "A", "5" = "B", "4" = "C+", "3" = "C", "2" = "D+", "1" = "D/E")
+  valor_redondeado <- round(valor)
+  valor_str <- as.character(valor_redondeado)
+  return(ifelse(valor_str %in% names(mapeo), mapeo[valor_str], NA))
+}
+
+extraer_info_nse <- function(description) {
+  if (is.na(description)) {
+    return(list(nse = NA, personas = NA, hogares = NA, precio_promedio = NA))
+  }
+  
+  # Extraer NSE
+  nse_match <- regmatches(description, regexpr("NSE:\\s*([A-E][\\+]?)", description, ignore.case = TRUE))
+  nse <- if (length(nse_match) > 0) {
+    gsub("NSE:\\s*", "", nse_match, ignore.case = TRUE)
+  } else { NA }
+  
+  # Extraer personas (simplificado)
+  personas_match <- regmatches(description, regexpr("Personas:\\s*([0-9,]+)", description, ignore.case = TRUE))
+  personas <- if (length(personas_match) > 0) {
+    as.numeric(gsub("[^0-9]", "", personas_match))
+  } else { NA }
+  
+  # Extraer hogares (simplificado)
+  hogares_match <- regmatches(description, regexpr("Hogares:\\s*([0-9,]+)", description, ignore.case = TRUE))
+  hogares <- if (length(hogares_match) > 0) {
+    as.numeric(gsub("[^0-9]", "", hogares_match))
+  } else { NA }
+  
+  return(list(nse = nse, personas = personas, hogares = hogares, precio_promedio = NA))
+}
+
+# ---- 4. PROCESAMIENTO DE POLÍGONOS ----
+# Asegurar CRS correcto
+poligonos_nse <- st_transform(poligonos_nse, 4326)
+
+# Extraer información
+info_extraida <- lapply(poligonos_nse$Description, extraer_info_nse)
+info_df <- data.frame(
+  nse_description = sapply(info_extraida, function(x) x$nse),
+  personas_ageb = sapply(info_extraida, function(x) x$personas),
+  hogares_ageb = sapply(info_extraida, function(x) x$hogares),
+  precio_promedio_ageb = sapply(info_extraida, function(x) x$precio_promedio)
+)
+
+poligonos_nse <- cbind(poligonos_nse, info_df)
+
+# MAPEO CORREGIDO: Mantener D/E como una sola categoría
+mapeo_capas_nse <- c("A+" = "A+", "A" = "A", "B" = "B", "C+" = "C+", "C" = "C", "D+" = "D+", "D/E" = "D/E", "TNH" = "C")
+poligonos_nse$nse_capa_norm <- mapeo_capas_nse[poligonos_nse$nse_capa]
+poligonos_nse$nse_actual <- poligonos_nse$nse_capa_norm
+poligonos_nse$nse_valor_actual <- sapply(poligonos_nse$nse_actual, nse_a_valor)
+
+# ---- 5. CÁLCULO DE INFLUENCIA (VERSIÓN SIMPLIFICADA) ----
+cat("Calculando influencia de proyectos en polígonos...\n")
+
+# Convertir proyectos a sf
+proyectos_sf <- st_as_sf(datos_proyectos, coords = c("longitud", "latitud"), crs = 4326)
+
+# Inicializar columnas
+poligonos_nse$influencia_total <- 0
+poligonos_nse$num_proyectos_influyentes <- 0
+poligonos_nse$prob_incremento_promedio <- 0
+
+# Crear buffer de 1.5km alrededor de proyectos
+cat("Creando buffers de influencia...\n")
+proyectos_buffer <- st_buffer(st_transform(proyectos_sf, 3857), 1500)  # UTM Web Mercator
+proyectos_buffer <- st_transform(proyectos_buffer, 4326)
+
+# Calcular intersecciones de manera simple
+cat("Calculando intersecciones...\n")
+for (i in 1:nrow(poligonos_nse)) {
+  if (i %% 500 == 0) cat("Procesando polígono", i, "de", nrow(poligonos_nse), "\n")
+  
+  # Encontrar proyectos cercanos
+  intersecciones <- st_intersects(poligonos_nse[i, ], proyectos_buffer, sparse = FALSE)
+  indices_proyectos <- which(intersecciones[1, ])
+  
+  if (length(indices_proyectos) > 0) {
+    proyectos_influyentes <- datos_proyectos[indices_proyectos, ]
+    
+    # Calcular métricas básicas
+    poligonos_nse$num_proyectos_influyentes[i] <- length(indices_proyectos)
+    poligonos_nse$prob_incremento_promedio[i] <- mean(proyectos_influyentes$prob_incremento_nse, na.rm = TRUE)
+    poligonos_nse$influencia_total[i] <- sum(proyectos_influyentes$prob_incremento_nse, na.rm = TRUE)
+  }
+}
+
+# ---- 6. PROYECCIÓN DE EVOLUCIÓN NSE ----
+cat("Calculando proyecciones NSE...\n")
+
+poligonos_nse <- poligonos_nse %>%
+  mutate(
+    factor_cambio = pmax(0, pmin(2, influencia_total / 3)),  # Ajustado para ser más conservador
+    nse_valor_proyectado = pmin(7, nse_valor_actual + factor_cambio),
+    prob_cambio_nse = pmin(1, pmax(0, prob_incremento_promedio)),
+    cambiara_nse = prob_cambio_nse >= 0.5 & factor_cambio >= 0.5,
+    categoria_cambio = case_when(
+      factor_cambio >= 1.5 ~ "Cambio alto",
+      factor_cambio >= 1.0 ~ "Cambio moderado", 
+      factor_cambio >= 0.5 ~ "Cambio leve",
+      TRUE ~ "Sin cambio significativo"
+    )
+  )
+
+poligonos_nse$nse_proyectado <- sapply(poligonos_nse$nse_valor_proyectado, valor_a_nse)
+
+# ---- 7. CONFIGURACIÓN DE COLORES Y ORDEN PARA NSE ----
+# Orden deseado para las leyendas
+orden_nse <- c("A+", "A", "B", "C+", "C", "D+", "D/E")
+
+# Paleta de colores unificada (D/E como una sola categoría)
+colores_nse <- c(
+  "A+" = "#3A8E95", 
+  "A" = "#68D192", 
+  "B" = "#54C1C4", 
+  "C+" = "#F8C579", 
+  "C" = "#EF6558", 
+  "D+" = "#F4BCCD", 
+  "D/E" = "#9B87F4"  # Una sola entrada para D/E
+)
+
+# Función para crear factor ordenado
+crear_factor_nse <- function(valores) {
+  factor(valores, levels = orden_nse, ordered = TRUE)
+}
+
+# ---- 8. MAPAS CON NSE UNIFICADO ----
+
+# Mapa 1: NSE Actual
+crear_mapa_nse_actual <- function() {
+  poligonos_validos <- poligonos_nse[!is.na(poligonos_nse$nse_actual), ]
+  
+  # Crear factor ordenado
+  poligonos_validos$nse_actual_factor <- crear_factor_nse(poligonos_validos$nse_actual)
+  
+  # Obtener valores únicos presentes en los datos
+  nse_valores_presentes <- intersect(orden_nse, unique(poligonos_validos$nse_actual))
+  
+  # Crear paleta solo con colores para valores presentes
+  colores_presentes <- colores_nse[nse_valores_presentes]
+  
+  pal_nse <- colorFactor(
+    palette = colores_presentes, 
+    domain = nse_valores_presentes, 
+    na.color = "#808080",
+    ordered = TRUE
+  )
+  
+  mapa <- leaflet(poligonos_validos) %>%
+    addTiles() %>%
+    addPolygons(
+      fillColor = ~pal_nse(nse_actual),
+      weight = 1,
+      opacity = 0.8,
+      color = "white",
+      fillOpacity = 0.7,
+      popup = ~paste0(
+        "<b>AGEB:</b> ", ifelse(is.na(Name), "N/A", Name), "<br>",
+        "<b>NSE Actual:</b> ", ifelse(is.na(nse_actual), "N/A", nse_actual), "<br>",
+        "<b>Personas:</b> ", ifelse(is.na(personas_ageb), "N/A", format(personas_ageb, big.mark = ",")), "<br>",
+        "<b>Hogares:</b> ", ifelse(is.na(hogares_ageb), "N/A", format(hogares_ageb, big.mark = ",")), "<br>",
+        "<b>Proyectos influyentes:</b> ", num_proyectos_influyentes
+      )
+    ) %>%
+    addLegend(
+      position = "bottomright", 
+      pal = pal_nse, 
+      values = ~nse_actual_factor,
+      title = "NSE Actual", 
+      opacity = 0.8
+    )
+  
+  return(mapa)
+}
+
+# Mapa 2: NSE Proyectado
+crear_mapa_nse_proyectado <- function() {
+  poligonos_validos <- poligonos_nse[!is.na(poligonos_nse$nse_proyectado), ]
+  
+  # Crear factor ordenado
+  poligonos_validos$nse_proyectado_factor <- crear_factor_nse(poligonos_validos$nse_proyectado)
+  
+  # Obtener valores únicos presentes en los datos proyectados
+  nse_valores_presentes <- intersect(orden_nse, unique(poligonos_validos$nse_proyectado))
+  
+  # Crear paleta solo con colores para valores presentes
+  colores_presentes <- colores_nse[nse_valores_presentes]
+  
+  pal_nse <- colorFactor(
+    palette = colores_presentes, 
+    domain = nse_valores_presentes, 
+    na.color = "#808080",
+    ordered = TRUE
+  )
+  
+  # Destacar polígonos que cambiarán
+  poligonos_que_cambian <- poligonos_validos[!is.na(poligonos_validos$cambiara_nse) & 
+                                               poligonos_validos$cambiara_nse == TRUE, ]
+  
+  mapa <- leaflet(poligonos_validos) %>%
+    addTiles() %>%
+    addPolygons(
+      fillColor = ~pal_nse(nse_proyectado),
+      weight = 1,
+      opacity = 0.8,
+      color = "white",
+      fillOpacity = 0.7,
+      popup = ~paste0(
+        "<b>AGEB:</b> ", ifelse(is.na(Name), "N/A", Name), "<br>",
+        "<b>NSE Actual:</b> ", ifelse(is.na(nse_actual), "N/A", nse_actual), "<br>",
+        "<b>NSE Proyectado:</b> ", ifelse(is.na(nse_proyectado), "N/A", nse_proyectado), "<br>",
+        "<b>¿Cambiará?:</b> ", ifelse(cambiara_nse, "Sí", "No"), "<br>",
+        "<b>Factor cambio:</b> ", round(factor_cambio, 2)
+      )
+    ) %>%
+    addLegend(
+      position = "bottomright", 
+      pal = pal_nse, 
+      values = ~nse_proyectado_factor,
+      title = "NSE Proyectado", 
+      opacity = 0.8
+    )
+  
+  # Añadir bordes rojos para polígonos que cambiarán
+  if (nrow(poligonos_que_cambian) > 0) {
+    mapa <- mapa %>%
+      addPolygons(
+        data = poligonos_que_cambian,
+        fillColor = "transparent",
+        weight = 3,
+        opacity = 1,
+        color = "#000000",
+        fillOpacity = 0,
+        popup = ~paste0(
+          "<b>CAMBIO NSE:</b> ", nse_actual, " → ", nse_proyectado, "<br>",
+          "<b>AGEB:</b> ", ifelse(is.na(Name), "N/A", Name), "<br>",
+          "<b>Probabilidad:</b> ", round(prob_cambio_nse * 100, 1), "%<br>",
+          "<b>Proyectos influyentes:</b> ", num_proyectos_influyentes
+        )
+      )
+  }
+  
+  return(mapa)
+}
+
+# Mapa 3: Probabilidad de Cambio
+crear_mapa_probabilidad <- function() {
+  poligonos_validos <- poligonos_nse[!is.na(poligonos_nse$prob_cambio_nse), ]
+  
+  pal_prob <- colorNumeric(
+    palette = colorRampPalette(c("#FFFFFF", "#2C6C66", "#000000"))(100),
+    domain = c(0, 1),
+    na.color = "#808080"
+  )
+  
+  mapa <- leaflet(poligonos_validos) %>%
+    addTiles() %>%
+    addPolygons(
+      fillColor = ~pal_prob(prob_cambio_nse),
+      weight = 1,
+      opacity = 0.8,
+      color = "white",
+      fillOpacity = 0.8,
+      popup = ~paste0(
+        "<b>AGEB:</b> ", ifelse(is.na(Name), "N/A", Name), "<br>",
+        "<b>NSE Actual:</b> ", ifelse(is.na(nse_actual), "N/A", nse_actual), "<br>",
+        "<b>Probabilidad cambio:</b> ", round(prob_cambio_nse * 100, 1), "%<br>",
+        "<b>Proyectos influyentes:</b> ", num_proyectos_influyentes, "<br>",
+        "<b>Categoría:</b> ", categoria_cambio
+      )
+    ) %>%
+    addLegend(
+      position = "bottomright", 
+      pal = pal_prob, 
+      values = ~prob_cambio_nse,
+      title = "Prob. Cambio NSE",
+      opacity = 0.8,
+      labFormat = labelFormat(suffix = "%", transform = function(x) x * 100)
+    )
+  
+  return(mapa)
+}
+
+# ---- 9. CREAR Y MOSTRAR MAPAS ----
+cat("Creando mapas...\n")
+
+cat("1. Mapa NSE Actual:\n")
+mapa_nse_actual <- crear_mapa_nse_actual()
+print(mapa_nse_actual)
+
+cat("\n2. Mapa NSE Proyectado:\n")
+mapa_nse_proyectado <- crear_mapa_nse_proyectado()
+print(mapa_nse_proyectado)
+
+cat("\n3. Mapa Probabilidad de Cambio:\n")
+mapa_probabilidad <- crear_mapa_probabilidad()
+print(mapa_probabilidad)
+
+# ---- 10. ESTADÍSTICAS RESUMIDAS CON D/E UNIFICADO ----
+cat("\n=== RESUMEN DE EVOLUCIÓN NSE (D/E UNIFICADO) ===\n")
+cat("Total AGEBs analizados:", nrow(poligonos_nse), "\n")
+cat("AGEBs que cambiarán NSE:", sum(poligonos_nse$cambiara_nse, na.rm = TRUE), "\n")
+cat("Porcentaje con cambio:", round(mean(poligonos_nse$cambiara_nse, na.rm = TRUE) * 100, 1), "%\n")
+
+# Distribución actual de NSE
+distribucion_actual <- table(poligonos_nse$nse_actual)
+cat("\nDistribución NSE Actual:\n")
+for (nse in orden_nse) {
+  if (nse %in% names(distribucion_actual)) {
+    cat(nse, ":", distribucion_actual[nse], "AGEBs\n")
+  }
+}
+
+# Distribución proyectada de NSE
+distribucion_proyectada <- table(poligonos_nse$nse_proyectado)
+cat("\nDistribución NSE Proyectada:\n")
+for (nse in orden_nse) {
+  if (nse %in% names(distribucion_proyectada)) {
+    cat(nse, ":", distribucion_proyectada[nse], "AGEBs\n")
+  }
+}
+
+# Cambios específicos
+cambios_nse <- poligonos_nse %>%
+  st_drop_geometry() %>%
+  filter(cambiara_nse) %>%
+  mutate(cambio_nse = paste0(nse_actual, " → ", nse_proyectado)) %>%
+  count(cambio_nse) %>%
+  arrange(desc(n))
+
+if (nrow(cambios_nse) > 0) {
+  cat("\nCambios específicos de NSE:\n")
+  print(cambios_nse)
+}
+
+# ---- 11. GUARDAR RESULTADOS ----
+cat("\nGuardando resultados...\n")
+
+# Guardar archivo espacial
+tryCatch({
+  st_write(poligonos_nse, "poligonos_nse_evolucion_unificado.gpkg", delete_dsn = TRUE)
+  cat("Archivo espacial guardado: poligonos_nse_evolucion_unificado.gpkg\n")
+}, error = function(e) {
+  cat("Error al guardar archivo espacial:", conditionMessage(e), "\n")
+})
+
+# Guardar resumen CSV
+resumen_cambios <- poligonos_nse %>%
+  st_drop_geometry() %>%
+  select(Name, nse_actual, nse_proyectado, prob_cambio_nse, 
+         categoria_cambio, num_proyectos_influyentes, cambiara_nse,
+         personas_ageb, hogares_ageb, factor_cambio, influencia_total) %>%
+  arrange(desc(prob_cambio_nse))
+
+write.csv(resumen_cambios, "resumen_cambios_nse_unificado.csv", row.names = FALSE)
+cat("Resumen CSV guardado: resumen_cambios_nse_unificado.csv\n")
+
+cat("\n=== PROCESO COMPLETADO EXITOSAMENTE ===\n")
+cat("Se crearon 3 mapas con D/E como categoría unificada:\n")
+cat("1. NSE Actual - Leyenda ordenada: A+, A, B, C+, C, D+, D/E\n")
+cat("2. NSE Proyectado - Con bordes rojos en polígonos que cambiarán\n")
+cat("3. Probabilidad de Cambio - Mapa de calor con probabilidades\n")
+cat("\nTodas las leyendas mantienen D/E como una sola categoría.\n")
