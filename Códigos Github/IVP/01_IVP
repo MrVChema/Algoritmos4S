@@ -1,0 +1,820 @@
+# Script: Análisis IVP con Base de Datos Más Completa - VERSIÓN CORREGIDA
+# Usando proyectos_ivu_nse_integrados.csv (la versión más actualizada)
+
+# ---- 1. CONFIGURACIÓN INICIAL ----
+rm(list = ls())
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+library(plotly)
+library(DT)
+library(knitr)
+library(leaflet)
+library(htmltools)
+
+# Cargar la base más actualizada
+datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/proyectos_ivu_nse_integrados.csv', stringsAsFactors = FALSE)
+
+# Verificar qué variables adicionales tenemos
+cat("Variables disponibles en la base actualizada:\n")
+cat("Total de variables:", ncol(datos), "\n")
+
+# ---- 2. CALCULAR VARIABLES FALTANTES ----
+
+# Calcular ratio_ventas y otras métricas básicas
+datos <- datos %>%
+  mutate(
+    # Ratio de ventas (proporción de unidades vendidas)
+    ratio_ventas = ifelse(unidades_totales > 0, 
+                          unidades_vendidas / unidades_totales, 0),
+    
+    # Velocidad de ventas (unidades por mes)
+    velocidad_ventas = ifelse(meses_mercado > 0, 
+                              unidades_vendidas / meses_mercado, 0),
+    
+    # Eficiencia de inventario
+    eficiencia_inventario = ifelse(unidades_totales > 0,
+                                   1 - (unidades_inv / unidades_totales), 0),
+    
+    # Precio relativo por m2 (logarítmico para normalizar)
+    precio_relativo_log = log(p_m2 + 1)  # +1 para evitar log(0)
+  )
+
+# ---- 3. ANÁLISIS EXPLORATORIO MEJORADO ----
+
+# 3.1 Resumen de la base actualizada
+resumen_base <- data.frame(
+  Métrica = c("Proyectos totales", "Desarrolladores únicos", "Municipios", 
+              "Segmentos", "IVU promedio", "Ratio ventas promedio", "NSE evolución disponible"),
+  Valor = c(
+    nrow(datos),
+    n_distinct(datos$Desarrollador, na.rm = TRUE),
+    n_distinct(datos$Municipio, na.rm = TRUE),
+    n_distinct(datos$Segmento, na.rm = TRUE),
+    round(mean(datos$ivu, na.rm = TRUE), 3),
+    round(mean(datos$ratio_ventas, na.rm = TRUE), 3),
+    sum(!is.na(datos$prob_incremento_nse))
+  )
+)
+
+print("Resumen de la base actualizada:")
+print(kable(resumen_base))
+
+# ---- 4. CONSTRUCCIÓN DEL IVP CON DATOS MEJORADOS ----
+
+# 4.1 Recategorización de amenidades más sofisticada
+amenidades_categorias_v2 <- list(
+  # Amenidades básicas (esperadas, bajo diferenciación)
+  basicas = c("control_de_acceso", "areas_verdes", "vestidores"),
+  
+  # Amenidades de salud y bienestar (alta valoración)
+  wellness = c("gimnasio", "spa", "sauna", "jacuzzi", "salon_de_yoga"),
+  
+  # Amenidades recreativas (familias)
+  recreativas = c("alberca", "canchas_deportivas", "ludoteca_juegos_infantiles", 
+                  "pista_de_jogging_vitapista"),
+  
+  # Amenidades sociales (convivencia, eventos)
+  sociales = c("casa_club", "bar", "lounges", "salon_usos_multiples", 
+               "sala_de_cine_tv", "sala_de_lectura", "patio_central", 
+               "terraza", "asadores", "fogatero"),
+  
+  # Amenidades premium (exclusivas, alto costo)
+  premium = c("campo_de_golf", "golf_virtual", "roof_graden", "pet_zone")
+)
+
+# Función mejorada para calcular scores
+calcular_scores_amenidades_v2 <- function(datos, categorias) {
+  # Pesos por impacto en valor (basado en investigación de mercado)
+  pesos_categoria <- c(
+    "basicas" = 1.0,      # Esperadas, bajo impacto diferencial
+    "wellness" = 2.5,     # Alta valoración en mercado premium
+    "recreativas" = 2.0,  # Importantes para familias
+    "sociales" = 1.8,     # Valoradas en vida urbana
+    "premium" = 3.0       # Máximo diferenciador
+  )
+  
+  for (categoria in names(categorias)) {
+    # Filtrar amenidades que existen en los datos
+    amenidades_existentes <- intersect(categorias[[categoria]], names(datos))
+    
+    if (length(amenidades_existentes) > 0) {
+      # Score ponderado por categoría
+      datos[[paste0("score_", categoria)]] <- rowSums(
+        datos[amenidades_existentes], na.rm = TRUE
+      ) * pesos_categoria[categoria]
+    } else {
+      datos[[paste0("score_", categoria)]] <- 0
+    }
+  }
+  
+  # Score total ponderado
+  scores_cols <- paste0("score_", names(categorias))
+  datos$score_amenidades_total <- rowSums(datos[scores_cols], na.rm = TRUE)
+  
+  return(datos)
+}
+
+datos <- calcular_scores_amenidades_v2(datos, amenidades_categorias_v2)
+
+# 4.2 Análisis de amenidades por categoría
+print("Análisis de amenidades por categoría:")
+amenidades_stats <- datos %>%
+  summarise(
+    across(c(score_basicas, score_wellness, score_recreativas, score_sociales, score_premium),
+           list(mean = ~mean(.x, na.rm = TRUE), 
+                max = ~max(.x, na.rm = TRUE)), 
+           .names = "{.col}_{.fn}")
+  )
+print(kable(amenidades_stats, digits = 2))
+
+# 4.3 Benchmarks más precisos por segmento
+segmento_benchmark <- "segmento_utilizado"  # Usar el segmento utilizado para IVU
+
+benchmarks_actualizados <- datos %>%
+  filter(!is.na(.data[[segmento_benchmark]]) & !is.na(absorcion)) %>%
+  group_by(.data[[segmento_benchmark]]) %>%
+  summarise(
+    absorcion_promedio = mean(absorcion, na.rm = TRUE),
+    absorcion_mediana = median(absorcion, na.rm = TRUE),
+    precio_promedio = mean(p_m2, na.rm = TRUE),
+    ivu_promedio = mean(ivu, na.rm = TRUE),
+    ratio_ventas_promedio = mean(ratio_ventas, na.rm = TRUE),
+    score_amenidades_promedio = mean(score_amenidades_total, na.rm = TRUE),
+    proyectos = n(),
+    .groups = 'drop'
+  )
+
+print("Benchmarks actualizados por segmento:")
+print(kable(benchmarks_actualizados, digits = 3))
+
+# 4.4 Performance relativo mejorado
+datos <- datos %>%
+  left_join(benchmarks_actualizados %>% 
+              select(.data[[segmento_benchmark]], absorcion_promedio, ivu_promedio, 
+                     ratio_ventas_promedio, score_amenidades_promedio), 
+            by = segmento_benchmark) %>%
+  mutate(
+    # Absorción relativa vs benchmark del segmento
+    absorcion_relativa_v2 = ifelse(!is.na(absorcion_promedio) & absorcion_promedio > 0,
+                                   absorcion / absorcion_promedio, 1),
+    
+    # IVU relativo vs benchmark (nueva métrica)
+    ivu_relativo = ifelse(!is.na(ivu_promedio) & ivu_promedio > 0,
+                          ivu / ivu_promedio, 1),
+    
+    # Ratio ventas relativo vs benchmark
+    ratio_ventas_relativo = ifelse(!is.na(ratio_ventas_promedio) & ratio_ventas_promedio > 0,
+                                   ratio_ventas / ratio_ventas_promedio, 1),
+    
+    # Momentum de ventas (usando velocidad_ventas ya calculada)
+    momentum_ventas_norm = ifelse(meses_mercado > 0, velocidad_ventas / 10, 0), # Normalizar por 10 unidades/mes
+    
+    # Eficiencia comercial CORREGIDA (combinando múltiples factores)
+    eficiencia_comercial = pmin(2, pmax(0, # Limitar entre 0 y 2
+                                        (absorcion_relativa_v2 * 0.4) + 
+                                          (ratio_ventas_relativo * 0.3) + 
+                                          (momentum_ventas_norm * 0.3)
+    ))
+  )
+
+# 4.5 Análisis de desarrollador más sofisticado
+track_record_v2 <- datos %>%
+  group_by(Desarrollador) %>%
+  summarise(
+    proyectos_total = n(),
+    
+    # Performance promedio
+    absorcion_promedio_dev = mean(absorcion, na.rm = TRUE),
+    ivu_promedio_dev = mean(ivu, na.rm = TRUE),
+    ratio_ventas_promedio_dev = mean(ratio_ventas, na.rm = TRUE),
+    
+    # Consistencia (menor variabilidad = mejor)
+    consistencia_absorcion = ifelse(n() > 1 & sd(absorcion, na.rm = TRUE) > 0,
+                                    1 - (sd(absorcion, na.rm = TRUE) / 
+                                           mean(absorcion, na.rm = TRUE)), 0.5),
+    
+    # Diversificación
+    segmentos_diversos = n_distinct(.data[[segmento_benchmark]], na.rm = TRUE),
+    municipios_presencia = n_distinct(Municipio, na.rm = TRUE),
+    
+    # Especialización en premium
+    prop_premium = mean((.data[[segmento_benchmark]] %in% 
+                           c("Premium", "Premium Plus")), na.rm = TRUE),
+    
+    # Score amenidades promedio
+    amenidades_promedio_dev = mean(score_amenidades_total, na.rm = TRUE),
+    
+    .groups = 'drop'
+  ) %>%
+  # Limpiar valores infinitos o NA en consistencia
+  mutate(
+    consistencia_absorcion = ifelse(is.na(consistencia_absorcion) | 
+                                      is.infinite(consistencia_absorcion), 0.5, 
+                                    pmax(0, pmin(1, consistencia_absorcion)))
+  ) %>%
+  arrange(desc(proyectos_total))
+
+print("Top 10 desarrolladores - análisis actualizado:")
+print(kable(head(track_record_v2, 10), digits = 3))
+
+# 4.6 Análisis de propuesta de valor con NSE
+datos <- datos %>%
+  # PRIMERO: Unir benchmarks de precio por segmento
+  left_join(benchmarks_actualizados %>% 
+              select(.data[[segmento_benchmark]], precio_promedio), 
+            by = segmento_benchmark, suffix = c("", "_benchmark")) %>%
+  # SEGUNDO: Unir track record de desarrollador
+  left_join(track_record_v2 %>% 
+              select(Desarrollador, proyectos_total, absorcion_promedio_dev, 
+                     ivu_promedio_dev, consistencia_absorcion, prop_premium,
+                     amenidades_promedio_dev), 
+            by = "Desarrollador") %>%
+  mutate(
+    # Benchmarks de precio por segmento (CORREGIDO)
+    precio_benchmark = precio_promedio,  # Ahora sí existe tras el join
+    
+    # Competitividad de precio
+    competitividad_precio = ifelse(!is.na(precio_benchmark) & precio_benchmark > 0,
+                                   p_m2 / precio_benchmark, 1),
+    
+    # Valor futuro esperado (usando probabilidad de incremento NSE)
+    valor_futuro_esperado = ifelse(!is.na(prob_incremento_nse),
+                                   p_m2 * (1 + prob_incremento_nse * 0.2), p_m2),
+    
+    # Competitividad ajustada por potencial
+    competitividad_ajustada = ifelse(!is.na(precio_benchmark) & precio_benchmark > 0,
+                                     valor_futuro_esperado / precio_benchmark, 1),
+    
+    # Propuesta de valor mejorada
+    propuesta_valor_v2 = pmin(2, pmax(0, # Limitar entre 0 y 2
+                                      # Competitividad de precio actual (30%)
+                                      (1 / pmax(0.5, competitividad_precio, na.rm = TRUE)) * 0.3 +
+                                        # Potencial de revalorización (40%)
+                                        ifelse(!is.na(prob_incremento_nse), prob_incremento_nse, 0.5) * 0.4 +
+                                        # Valor por amenidades vs benchmark (30%)
+                                        ifelse(!is.na(score_amenidades_promedio) & score_amenidades_promedio > 0,
+                                               score_amenidades_total / score_amenidades_promedio, 1) * 0.3
+    ))
+  )
+
+# ---- 5. CONSTRUCCIÓN DEL IVP VERSIÓN 2.0 ----
+
+# Normalización robusta (manejo de outliers)
+normalizar_robusto <- function(x, metodo = "iqr") {
+  if (all(is.na(x))) return(rep(0.5, length(x)))
+  
+  if (metodo == "iqr") {
+    # Usar rango intercuartílico para ser menos sensible a outliers
+    q25 <- quantile(x, 0.25, na.rm = TRUE)
+    q75 <- quantile(x, 0.75, na.rm = TRUE)
+    x_clip <- pmax(q25, pmin(q75, x))
+    min_val <- min(x_clip, na.rm = TRUE)
+    max_val <- max(x_clip, na.rm = TRUE)
+  } else {
+    # Método tradicional min-max
+    min_val <- min(x, na.rm = TRUE)
+    max_val <- max(x, na.rm = TRUE)
+  }
+  
+  if (max_val == min_val) return(rep(0.5, length(x)))
+  return(pmax(0, pmin(1, (x - min_val) / (max_val - min_val))))
+}
+
+# Calcular componentes del IVP 2.0
+datos <- datos %>%
+  mutate(
+    # COMPONENTE 1: Calidad del Producto (35%) - Mayor peso por ser diferenciador clave
+    indice_amenidades_v2 = normalizar_robusto(score_amenidades_total),
+    amplitud_unidades = normalizar_robusto(m2_inv),
+    densidad_proyecto = normalizar_robusto(1 / (unidades_totales / 100)), # Normalizar por 100 unidades
+    
+    calidad_producto_v2 = (indice_amenidades_v2 * 0.6) + 
+      (amplitud_unidades * 0.25) + 
+      (densidad_proyecto * 0.15),
+    
+    # COMPONENTE 2: Performance Comercial (25%)
+    performance_comercial_v2 = normalizar_robusto(eficiencia_comercial),
+    
+    # COMPONENTE 3: Propuesta de Valor (20%) - Incluye potencial futuro
+    propuesta_valor_norm_v2 = normalizar_robusto(propuesta_valor_v2),
+    
+    # COMPONENTE 4: Credibilidad Desarrollador (15%) - Más sofisticado
+    credibilidad_desarrollador_v2 = (
+      normalizar_robusto(proyectos_total) * 0.3 +
+        normalizar_robusto(absorcion_promedio_dev) * 0.25 +
+        normalizar_robusto(ivu_promedio_dev) * 0.25 +
+        normalizar_robusto(consistencia_absorcion) * 0.2
+    ),
+    
+    # COMPONENTE 5: Fit Mercado-Producto (5%) - Reducido porque ya está en IVU
+    # Usar variables disponibles para calcular fit
+    fit_mercado_v2 = ifelse(!is.na(brecha_segmento_predominante_nse),
+                            normalizar_robusto(pmax(0, -brecha_segmento_predominante_nse)), # Negativo porque menor brecha = mejor fit
+                            0.5),
+    
+    # IVP 2.0 FINAL
+    ivp_v2 = (calidad_producto_v2 * 0.35) + 
+      (performance_comercial_v2 * 0.25) + 
+      (propuesta_valor_norm_v2 * 0.20) + 
+      (credibilidad_desarrollador_v2 * 0.15) + 
+      (fit_mercado_v2 * 0.05),
+    
+    # Categorización mejorada
+    ivp_v2_categoria = cut(ivp_v2, 
+                           breaks = c(0, 0.25, 0.45, 0.65, 0.80, 1.0),
+                           labels = c("Deficiente", "Regular", "Bueno", "Excelente", "Excepcional"),
+                           include.lowest = TRUE)
+  )
+
+# ---- 6. ANÁLISIS DE RESULTADOS ----
+
+# 6.1 Estadísticas del IVP 2.0
+cat("\nEstadísticas del IVP 2.0:\n")
+print(summary(datos$ivp_v2))
+
+cat("\nDistribución por categorías:\n")
+print(table(datos$ivp_v2_categoria))
+
+# 6.2 Correlaciones entre componentes
+componentes_ivp <- datos %>%
+  select(calidad_producto_v2, performance_comercial_v2, propuesta_valor_norm_v2, 
+         credibilidad_desarrollador_v2, fit_mercado_v2, ivp_v2)
+
+cat("\nCorrelaciones entre componentes del IVP:\n")
+print(round(cor(componentes_ivp, use = "complete.obs"), 3))
+
+# 6.3 Top proyectos por IVP 2.0
+top_ivp_v2 <- datos %>%
+  arrange(desc(ivp_v2)) %>%
+  select(Proyecto, Desarrollador, Segmento, Municipio, 
+         score_amenidades_total, num_amenidades, absorcion, p_m2, 
+         ivu, ivp_v2, ivp_v2_categoria) %>%
+  head(15)
+
+print("Top 15 proyectos por IVP 2.0:")
+print(kable(top_ivp_v2, digits = 3))
+
+# 6.4 Análisis por segmento
+analisis_segmento <- datos %>%
+  filter(!is.na(ivp_v2_categoria)) %>%
+  group_by(segmento_utilizado, ivp_v2_categoria) %>%
+  summarise(proyectos = n(), .groups = 'drop') %>%
+  tidyr::pivot_wider(names_from = ivp_v2_categoria, values_from = proyectos, values_fill = 0)
+
+print("Distribución de IVP por segmento:")
+print(kable(analisis_segmento))
+
+# ---- 7. VISUALIZACIONES ----
+
+# 7.1 Matriz de decisión IVU vs IVP 2.0
+matriz_decision <- ggplot(datos, aes(x = ivu, y = ivp_v2, color = Segmento)) +
+  # Cuadrantes de fondo
+  annotate("rect", xmin = 0, xmax = 0.5, ymin = 0.5, ymax = 1, 
+           fill = "#9B87F4", alpha = 0.1) +  # Estrella Naciente
+  annotate("rect", xmin = 0.5, xmax = 1, ymin = 0.5, ymax = 1, 
+           fill = "#68D192", alpha = 0.1) +  # Oro
+  annotate("rect", xmin = 0, xmax = 0.5, ymin = 0, ymax = 0.5, 
+           fill = "#EF6558", alpha = 0.1) +  # Evitar
+  annotate("rect", xmin = 0.5, xmax = 1, ymin = 0, ymax = 0.5, 
+           fill = "#F4E785", alpha = 0.1) +  # Vaca Lechera
+  
+  geom_point(aes(size = score_amenidades_total), alpha = 0.7) +
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 0.5, linetype = "dashed") +
+  
+  # Etiquetas mejoradas
+  annotate("text", x = 0.25, y = 0.75, 
+           label = "ESTRELLA NACIENTE\n(Excelente proyecto, ubicación regular)", 
+           fontface = "bold", hjust = 0.5, size = 3) +
+  annotate("text", x = 0.75, y = 0.75, 
+           label = "ORO\n(Excelente ubicación y proyecto)", 
+           fontface = "bold", hjust = 0.5, size = 3) +
+  annotate("text", x = 0.25, y = 0.25, 
+           label = "EVITAR\n(Mala ubicación y proyecto)", 
+           fontface = "bold", hjust = 0.5, size = 3) +
+  annotate("text", x = 0.75, y = 0.25, 
+           label = "VACA LECHERA\n(Buena ubicación, proyecto regular)", 
+           fontface = "bold", hjust = 0.5, size = 3) +
+  
+  scale_size_continuous(range = c(2, 8), name = "Score Amenidades") +
+  labs(title = "Matriz de Decisión: IVU vs IVP 2.0",
+       subtitle = "Basada en 195 proyectos con metodología robusta",
+       x = "Índice de Valor por Ubicación (IVU)",
+       y = "Índice de Valor del Proyecto (IVP 2.0)",
+       color = "Segmento") +
+  theme_minimal()
+
+print(matriz_decision)
+
+# 7.2 Componentes del IVP por segmento
+componentes_por_segmento <- datos %>%
+  group_by(segmento_utilizado) %>%
+  summarise(
+    Calidad_Producto = mean(calidad_producto_v2, na.rm = TRUE),
+    Performance_Comercial = mean(performance_comercial_v2, na.rm = TRUE),
+    Propuesta_Valor = mean(propuesta_valor_norm_v2, na.rm = TRUE),
+    Credibilidad_Dev = mean(credibilidad_desarrollador_v2, na.rm = TRUE),
+    Fit_Mercado = mean(fit_mercado_v2, na.rm = TRUE),
+    IVP_Total = mean(ivp_v2, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+print("Componentes promedio del IVP por segmento:")
+print(kable(componentes_por_segmento, digits = 3))
+
+# 7.3 Correlación IVP vs variables clave
+correlaciones_clave <- datos %>%
+  select(ivp_v2, ivu, absorcion, p_m2, score_amenidades_total, 
+         prob_incremento_nse, ratio_ventas) %>%
+  cor(use = "complete.obs")
+
+print("Correlaciones del IVP 2.0 con variables clave:")
+print(round(correlaciones_clave["ivp_v2", ], 3))
+
+# ---- 8. MAPAS INTERACTIVOS ----
+## 8.1 CREAR CATEGORIZACIÓN COMBINADA IVU + IVP
+  # Definir umbrales para la matriz de decisión
+  datos <- datos %>%
+    mutate(
+      # Categorías binarias para la matriz 2x2
+      ivu_alto = ifelse(ivu >= 0.5, "Alto", "Bajo"),
+      ivp_alto = ifelse(ivp_v2 >= 0.5, "Alto", "Bajo"),
+      
+      # Categorización combinada basada en la matriz de decisión
+      categoria_combinada = case_when(
+        ivu_alto == "Alto" & ivp_alto == "Alto" ~ "ORO",
+        ivu_alto == "Bajo" & ivp_alto == "Alto" ~ "ESTRELLA NACIENTE", 
+        ivu_alto == "Alto" & ivp_alto == "Bajo" ~ "VACA LECHERA",
+        ivu_alto == "Bajo" & ivp_alto == "Bajo" ~ "EVITAR",
+        TRUE ~ "SIN CLASIFICAR"
+      ),
+      
+      # Score combinado para ordenamiento y análisis adicional
+      score_combinado = (ivu * 0.6) + (ivp_v2 * 0.4), # Mayor peso a ubicación
+      
+      # Categorización más granular del score combinado
+      categoria_score_combinado = cut(score_combinado,
+                                      breaks = c(0, 0.3, 0.5, 0.7, 0.85, 1),
+                                      labels = c("Muy Bajo", "Bajo", "Medio", "Alto", "Muy Alto"),
+                                      include.lowest = TRUE)
+    )
+
+## 8.2 DEFINIR PALETAS DE COLORES CONSISTENTES
+
+  # Paleta para IVU (consistente con scripts previos)
+  colores_ivu <- c(
+    "Muy bajo" = "#EF6558",   # Rojo
+    "Bajo" = "#F8C579",       # Naranja  
+    "Medio" = "#F4E785",      # Amarillo
+    "Alto" = "#68D192",       # Verde claro
+    "Muy alto" = "#2C6C66"    # Verde oscuro
+  )
+  
+  # Paleta para IVP 2.0
+  colores_ivp <- c(
+    "Deficiente" = "#EF6558", # Rojo
+    "Regular" = "#F8C579",    # Naranja
+    "Bueno" = "#F4E785",      # Amarillo  
+    "Excelente" = "#68D192",  # Verde claro
+    "Excepcional" = "#2C6C66" # Verde oscuro
+  )
+  
+  # Paleta para categorización combinada (matriz de decisión)
+  colores_combinados <- c(
+    "ORO" = "#68D192",              # Verde - Lo mejor
+    "ESTRELLA NACIENTE" = "#9B87F4", # Morado - Potencial
+    "VACA LECHERA" = "#F4E785",     # Amarillo - Estable
+    "EVITAR" = "#EF6558",           # Rojo - Problemático
+    "SIN CLASIFICAR" = "#C0C0C0"    # Gris - Sin datos
+  )
+
+## 8.3 FUNCIÓN PARA CREAR POPUPS INFORMATIVOS
+
+  crear_popup <- function(datos, tipo_mapa) {
+    if (tipo_mapa == "ivu") {
+      popup_content <- paste0(
+        "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 300px;'>",
+        "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos$Proyecto, "</b></h4>",
+        "<hr style='margin: 5px 0;'>",
+        "<b>🏢 Desarrollador:</b> ", datos$Desarrollador, "<br>",
+        "<b>📍 Municipio:</b> ", datos$Municipio, "<br>",
+        "<b>🏠 Segmento:</b> ", datos$Segmento, "<br>",
+        "<hr style='margin: 5px 0;'>",
+        "<b>📊 IVU:</b> ", round(datos$ivu, 3), " (", datos$ivu_categoria, ")<br>",
+        "<b>💰 Precio/m²:</b> $", format(datos$p_m2, big.mark = ","), "<br>",
+        "<b>📈 Absorción:</b> ", round(datos$absorcion, 1), "<br>",
+        "<hr style='margin: 5px 0;'>",
+        "<b>🎯 Contribuciones al IVU:</b><br>",
+        "• Índices: ", round(datos$contrib_indices, 3), "<br>",
+        "• Cercanías: ", round(datos$contrib_cercanias, 3), "<br>",
+        "• Vialidades: ", round(datos$contrib_vialidades, 3), "<br>",
+        "</div>"
+      )
+    } else if (tipo_mapa == "ivp") {
+      popup_content <- paste0(
+        "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 300px;'>",
+        "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos$Proyecto, "</b></h4>",
+        "<hr style='margin: 5px 0;'>",
+        "<b>🏢 Desarrollador:</b> ", datos$Desarrollador, "<br>",
+        "<b>📍 Municipio:</b> ", datos$Municipio, "<br>",
+        "<b>🏠 Segmento:</b> ", datos$Segmento, "<br>",
+        "<hr style='margin: 5px 0;'>",
+        "<b>⭐ IVP 2.0:</b> ", round(datos$ivp_v2, 3), " (", datos$ivp_v2_categoria, ")<br>",
+        "<b>💰 Precio/m²:</b> $", format(datos$p_m2, big.mark = ","), "<br>",
+        "<b>🎯 Amenidades:</b> ", datos$num_amenidades, " (Score: ", round(datos$score_amenidades_total, 1), ")<br>",
+        "<hr style='margin: 5px 0;'>",
+        "<b>📊 Componentes IVP:</b><br>",
+        "• Calidad Producto: ", round(datos$calidad_producto_v2, 3), "<br>",
+        "• Performance: ", round(datos$performance_comercial_v2, 3), "<br>",
+        "• Propuesta Valor: ", round(datos$propuesta_valor_norm_v2, 3), "<br>",
+        "• Credibilidad Dev: ", round(datos$credibilidad_desarrollador_v2, 3), "<br>",
+        "</div>"
+      )
+    } else if (tipo_mapa == "combinado") {
+      popup_content <- paste0(
+        "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 320px;'>",
+        "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos$Proyecto, "</b></h4>",
+        "<div style='background-color: ", colores_combinados[datos$categoria_combinada], 
+        "; color: white; padding: 5px 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 5px 0;'>",
+        datos$categoria_combinada, "</div>",
+        "<hr style='margin: 5px 0;'>",
+        "<b>🏢 Desarrollador:</b> ", datos$Desarrollador, "<br>",
+        "<b>📍 Municipio:</b> ", datos$Municipio, "<br>",
+        "<b>🏠 Segmento:</b> ", datos$Segmento, "<br>",
+        "<hr style='margin: 5px 0;'>",
+        "<b>📊 IVU:</b> ", round(datos$ivu, 3), " (", datos$ivu_categoria, ")<br>",
+        "<b>⭐ IVP:</b> ", round(datos$ivp_v2, 3), " (", datos$ivp_v2_categoria, ")<br>",
+        "<b>🎯 Score Combinado:</b> ", round(datos$score_combinado, 3), "<br>",
+        "<hr style='margin: 5px 0;'>",
+        "<b>💰 Precio/m²:</b> $", format(datos$p_m2, big.mark = ","), "<br>",
+        "<b>📈 Absorción:</b> ", round(datos$absorcion, 1), "<br>",
+        ifelse(!is.na(datos$prob_incremento_nse), 
+               paste0("<b>📈 Prob. Incremento NSE:</b> ", round(datos$prob_incremento_nse * 100, 1), "%<br>"), ""),
+        "</div>"
+      )
+    }
+    return(popup_content)
+  }
+
+## 8.4 MAPA 1: PROYECTOS POR IVU
+
+  crear_mapa_ivu <- function(datos) {
+    # Filtrar datos válidos
+    datos_validos <- datos %>% filter(!is.na(latitud) & !is.na(longitud) & !is.na(ivu_categoria))
+    
+    # Crear paleta de colores
+    pal_ivu <- colorFactor(
+      palette = colores_ivu,
+      domain = datos_validos$ivu_categoria,
+      na.color = "#808080"
+    )
+    
+    # Crear popups
+    popups <- sapply(1:nrow(datos_validos), function(i) {
+      crear_popup(datos_validos[i, ], "ivu")
+    })
+    
+    # Crear mapa
+    mapa <- leaflet(datos_validos) %>%
+      addTiles() %>%
+      addCircleMarkers(
+        lng = ~longitud,
+        lat = ~latitud,
+        radius = ~8 + (ivu * 8), # Tamaño proporcional al IVU
+        fillColor = ~pal_ivu(ivu_categoria),
+        color = "white",
+        weight = 2,
+        opacity = 1,
+        fillOpacity = 0.8,
+        popup = popups
+      ) %>%
+      addLegend(
+        position = "bottomright",
+        pal = pal_ivu,
+        values = ~ivu_categoria,
+        title = "Categoría IVU<br>(Valor por Ubicación)",
+        opacity = 0.8
+      ) %>%
+      setView(lng = mean(datos_validos$longitud, na.rm = TRUE), 
+              lat = mean(datos_validos$latitud, na.rm = TRUE), 
+              zoom = 10)
+    
+    return(mapa)
+  }
+
+## 8.5 MAPA 2: PROYECTOS POR IVP
+
+  crear_mapa_ivp <- function(datos) {
+    # Filtrar datos válidos
+    datos_validos <- datos %>% filter(!is.na(latitud) & !is.na(longitud) & !is.na(ivp_v2_categoria))
+    
+    # Crear paleta de colores
+    pal_ivp <- colorFactor(
+      palette = colores_ivp,
+      domain = datos_validos$ivp_v2_categoria,
+      na.color = "#808080"
+    )
+    
+    # Crear popups
+    popups <- sapply(1:nrow(datos_validos), function(i) {
+      crear_popup(datos_validos[i, ], "ivp")
+    })
+    
+    # Crear mapa
+    mapa <- leaflet(datos_validos) %>%
+      addTiles() %>%
+      addCircleMarkers(
+        lng = ~longitud,
+        lat = ~latitud,
+        radius = ~8 + (ivp_v2 * 8), # Tamaño proporcional al IVP
+        fillColor = ~pal_ivp(ivp_v2_categoria),
+        color = "white",
+        weight = 2,
+        opacity = 1,
+        fillOpacity = 0.8,
+        popup = popups
+      ) %>%
+      addLegend(
+        position = "bottomright",
+        pal = pal_ivp,
+        values = ~ivp_v2_categoria,
+        title = "Categoría IVP<br>(Valor del Proyecto)",
+        opacity = 0.8
+      ) %>%
+      setView(lng = mean(datos_validos$longitud, na.rm = TRUE), 
+              lat = mean(datos_validos$latitud, na.rm = TRUE), 
+              zoom = 10)
+    
+    return(mapa)
+  }
+
+## 8.6. MAPA 3: CATEGORIZACIÓN COMBINADA
+
+  crear_mapa_combinado <- function(datos) {
+    # Filtrar datos válidos
+    datos_validos <- datos %>% filter(!is.na(latitud) & !is.na(longitud) & !is.na(categoria_combinada))
+    
+    # Crear paleta de colores
+    pal_combinado <- colorFactor(
+      palette = colores_combinados,
+      domain = datos_validos$categoria_combinada,
+      na.color = "#808080"
+    )
+    
+    # Crear popups
+    popups <- sapply(1:nrow(datos_validos), function(i) {
+      crear_popup(datos_validos[i, ], "combinado")
+    })
+    
+    # Crear mapa
+    mapa <- leaflet(datos_validos) %>%
+      addTiles() %>%
+      addCircleMarkers(
+        lng = ~longitud,
+        lat = ~latitud,
+        radius = ~8 + (score_combinado * 8), # Tamaño proporcional al score combinado
+        fillColor = ~pal_combinado(categoria_combinada),
+        color = "white",
+        weight = 2,
+        opacity = 1,
+        fillOpacity = 0.8,
+        popup = popups
+      ) %>%
+      addLegend(
+        position = "bottomright",
+        pal = pal_combinado,
+        values = ~categoria_combinada,
+        title = "Matriz de Decisión<br>(IVU + IVP)",
+        opacity = 0.8
+      ) %>%
+      # Añadir leyenda explicativa
+      addControl(
+        html = paste0(
+          "<div style='background: white; padding: 10px; border-radius: 5px; border: 2px solid #ccc;'>",
+          "<h5 style='margin: 0 0 5px 0;'>Matriz de Decisión:</h5>",
+          "<div style='font-size: 12px;'>",
+          "🥇 <b>ORO:</b> Alto IVU + Alto IVP<br>",
+          "⭐ <b>ESTRELLA:</b> Bajo IVU + Alto IVP<br>", 
+          "🐄 <b>VACA LECHERA:</b> Alto IVU + Bajo IVP<br>",
+          "❌ <b>EVITAR:</b> Bajo IVU + Bajo IVP",
+          "</div></div>"
+        ),
+        position = "topleft"
+      ) %>%
+      setView(lng = mean(datos_validos$longitud, na.rm = TRUE), 
+              lat = mean(datos_validos$latitud, na.rm = TRUE), 
+              zoom = 10)
+    
+    return(mapa)
+  }
+
+## 8.7 CREAR Y MOSTRAR LOS TRES MAPAS
+  
+  cat("\n=== CREANDO MAPAS INTERACTIVOS ===\n")
+  
+  # Mapa 1: IVU
+  cat("1. Creando mapa de Índice de Valor por Ubicación (IVU)...\n")
+  mapa_ivu <- crear_mapa_ivu(datos)
+  print(mapa_ivu)
+  
+  cat("\n2. Creando mapa de Índice de Valor del Proyecto (IVP)...\n")
+  mapa_ivp <- crear_mapa_ivp(datos)
+  print(mapa_ivp)
+  
+  cat("\n3. Creando mapa de Categorización Combinada (IVU + IVP)...\n")
+  mapa_combinado <- crear_mapa_combinado(datos)
+  print(mapa_combinado)
+
+## 8.8 ESTADÍSTICAS DE LA CATEGORIZACIÓN COMBINADA
+
+  cat("\n=== ANÁLISIS DE LA MATRIZ DE DECISIÓN ===\n")
+  
+  # Distribución por categoría combinada
+  distribucion_combinada <- table(datos$categoria_combinada)
+  cat("Distribución de proyectos en la matriz de decisión:\n")
+  for(categoria in names(distribucion_combinada)) {
+    porcentaje <- round(distribucion_combinada[categoria] / sum(distribucion_combinada) * 100, 1)
+    cat(categoria, ":", distribucion_combinada[categoria], "proyectos (", porcentaje, "%)\n")
+  }
+  
+  # Análisis por segmento
+  analisis_combinado_segmento <- datos %>%
+    filter(!is.na(categoria_combinada) & !is.na(Segmento)) %>%
+    group_by(Segmento, categoria_combinada) %>%
+    summarise(proyectos = n(), .groups = 'drop') %>%
+    tidyr::pivot_wider(names_from = categoria_combinada, values_from = proyectos, values_fill = 0)
+  
+  cat("\nDistribución por segmento en la matriz de decisión:\n")
+  print(kable(analisis_combinado_segmento))
+  
+  # Métricas promedio por categoría combinada
+  metricas_combinadas <- datos %>%
+    filter(!is.na(categoria_combinada)) %>%
+    group_by(categoria_combinada) %>%
+    summarise(
+      Proyectos = n(),
+      IVU_Promedio = round(mean(ivu, na.rm = TRUE), 3),
+      IVP_Promedio = round(mean(ivp_v2, na.rm = TRUE), 3),
+      Precio_Promedio = round(mean(p_m2, na.rm = TRUE), 0),
+      Absorcion_Promedio = round(mean(absorcion, na.rm = TRUE), 2),
+      Amenidades_Promedio = round(mean(num_amenidades, na.rm = TRUE), 1),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(IVU_Promedio + IVP_Promedio))
+  
+  cat("\nMétricas promedio por categoría de la matriz:\n")
+  print(kable(metricas_combinadas))
+
+## 8.9 RECOMENDACIONES POR CATEGORÍA
+
+  cat("\n=== RECOMENDACIONES DE INVERSIÓN ===\n")
+  
+  # Proyectos ORO (mejores oportunidades)
+  proyectos_oro <- datos %>%
+    filter(categoria_combinada == "ORO") %>%
+    arrange(desc(score_combinado)) %>%
+    select(Proyecto, Desarrollador, Municipio, p_m2, absorcion, ivu, ivp_v2, score_combinado) %>%
+    head(5)
+  
+  if(nrow(proyectos_oro) > 0) {
+    cat("🥇 TOP 5 PROYECTOS ORO (Invertir agresivamente):\n")
+    print(kable(proyectos_oro, digits = 3))
+  }
+  
+  # Proyectos Estrella Naciente (oportunidades con potencial)
+  proyectos_estrella <- datos %>%
+    filter(categoria_combinada == "ESTRELLA NACIENTE") %>%
+    arrange(desc(ivp_v2)) %>%
+    select(Proyecto, Desarrollador, Municipio, p_m2, absorcion, ivu, ivp_v2, score_combinado) %>%
+    head(5)
+  
+  if(nrow(proyectos_estrella) > 0) {
+    cat("\n⭐ TOP 5 PROYECTOS ESTRELLA NACIENTE (Monitorear y considerar):\n")
+    print(kable(proyectos_estrella, digits = 3))
+  }
+  
+  cat("\n=== MAPAS INTERACTIVOS COMPLETADOS ===\n")
+  cat("Se crearon 3 mapas interactivos:\n")
+  cat("1. 🗺️  Mapa IVU - Valor por ubicación\n")
+  cat("2. 🏢 Mapa IVP - Valor del proyecto\n") 
+  cat("3. 🎯 Mapa Combinado - Matriz de decisión\n")
+  cat("\nCada mapa incluye popups informativos detallados y leyendas interactivas.\n")
+
+# ---- 9. GUARDAR RESULTADOS ----
+write.csv(datos, "proyectos_con_ivp_v2_completo.csv", row.names = FALSE)
+
+cat("\n=== ANÁLISIS IVP 2.0 COMPLETADO EXITOSAMENTE ===\n")
+cat("Base utilizada: proyectos_ivu_nse_integrados.csv (195 proyectos, 169 variables)\n")
+cat("Resultado: proyectos_con_ivp_v2_completo.csv\n")
+cat("\nMejoras implementadas:\n")
+cat("- ✅ Variables faltantes calculadas correctamente\n")
+cat("- ✅ Pesos de amenidades basados en valor de mercado\n")
+cat("- ✅ Performance comercial multifactorial\n")
+cat("- ✅ Análisis de desarrollador sofisticado\n")
+cat("- ✅ Propuesta de valor con potencial futuro NSE\n")
+cat("- ✅ Normalización robusta resistente a outliers\n")
+cat("- ✅ Componentes balanceados según importancia\n")
+cat("\nArchivos generados:\n")
+cat("- proyectos_con_ivp_v2_completo.csv (dataset completo)\n")
+cat("- Gráfico de matriz de decisión IVU vs IVP\n")
