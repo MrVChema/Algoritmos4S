@@ -1,0 +1,886 @@
+# Script: Segmentación de IVU e IVP por Segmento de Mercado y NSE
+# Construcción de índices específicos que eliminan sesgos de comparación entre segmentos
+
+# ---- 1. CONFIGURACIÓN INICIAL ----
+rm(list = ls())
+
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(leaflet)
+library(corrplot)
+library(knitr)
+library(tidyr)
+library(gridExtra)
+
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
+
+# ---- 2. CARGAR DATOS ----
+# Usar la base más completa disponible
+datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/IVP/proyectos_con_ivp_v2_completo.csv', stringsAsFactors = FALSE)
+
+# Verificar datos disponibles
+cat("Base de datos cargada:\n")
+cat("- Proyectos:", nrow(datos), "\n")
+cat("- Variables:", ncol(datos), "\n")
+cat("- Segmentos únicos:", paste(unique(datos$Segmento[!is.na(datos$Segmento)]), collapse = ", "), "\n")
+cat("- NSE únicos:", paste(unique(datos$nse[!is.na(datos$nse)]), collapse = ", "), "\n")
+
+# ---- 3. CREAR MATRIZ DE SEGMENTACIÓN ----
+
+# 3.1 Definir segmentos y NSE válidos
+segmentos_validos <- c("Premium Plus", "Premium", "Residencial Plus", "Residencial", "Medio")
+nse_validos <- c("A+", "A", "B", "C+", "C", "D+", "D", "E")
+
+# 3.2 Limpiar y estandarizar datos
+datos_segmentados <- datos %>%
+  # Filtrar solo segmentos válidos
+  filter(Segmento %in% segmentos_validos & nse %in% nse_validos) %>%
+  # Crear combinación segmento-NSE
+  mutate(
+    # Crear categoría combinada
+    segmento_nse = paste0(Segmento, " | NSE ", nse),
+    
+    # Crear categorías amplias para análisis
+    categoria_segmento = case_when(
+      Segmento %in% c("Premium Plus", "Premium") ~ "PREMIUM",
+      Segmento %in% c("Residencial Plus", "Residencial") ~ "RESIDENCIAL", 
+      Segmento == "Medio" ~ "MEDIO",
+      TRUE ~ "OTRO"
+    ),
+    
+    categoria_nse = case_when(
+      nse %in% c("A+", "A") ~ "NSE_ALTO",
+      nse %in% c("B", "C+") ~ "NSE_MEDIO_ALTO",
+      nse %in% c("C", "D+") ~ "NSE_MEDIO",
+      nse %in% c("D", "E") ~ "NSE_BAJO",
+      TRUE ~ "NSE_OTRO"
+    ),
+    
+    # Categoría combinada simplificada
+    categoria_combinada_simple = paste0(categoria_segmento, "_", categoria_nse)
+  )
+
+# 3.3 Análisis de distribución
+distribucion_segmentos <- datos_segmentados %>%
+  count(segmento_nse) %>%
+  arrange(desc(n))
+
+cat("\nDistribución de proyectos por Segmento-NSE:\n")
+print(kable(distribucion_segmentos))
+
+# Identificar combinaciones con suficientes datos (mínimo 5 proyectos)
+combinaciones_viables <- distribucion_segmentos %>%
+  filter(n >= 5) %>%
+  pull(segmento_nse)
+
+cat("\nCombinaciones viables para análisis (≥5 proyectos):", length(combinaciones_viables), "\n")
+
+# ---- 4. DEFINIR FACTORES ESPECÍFICOS POR SEGMENTO ----
+
+# 4.1 Matriz de relevancia de factores por segmento
+# 1 = No relevante, 2 = Poco relevante, 3 = Moderadamente relevante, 4 = Muy relevante, 5 = Crítico
+
+factores_relevancia <- data.frame(
+  Factor = c(
+    # Cercanías
+    "cercania_hospital", "cercania_esc_priv", "cercania_esc_pub", "cercania_universidad",
+    "cercania_super", "cercania_restau", "cercania_oficina", "cercania_tienda_dept",
+    
+    # Cantidades
+    "cantidad_hospital_1km", "cantidad_esc_priv_1km", "cantidad_esc_pub_1km", "cantidad_universidad_1km",
+    "cantidad_super_1km", "cantidad_restau_1km", "cantidad_oficina_1km", "cantidad_tienda_dept_1km",
+    
+    # Vialidades
+    "cerca_avenida_principal", "cercania_avenida_arterial", "accesibilidad_vial",
+    
+    # Índices
+    "indice_accesibilidad", "potencial_inversion", "indice_conveniencia",
+    
+    # Otros
+    "cerca_parque_relevante", "alta_densidad_comercial", "alto_entorno_laboral"
+  ),
+  
+  # Pesos por segmento (1-5)
+  Premium_Plus = c(
+    # Cercanías - Premium Plus valora exclusividad y calidad
+    5, 5, 1, 4, 3, 4, 5, 4,  # Hospitales y escuelas privadas críticos, públicas irrelevantes
+    # Cantidades
+    4, 4, 1, 3, 3, 4, 5, 3,  # Menos cantidad, más calidad
+    # Vialidades  
+    4, 5, 5,  # Accesibilidad muy importante
+    # Índices
+    5, 5, 4,  # Todos importantes
+    # Otros
+    5, 3, 4   # Parques muy importantes
+  ),
+  
+  Premium = c(
+    # Cercanías - Premium busca balance calidad-conveniencia
+    4, 5, 2, 4, 4, 4, 4, 4,
+    # Cantidades
+    4, 4, 2, 3, 4, 4, 4, 4,
+    # Vialidades
+    4, 4, 5,
+    # Índices  
+    5, 4, 4,
+    # Otros
+    4, 4, 4
+  ),
+  
+  Residencial_Plus = c(
+    # Cercanías - Residencial Plus valora funcionalidad y servicios
+    4, 4, 3, 3, 5, 3, 3, 4,
+    # Cantidades
+    3, 3, 3, 3, 4, 3, 3, 4,
+    # Vialidades
+    4, 3, 4,
+    # Índices
+    4, 4, 5,
+    # Otros
+    4, 4, 3
+  ),
+  
+  Residencial = c(
+    # Cercanías - Residencial busca balance costo-beneficio
+    3, 3, 4, 3, 5, 3, 3, 4,
+    # Cantidades
+    3, 3, 4, 3, 5, 3, 3, 4,
+    # Vialidades
+    4, 3, 4,
+    # Índices
+    4, 3, 5,
+    # Otros
+    3, 4, 3
+  ),
+  
+  Medio = c(
+    # Cercanías - Medio prioriza servicios básicos y transporte
+    4, 2, 5, 2, 5, 3, 2, 4,
+    # Cantidades
+    4, 2, 5, 2, 5, 3, 2, 4,
+    # Vialidades
+    5, 4, 5,  # Transporte muy crítico
+    # Índices
+    4, 3, 5,
+    # Otros
+    3, 5, 2   # Densidad comercial muy importante
+  )
+)
+
+# 4.2 Convertir a formato largo para análisis
+factores_relevancia_long <- factores_relevancia %>%
+  pivot_longer(cols = -Factor, names_to = "Segmento", values_to = "Relevancia") %>%
+  mutate(Segmento = gsub("_", " ", Segmento))
+
+# Visualizar matriz de relevancia
+heatmap_relevancia <- ggplot(factores_relevancia_long, 
+                             aes(x = Segmento, y = Factor, fill = Relevancia)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  scale_fill_gradient2(low = "#EF6558", mid = "#F4E785", high = "#68D192", 
+                       midpoint = 3, name = "Relevancia\n(1-5)") +
+  labs(title = "Matriz de Relevancia de Factores por Segmento",
+       subtitle = "Definición de pesos específicos para cada mercado objetivo",
+       x = "Segmento", y = "Factor") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(heatmap_relevancia)
+
+# ---- 5. FUNCIONES PARA CÁLCULO SEGMENTADO ----
+
+# 5.1 Función para normalizar por segmento
+normalizar_por_segmento <- function(datos, variable, segmento_col) {
+  datos %>%
+    group_by(!!sym(segmento_col)) %>%
+    mutate(
+      !!paste0(variable, "_norm_seg") := {
+        valores = !!sym(variable)
+        if(all(is.na(valores))) {
+          rep(0.5, length(valores))
+        } else {
+          min_val = min(valores, na.rm = TRUE)
+          max_val = max(valores, na.rm = TRUE)
+          if(max_val == min_val) {
+            rep(0.5, length(valores))
+          } else {
+            pmax(0, pmin(1, (valores - min_val) / (max_val - min_val)))
+          }
+        }
+      }
+    ) %>%
+    ungroup()
+}
+
+# 5.2 Función para calcular IVU segmentado
+calcular_ivu_segmentado <- function(datos, factores_relevancia) {
+  # Lista de factores disponibles en los datos
+  factores_disponibles <- intersect(factores_relevancia$Factor, names(datos))
+  
+  cat("Factores disponibles para IVU segmentado:", length(factores_disponibles), "\n")
+  
+  # Verificar nombres de columnas en factores_relevancia
+  cat("Columnas disponibles en factores_relevancia:", paste(names(factores_relevancia), collapse = ", "), "\n")
+  
+  # Calcular IVU para cada combinación segmento-NSE
+  datos_ivu_seg <- datos %>%
+    group_by(segmento_nse) %>%
+    filter(n() >= 3) %>%  # Mínimo 3 proyectos para cálculo
+    do({
+      df_grupo <- .
+      segmento_actual <- unique(df_grupo$Segmento)[1]
+      
+      # Convertir espacios a guiones bajos para coincidir con nombres de columnas
+      segmento_columna <- gsub(" ", "_", segmento_actual)
+      
+      cat("Procesando segmento:", segmento_actual, "(columna:", segmento_columna, ") con", nrow(df_grupo), "proyectos\n")
+      
+      # Verificar si existe la columna para este segmento
+      if(segmento_columna %in% names(factores_relevancia)) {
+        # Usar indexación directa en lugar de select() con sym()
+        col_index <- which(names(factores_relevancia) == segmento_columna)
+        pesos_segmento <- data.frame(
+          Factor = factores_relevancia$Factor,
+          Peso = factores_relevancia[, col_index]
+        )
+        
+        # Normalizar factores dentro del grupo
+        ivu_segmentado <- rep(0, nrow(df_grupo))
+        peso_total <- 0
+        
+        for(factor in factores_disponibles) {
+          if(factor %in% pesos_segmento$Factor && factor %in% names(df_grupo)) {
+            peso <- pesos_segmento$Peso[pesos_segmento$Factor == factor]
+            valores_factor <- df_grupo[[factor]]
+            
+            # Normalizar dentro del grupo
+            if(!all(is.na(valores_factor))) {
+              min_val <- min(valores_factor, na.rm = TRUE)
+              max_val <- max(valores_factor, na.rm = TRUE)
+              
+              if(max_val > min_val) {
+                valores_norm <- (valores_factor - min_val) / (max_val - min_val)
+                ivu_segmentado <- ivu_segmentado + (valores_norm * peso)
+                peso_total <- peso_total + peso
+              }
+            }
+          }
+        }
+        
+        # Normalizar por peso total
+        df_grupo$ivu_segmentado <- if(peso_total > 0) ivu_segmentado / peso_total else 0.5
+        df_grupo$peso_total_usado <- peso_total
+        
+        cat("Completado segmento:", segmento_actual, "- Peso total usado:", peso_total, "\n")
+      } else {
+        df_grupo$ivu_segmentado <- df_grupo$ivu  # Usar IVU original si no hay pesos específicos
+        df_grupo$peso_total_usado <- 1
+        cat("ADVERTENCIA: No se encontraron pesos para segmento:", segmento_actual, 
+            "(columna buscada:", segmento_columna, ")\n")
+        cat("Columnas disponibles:", paste(names(factores_relevancia), collapse = ", "), "\n")
+      }
+      
+      df_grupo
+    }) %>%
+    ungroup()
+  
+  return(datos_ivu_seg)
+}
+
+# 5.3 Función para calcular IVP segmentado  
+calcular_ivp_segmentado <- function(datos) {
+  datos %>%
+    group_by(segmento_nse) %>%
+    filter(n() >= 3) %>%
+    mutate(
+      # Normalizar amenidades dentro del segmento
+      amenidades_norm_seg = {
+        vals = score_amenidades_total
+        if(all(is.na(vals)) || max(vals, na.rm = TRUE) == min(vals, na.rm = TRUE)) {
+          rep(0.5, length(vals))
+        } else {
+          min_val = min(vals, na.rm = TRUE)
+          max_val = max(vals, na.rm = TRUE)
+          (vals - min_val) / (max_val - min_val)
+        }
+      },
+      
+      # Normalizar performance comercial dentro del segmento
+      performance_norm_seg = {
+        vals = eficiencia_comercial
+        if(all(is.na(vals)) || max(vals, na.rm = TRUE) == min(vals, na.rm = TRUE)) {
+          rep(0.5, length(vals))
+        } else {
+          min_val = min(vals, na.rm = TRUE)
+          max_val = max(vals, na.rm = TRUE)
+          (vals - min_val) / (max_val - min_val)
+        }
+      },
+      
+      # Calcular IVP segmentado con pesos ajustados por segmento
+      ivp_segmentado = case_when(
+        # Premium Plus: Mayor peso a amenidades y credibilidad desarrollador
+        Segmento == "Premium Plus" ~ (amenidades_norm_seg * 0.45) + 
+          (performance_norm_seg * 0.20) + 
+          (credibilidad_desarrollador_v2 * 0.25) + 
+          (propuesta_valor_norm_v2 * 0.10),
+        
+        # Premium: Balance entre amenidades y performance
+        Segmento == "Premium" ~ (amenidades_norm_seg * 0.35) + 
+          (performance_norm_seg * 0.30) + 
+          (credibilidad_desarrollador_v2 * 0.20) + 
+          (propuesta_valor_norm_v2 * 0.15),
+        
+        # Residencial Plus: Mayor peso a propuesta de valor
+        Segmento == "Residencial Plus" ~ (amenidades_norm_seg * 0.25) + 
+          (performance_norm_seg * 0.30) + 
+          (credibilidad_desarrollador_v2 * 0.15) + 
+          (propuesta_valor_norm_v2 * 0.30),
+        
+        # Residencial: Balance con énfasis en valor
+        Segmento == "Residencial" ~ (amenidades_norm_seg * 0.20) + 
+          (performance_norm_seg * 0.30) + 
+          (credibilidad_desarrollador_v2 * 0.15) + 
+          (propuesta_valor_norm_v2 * 0.35),
+        
+        # Medio: Máximo peso a propuesta de valor y performance
+        Segmento == "Medio" ~ (amenidades_norm_seg * 0.15) + 
+          (performance_norm_seg * 0.35) + 
+          (credibilidad_desarrollador_v2 * 0.10) + 
+          (propuesta_valor_norm_v2 * 0.40),
+        
+        TRUE ~ ivp_v2  # Usar IVP original como fallback
+      ),
+      
+      # Categorizar IVP segmentado
+      ivp_segmentado_categoria = cut(ivp_segmentado,
+                                     breaks = c(0, 0.25, 0.45, 0.65, 0.80, 1.0),
+                                     labels = c("Deficiente", "Regular", "Bueno", "Excelente", "Excepcional"),
+                                     include.lowest = TRUE)
+    ) %>%
+    ungroup()
+}
+
+# ---- 6. APLICAR SEGMENTACIÓN ----
+
+# 6.1 Calcular IVU segmentado
+cat("\n=== CALCULANDO IVU SEGMENTADO ===\n")
+datos_segmentados <- calcular_ivu_segmentado(datos_segmentados, factores_relevancia)
+
+# 6.2 Calcular IVP segmentado  
+cat("=== CALCULANDO IVP SEGMENTADO ===\n")
+datos_segmentados <- calcular_ivp_segmentado(datos_segmentados)
+
+# 6.3 Crear categorías segmentadas para IVU
+datos_segmentados <- datos_segmentados %>%
+  group_by(segmento_nse) %>%
+  mutate(
+    ivu_segmentado_categoria = cut(ivu_segmentado,
+                                   breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1.0),
+                                   labels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"),
+                                   include.lowest = TRUE)
+  ) %>%
+  ungroup()
+
+# ---- 7. ANÁLISIS DE RESULTADOS SEGMENTADOS ----
+
+# 7.1 Comparación de rankings
+comparacion_rankings <- datos_segmentados %>%
+  filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado)) %>%
+  select(Proyecto, Segmento, nse, segmento_nse, 
+         ivu, ivu_segmentado, ivp_v2, ivp_segmentado) %>%
+  group_by(segmento_nse) %>%
+  mutate(
+    rank_ivu_original = rank(-ivu, ties.method = "min"),
+    rank_ivu_segmentado = rank(-ivu_segmentado, ties.method = "min"),
+    rank_ivp_original = rank(-ivp_v2, ties.method = "min"),
+    rank_ivp_segmentado = rank(-ivp_segmentado, ties.method = "min"),
+    
+    cambio_rank_ivu = rank_ivu_original - rank_ivu_segmentado,
+    cambio_rank_ivp = rank_ivp_original - rank_ivp_segmentado
+  ) %>%
+  ungroup()
+
+# 7.2 Identificar cambios significativos en rankings
+cambios_significativos <- comparacion_rankings %>%
+  filter(abs(cambio_rank_ivu) >= 2 | abs(cambio_rank_ivp) >= 2) %>%
+  arrange(desc(abs(cambio_rank_ivu) + abs(cambio_rank_ivp)))
+
+cat("\nProyectos con cambios significativos en ranking (≥2 posiciones):\n")
+print(kable(head(cambios_significativos[c("Proyecto", "Segmento", "nse", 
+                                          "cambio_rank_ivu", "cambio_rank_ivp")], 10)))
+
+# 7.3 Estadísticas por segmento
+estadisticas_segmento <- datos_segmentados %>%
+  filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado)) %>%
+  group_by(Segmento) %>%
+  summarise(
+    Proyectos = n(),
+    
+    # IVU
+    IVU_Original_Media = round(mean(ivu, na.rm = TRUE), 3),
+    IVU_Segmentado_Media = round(mean(ivu_segmentado, na.rm = TRUE), 3),
+    IVU_Correlacion = round(cor(ivu, ivu_segmentado, use = "complete.obs"), 3),
+    
+    # IVP  
+    IVP_Original_Media = round(mean(ivp_v2, na.rm = TRUE), 3),
+    IVP_Segmentado_Media = round(mean(ivp_segmentado, na.rm = TRUE), 3),
+    IVP_Correlacion = round(cor(ivp_v2, ivp_segmentado, use = "complete.obs"), 3),
+    
+    .groups = 'drop'
+  )
+
+cat("\nEstadísticas comparativas por segmento:\n")
+print(kable(estadisticas_segmento))
+
+# ---- 8. VISUALIZACIONES SEGMENTADAS ----
+
+# 8.1 Scatter plot IVU original vs segmentado
+grafico_ivu_comparacion <- ggplot(datos_segmentados, 
+                                  aes(x = ivu, y = ivu_segmentado, color = Segmento)) +
+  geom_point(alpha = 0.7, size = 3) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+  facet_wrap(~Segmento, scales = "free") +
+  labs(title = "Comparación IVU Original vs Segmentado",
+       subtitle = "Línea diagonal = sin cambios",
+       x = "IVU Original (comparación global)",
+       y = "IVU Segmentado (comparación intra-segmento)") +
+  theme_minimal()
+
+print(grafico_ivu_comparacion)
+
+# 8.2 Scatter plot IVP original vs segmentado  
+grafico_ivp_comparacion <- ggplot(datos_segmentados, 
+                                  aes(x = ivp_v2, y = ivp_segmentado, color = Segmento)) +
+  geom_point(alpha = 0.7, size = 3) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+  facet_wrap(~Segmento, scales = "free") +
+  labs(title = "Comparación IVP Original vs Segmentado",
+       subtitle = "Línea diagonal = sin cambios",
+       x = "IVP Original (comparación global)", 
+       y = "IVP Segmentado (comparación intra-segmento)") +
+  theme_minimal()
+
+print(grafico_ivp_comparacion)
+
+# 8.3 Top proyectos por segmento (segmentado)
+top_por_segmento <- datos_segmentados %>%
+  filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado)) %>%
+  group_by(Segmento) %>%
+  mutate(
+    score_combinado_seg = (ivu_segmentado * 0.6) + (ivp_segmentado * 0.4),
+    rank_combinado = rank(-score_combinado_seg, ties.method = "min")
+  ) %>%
+  filter(rank_combinado <= 3) %>%
+  select(Proyecto, Desarrollador, Segmento, nse, 
+         ivu_segmentado, ivp_segmentado, score_combinado_seg, rank_combinado) %>%
+  arrange(Segmento, rank_combinado) %>%
+  ungroup()
+
+cat("\nTop 3 proyectos por segmento (índices segmentados):\n")
+print(kable(top_por_segmento, digits = 3))
+
+# 8.4 Matriz de decisión segmentada INTERACTIVA
+crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
+  datos_filtrados <- datos %>% filter(Segmento == segmento_filtro)
+  
+  if(nrow(datos_filtrados) < 5) {
+    return(NULL)
+  }
+  
+  # Crear categorización para colores
+  datos_filtrados <- datos_filtrados %>%
+    mutate(
+      categoria_seg = case_when(
+        ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "ORO",
+        ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "ESTRELLA",
+        ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "VACA LECHERA",
+        TRUE ~ "EVITAR"
+      )
+    )
+  
+  # Paleta de colores para categorías
+  colores_matriz <- c(
+    "ORO" = "#68D192", 
+    "ESTRELLA" = "#9B87F4", 
+    "VACA LECHERA" = "#F4E785", 
+    "EVITAR" = "#EF6558"
+  )
+  
+  # Crear gráfico base con ggplot
+  p <- ggplot(datos_filtrados, aes(x = ivu_segmentado, y = ivp_segmentado)) +
+    # Cuadrantes de fondo
+    annotate("rect", xmin = 0, xmax = 0.5, ymin = 0.5, ymax = 1, 
+             fill = "#9B87F4", alpha = 0.1) +
+    annotate("rect", xmin = 0.5, xmax = 1, ymin = 0.5, ymax = 1, 
+             fill = "#68D192", alpha = 0.1) +
+    annotate("rect", xmin = 0, xmax = 0.5, ymin = 0, ymax = 0.5, 
+             fill = "#EF6558", alpha = 0.1) +
+    annotate("rect", xmin = 0.5, xmax = 1, ymin = 0, ymax = 0.5, 
+             fill = "#F4E785", alpha = 0.1) +
+    
+    geom_point(aes(color = categoria_seg, 
+                   text = paste0("Proyecto: ", Proyecto, "\n",
+                                 "Desarrollador: ", Desarrollador, "\n",
+                                 "NSE: ", nse, "\n",
+                                 "IVU Segmentado: ", round(ivu_segmentado, 3), "\n",
+                                 "IVP Segmentado: ", round(ivp_segmentado, 3), "\n",
+                                 "Precio/m²: $", format(p_m2, big.mark = ","), "\n",
+                                 "Categoría: ", categoria_seg)), 
+               size = 4, alpha = 0.8) +
+    
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray40") +
+    geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray40") +
+    
+    scale_color_manual(values = colores_matriz, name = "Categoría") +
+    
+    # Etiquetas de cuadrantes
+    annotate("text", x = 0.25, y = 0.75, 
+             label = "ESTRELLA\n(Proyecto excelente\nUbicación regular)", 
+             fontface = "bold", hjust = 0.5, size = 3.5, color = "gray20") +
+    annotate("text", x = 0.75, y = 0.75, 
+             label = "ORO\n(Excelente ubicación\ny proyecto)", 
+             fontface = "bold", hjust = 0.5, size = 3.5, color = "gray20") +
+    annotate("text", x = 0.25, y = 0.25, 
+             label = "EVITAR\n(Mala ubicación\ny proyecto)", 
+             fontface = "bold", hjust = 0.5, size = 3.5, color = "gray20") +
+    annotate("text", x = 0.75, y = 0.25, 
+             label = "VACA LECHERA\n(Buena ubicación\nProyecto regular)", 
+             fontface = "bold", hjust = 0.5, size = 3.5, color = "gray20") +
+    
+    labs(title = paste("Matriz de Decisión Segmentada:", segmento_filtro),
+         subtitle = "Comparación justa intra-segmento (INTERACTIVA)",
+         x = "IVU Segmentado", y = "IVP Segmentado") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(size = 12),
+      legend.position = "right"
+    )
+  
+  # Convertir a plotly para interactividad
+  p_interactivo <- ggplotly(p, tooltip = "text") %>%
+    layout(
+      title = list(
+        text = paste("Matriz de Decisión Segmentada:", segmento_filtro, 
+                     "<br><sub>Comparación justa intra-segmento (INTERACTIVA)</sub>"),
+        font = list(size = 16)
+      ),
+      hoverlabel = list(
+        bgcolor = "white",
+        font = list(size = 12, color = "black"),
+        bordercolor = "gray"
+      )
+    )
+  
+  return(p_interactivo)
+}
+
+# Crear matrices interactivas para cada segmento con datos suficientes
+segmentos_con_datos <- datos_segmentados %>%
+  group_by(Segmento) %>%
+  summarise(n = n()) %>%
+  filter(n >= 5) %>%
+  pull(Segmento)
+
+cat("\n=== CREANDO MATRICES DE DECISIÓN INTERACTIVAS ===\n")
+matrices_interactivas <- list()
+for(seg in segmentos_con_datos) {
+  cat("Creando matriz interactiva para segmento:", seg, "\n")
+  matrices_interactivas[[seg]] <- crear_matriz_segmentada_interactiva(datos_segmentados, seg)
+  if(!is.null(matrices_interactivas[[seg]])) {
+    print(matrices_interactivas[[seg]])
+  }
+}
+
+# ---- 9. MAPAS INTERACTIVOS SEGMENTADOS ----
+
+## 9.1 FUNCIONES DE MAPAS CON TAMAÑOS UNIFORMES
+
+crear_mapa_ivu <- function(datos) {
+  # Filtrar datos válidos
+  datos_validos <- datos %>% filter(!is.na(latitud) & !is.na(longitud) & !is.na(ivu_segmentado_categoria))
+  
+  # Crear paleta de colores
+  colores_ivu <- c(
+    "Muy bajo" = "#EF6558", "Bajo" = "#F8C579", "Medio" = "#F4E785", 
+    "Alto" = "#68D192", "Muy alto" = "#2C6C66"
+  )
+  pal_ivu <- colorFactor(palette = colores_ivu, domain = datos_validos$ivu_segmentado_categoria, na.color = "#808080")
+  
+  # Crear popups
+  popups <- paste0(
+    "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 300px;'>",
+    "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos_validos$Proyecto, "</b></h4>",
+    "<hr style='margin: 5px 0;'>",
+    "<b>🏢 Desarrollador:</b> ", datos_validos$Desarrollador, "<br>",
+    "<b>📍 Municipio:</b> ", datos_validos$Municipio, "<br>",
+    "<b>🏠 Segmento:</b> ", datos_validos$Segmento, " | NSE ", datos_validos$nse, "<br>",
+    "<hr style='margin: 5px 0;'>",
+    "<b>📊 IVU Segmentado:</b> ", round(datos_validos$ivu_segmentado, 3), " (", datos_validos$ivu_segmentado_categoria, ")<br>",
+    "<b>💰 Precio/m²:</b> $", format(datos_validos$p_m2, big.mark = ","), "<br>",
+    "<b>📈 Absorción:</b> ", round(datos_validos$absorcion, 1), "<br>",
+    "</div>"
+  )
+  
+  # Crear mapa con tamaño uniforme
+  leaflet(datos_validos) %>%
+    addTiles() %>%
+    addCircleMarkers(
+      lng = ~longitud, lat = ~latitud,
+      radius = 8, # TAMAÑO UNIFORME
+      fillColor = ~pal_ivu(ivu_segmentado_categoria),
+      color = "white", weight = 2, opacity = 1, fillOpacity = 0.8,
+      popup = popups
+    ) %>%
+    addLegend(
+      position = "bottomright", pal = pal_ivu, values = ~ivu_segmentado_categoria,
+      title = "IVU Segmentado<br>(Intra-segmento)", opacity = 0.8
+    ) %>%
+    setView(lng = mean(datos_validos$longitud, na.rm = TRUE), 
+            lat = mean(datos_validos$latitud, na.rm = TRUE), zoom = 10)
+}
+
+crear_mapa_ivp <- function(datos) {
+  # Filtrar datos válidos
+  datos_validos <- datos %>% filter(!is.na(latitud) & !is.na(longitud) & !is.na(ivp_segmentado_categoria))
+  
+  # Crear paleta de colores
+  colores_ivp <- c(
+    "Deficiente" = "#EF6558", "Regular" = "#F8C579", "Bueno" = "#F4E785", 
+    "Excelente" = "#68D192", "Excepcional" = "#2C6C66"
+  )
+  pal_ivp <- colorFactor(palette = colores_ivp, domain = datos_validos$ivp_segmentado_categoria, na.color = "#808080")
+  
+  # Crear popups
+  popups <- paste0(
+    "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 300px;'>",
+    "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos_validos$Proyecto, "</b></h4>",
+    "<hr style='margin: 5px 0;'>",
+    "<b>🏢 Desarrollador:</b> ", datos_validos$Desarrollador, "<br>",
+    "<b>📍 Municipio:</b> ", datos_validos$Municipio, "<br>",
+    "<b>🏠 Segmento:</b> ", datos_validos$Segmento, " | NSE ", datos_validos$nse, "<br>",
+    "<hr style='margin: 5px 0;'>",
+    "<b>⭐ IVP Segmentado:</b> ", round(datos_validos$ivp_segmentado, 3), " (", datos_validos$ivp_segmentado_categoria, ")<br>",
+    "<b>🎯 Amenidades:</b> ", datos_validos$num_amenidades, " (Score: ", round(datos_validos$score_amenidades_total, 1), ")<br>",
+    "<b>💰 Precio/m²:</b> $", format(datos_validos$p_m2, big.mark = ","), "<br>",
+    "</div>"
+  )
+  
+  # Crear mapa con tamaño uniforme
+  leaflet(datos_validos) %>%
+    addTiles() %>%
+    addCircleMarkers(
+      lng = ~longitud, lat = ~latitud,
+      radius = 8, # TAMAÑO UNIFORME
+      fillColor = ~pal_ivp(ivp_segmentado_categoria),
+      color = "white", weight = 2, opacity = 1, fillOpacity = 0.8,
+      popup = popups
+    ) %>%
+    addLegend(
+      position = "bottomright", pal = pal_ivp, values = ~ivp_segmentado_categoria,
+      title = "IVP Segmentado<br>(Intra-segmento)", opacity = 0.8
+    ) %>%
+    setView(lng = mean(datos_validos$longitud, na.rm = TRUE), 
+            lat = mean(datos_validos$latitud, na.rm = TRUE), zoom = 10)
+}
+
+# 9.2 Crear mapa principal con categorización segmentada
+crear_mapa_principal_segmentado <- function(datos) {
+  # Filtrar datos válidos
+  datos_validos <- datos %>% 
+    filter(!is.na(latitud) & !is.na(longitud) & 
+             !is.na(ivu_segmentado) & !is.na(ivp_segmentado))
+  
+  # Crear categorización combinada segmentada
+  datos_validos <- datos_validos %>%
+    mutate(
+      categoria_seg = case_when(
+        ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "ORO_SEG",
+        ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "ESTRELLA_SEG",
+        ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "VACA_LECHERA_SEG",
+        TRUE ~ "EVITAR_SEG"
+      )
+    )
+  
+  # Paleta de colores para categorías segmentadas
+  colores_seg <- c(
+    "ORO_SEG" = "#68D192",
+    "ESTRELLA_SEG" = "#9B87F4", 
+    "VACA_LECHERA_SEG" = "#F4E785",
+    "EVITAR_SEG" = "#EF6558"
+  )
+  
+  pal_seg <- colorFactor(palette = colores_seg, domain = datos_validos$categoria_seg)
+  
+  # Crear popups detallados con comparación global vs segmentada
+  popups <- paste0(
+    "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 320px;'>",
+    "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos_validos$Proyecto, "</b></h4>",
+    "<div style='background-color: ", colores_seg[datos_validos$categoria_seg], 
+    "; color: white; padding: 5px 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 5px 0;'>",
+    gsub("_SEG", " (Segmentado)", datos_validos$categoria_seg), "</div>",
+    "<hr style='margin: 5px 0;'>",
+    "<b>🏢 Desarrollador:</b> ", datos_validos$Desarrollador, "<br>",
+    "<b>📍 Municipio:</b> ", datos_validos$Municipio, "<br>",
+    "<b>🏠 Segmento:</b> ", datos_validos$Segmento, " | NSE ", datos_validos$nse, "<br>",
+    "<hr style='margin: 5px 0;'>",
+    "<b>Comparación Global vs Segmentada:</b><br>",
+    "📊 IVU: ", round(datos_validos$ivu, 3), " → ", round(datos_validos$ivu_segmentado, 3), "<br>",
+    "⭐ IVP: ", round(datos_validos$ivp_v2, 3), " → ", round(datos_validos$ivp_segmentado, 3), "<br>",
+    "<hr style='margin: 5px 0;'>",
+    "<b>💰 Precio/m²:</b> $", format(datos_validos$p_m2, big.mark = ","), "<br>",
+    "<b>📈 Absorción:</b> ", round(datos_validos$absorcion, 1), "<br>",
+    "</div>"
+  )
+  
+  # Crear mapa con tamaño uniforme (CAMBIO PRINCIPAL)
+  leaflet(datos_validos) %>%
+    addTiles() %>%
+    addCircleMarkers(
+      lng = ~longitud, lat = ~latitud,
+      radius = 8, # TAMAÑO UNIFORME (antes era variable)
+      fillColor = ~pal_seg(categoria_seg),
+      color = "white", weight = 2, opacity = 1, fillOpacity = 0.8,
+      popup = popups
+    ) %>%
+    addLegend(
+      position = "bottomright", pal = pal_seg, values = ~categoria_seg,
+      title = "Categorización<br>Segmentada", opacity = 0.8,
+      labFormat = labelFormat(transform = function(x) gsub("_SEG", "", x))
+    ) %>%
+    addControl(
+      html = paste0(
+        "<div style='background: white; padding: 10px; border-radius: 5px; border: 2px solid #ccc;'>",
+        "<h5 style='margin: 0 0 5px 0;'>🎯 Índices Segmentados</h5>",
+        "<div style='font-size: 12px;'>",
+        "Comparación justa intra-segmento<br>",
+        "🥇 <b>ORO:</b> Líderes en su segmento<br>",
+        "⭐ <b>ESTRELLA:</b> Proyectos destacados<br>",
+        "🐄 <b>VACA LECHERA:</b> Ubicación sólida<br>",
+        "❌ <b>EVITAR:</b> Por debajo del promedio",
+        "</div></div>"
+      ),
+      position = "topleft"
+    ) %>%
+    setView(lng = mean(datos_validos$longitud, na.rm = TRUE), 
+            lat = mean(datos_validos$latitud, na.rm = TRUE), zoom = 10)
+}
+
+## 9.3 CREAR Y MOSTRAR TODOS LOS MAPAS
+
+cat("\n=== CREANDO MAPAS INTERACTIVOS (TAMAÑOS UNIFORMES) ===\n")
+
+# Mapa 1: IVU Segmentado
+cat("1. Creando mapa de IVU Segmentado...\n")
+mapa_ivu_seg <- crear_mapa_ivu(datos_segmentados)
+print(mapa_ivu_seg)
+
+# Mapa 2: IVP Segmentado
+cat("\n2. Creando mapa de IVP Segmentado...\n")
+mapa_ivp_seg <- crear_mapa_ivp(datos_segmentados)
+print(mapa_ivp_seg)
+
+# Mapa 3: Mapa Principal Segmentado
+cat("\n3. Creando mapa principal con categorización segmentada...\n")
+mapa_principal_segmentado <- crear_mapa_principal_segmentado(datos_segmentados)
+print(mapa_principal_segmentado)
+
+# ---- 10. ANÁLISIS DE INSIGHTS ----
+
+# 10.1 Proyectos que mejoraron significativamente
+mejores_cambios <- comparacion_rankings %>%
+  mutate(mejora_total = pmax(0, -cambio_rank_ivu) + pmax(0, -cambio_rank_ivp)) %>%
+  filter(mejora_total >= 3) %>%
+  arrange(desc(mejora_total)) %>%
+  head(10)
+
+cat("\nProyectos que más mejoraron con segmentación:\n")
+print(kable(mejores_cambios[c("Proyecto", "Segmento", "nse", "mejora_total", 
+                              "cambio_rank_ivu", "cambio_rank_ivp")]))
+
+# 10.2 Distribución de categorías por segmento
+distribucion_categorias <- datos_segmentados %>%
+  filter(!is.na(ivu_segmentado_categoria) & !is.na(ivp_segmentado_categoria)) %>%
+  group_by(Segmento, ivu_segmentado_categoria) %>%
+  summarise(proyectos = n(), .groups = 'drop') %>%
+  pivot_wider(names_from = ivu_segmentado_categoria, values_from = proyectos, values_fill = 0)
+
+cat("\nDistribución de categorías IVU segmentado por segmento:\n")
+print(kable(distribucion_categorias))
+
+# ---- 11. GUARDAR RESULTADOS ----
+
+# 11.1 Guardar dataset completo
+write.csv(datos_segmentados, "proyectos_indices_segmentados.csv", row.names = FALSE)
+
+# 11.2 Guardar rankings por segmento
+rankings_finales <- datos_segmentados %>%
+  filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado)) %>%
+  group_by(Segmento) %>%
+  mutate(
+    score_combinado_seg = (ivu_segmentado * 0.6) + (ivp_segmentado * 0.4),
+    rank_final = rank(-score_combinado_seg, ties.method = "min")
+  ) %>%
+  select(Proyecto, Desarrollador, Municipio, Segmento, nse, segmento_nse,
+         ivu_segmentado, ivu_segmentado_categoria,
+         ivp_segmentado, ivp_segmentado_categoria,
+         score_combinado_seg, rank_final) %>%
+  arrange(Segmento, rank_final) %>%
+  ungroup()
+
+write.csv(rankings_finales, "rankings_por_segmento.csv", row.names = FALSE)
+
+# 11.3 Guardar matriz de relevancia aplicada
+write.csv(factores_relevancia, "matriz_relevancia_factores.csv", row.names = FALSE)
+
+# ---- 12. RESUMEN EJECUTIVO ----
+
+cat("\n" , rep("=", 60), "\n")
+cat("RESUMEN EJECUTIVO - SEGMENTACIÓN DE ÍNDICES\n")
+cat(rep("=", 60), "\n")
+
+cat("\n📊 ESTADÍSTICAS GENERALES:\n")
+cat("- Proyectos analizados:", nrow(datos_segmentados), "\n")
+cat("- Combinaciones Segmento-NSE:", n_distinct(datos_segmentados$segmento_nse), "\n")
+cat("- Segmentos con datos suficientes:", length(segmentos_con_datos), "\n")
+
+cat("\n🎯 PRINCIPALES HALLAZGOS:\n")
+cat("- Correlación promedio IVU original vs segmentado:", 
+    round(mean(estadisticas_segmento$IVU_Correlacion, na.rm = TRUE), 3), "\n")
+cat("- Correlación promedio IVP original vs segmentado:", 
+    round(mean(estadisticas_segmento$IVP_Correlacion, na.rm = TRUE), 3), "\n")
+cat("- Proyectos con cambios significativos en ranking:", nrow(cambios_significativos), "\n")
+cat("- Proyectos que mejoraron ≥3 posiciones:", nrow(mejores_cambios), "\n")
+
+cat("\n📈 BENEFICIOS DE LA SEGMENTACIÓN:\n")
+cat("✅ Eliminación de sesgos por comparación entre segmentos diferentes\n")
+cat("✅ Rankings justos intra-segmento\n") 
+cat("✅ Identificación de líderes reales por mercado objetivo\n")
+cat("✅ Pesos específicos por valoración del segmento\n")
+cat("✅ Mejor identificación de oportunidades de inversión\n")
+
+cat("\n📁 ARCHIVOS GENERADOS:\n")
+cat("- proyectos_indices_segmentados.csv (dataset completo)\n")
+cat("- rankings_por_segmento.csv (rankings finales)\n") 
+cat("- matriz_relevancia_factores.csv (pesos por segmento)\n")
+
+cat("\n🗺️ VISUALIZACIONES MEJORADAS:\n")
+cat("- Matriz de relevancia de factores por segmento\n")
+cat("- Comparaciones IVU/IVP original vs segmentado\n")
+cat("- Matrices de decisión INTERACTIVAS por segmento (plotly)\n")
+cat("- Mapas interactivos con TAMAÑOS UNIFORMES y categorización segmentada\n")
+cat("- Popups informativos detallados por proyecto\n")
+
+cat("\n", rep("=", 60), "\n")
+cat("PROCESO DE SEGMENTACIÓN COMPLETADO CON MEJORAS VISUALES\n")
+cat(rep("=", 60), "\n\n")
+
+cat("✅ CAMBIOS IMPLEMENTADOS:\n")
+cat("🔸 Tamaños uniformes en todos los mapas (eliminación de sobresaturación visual)\n")
+cat("🔸 Matrices de decisión interactivas con tooltips informativos\n") 
+cat("🔸 Mejor identificación de proyectos en cada cuadrante\n")
+cat("🔸 Mapas segmentados con categorización justa intra-segmento\n")
+cat("🔸 Popups detallados con comparaciones antes/después\n")
