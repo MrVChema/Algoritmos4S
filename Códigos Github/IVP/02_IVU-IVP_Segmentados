@@ -14,11 +14,11 @@ library(tidyr)
 library(gridExtra)
 
 # Establecer directorio de trabajo
-setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS')
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/IVU-IVP')
 
 # ---- 2. CARGAR DATOS ----
 # Usar la base más completa disponible
-datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/IVP/proyectos_con_ivp_v2_completo.csv', stringsAsFactors = FALSE)
+datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/IVP/proyectos_con_ivp_v2_completo.csv', stringsAsFactors = FALSE)
 
 # Verificar datos disponibles
 cat("Base de datos cargada:\n")
@@ -357,7 +357,7 @@ calcular_ivp_segmentado <- function(datos) {
       # Categorizar IVP segmentado
       ivp_segmentado_categoria = cut(ivp_segmentado,
                                      breaks = c(0, 0.25, 0.45, 0.65, 0.80, 1.0),
-                                     labels = c("Deficiente", "Regular", "Bueno", "Excelente", "Excepcional"),
+                                     labels = c("Muy Bajo", "Bajo", "Medio", "Alto", "Muy Alto"),
                                      include.lowest = TRUE)
     ) %>%
     ungroup()
@@ -482,7 +482,7 @@ top_por_segmento <- datos_segmentados %>%
 cat("\nTop 3 proyectos por segmento (índices segmentados):\n")
 print(kable(top_por_segmento, digits = 3))
 
-# 8.4 Matriz de decisión segmentada INTERACTIVA
+# 8.4 Matriz de decisión segmentada INTERACTIVA - CATEGORÍAS 4S ACTUALIZADAS
 crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
   datos_filtrados <- datos %>% filter(Segmento == segmento_filtro)
   
@@ -490,36 +490,36 @@ crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
     return(NULL)
   }
   
-  # Crear categorización para colores
+  # Crear categorización 4S para colores
   datos_filtrados <- datos_filtrados %>%
     mutate(
       categoria_seg = case_when(
-        ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "ORO",
-        ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "ESTRELLA",
-        ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "VACA LECHERA",
-        TRUE ~ "EVITAR"
+        ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "SUPERIOR",
+        ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "SÓLIDO",
+        ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "SUSTENTABLE",
+        TRUE ~ "SINGULAR"
       )
     )
   
-  # Paleta de colores para categorías
-  colores_matriz <- c(
-    "ORO" = "#68D192", 
-    "ESTRELLA" = "#9B87F4", 
-    "VACA LECHERA" = "#F4E785", 
-    "EVITAR" = "#EF6558"
+  # Paleta de colores 4S para categorías
+  colores_matriz_4s <- c(
+    "SUPERIOR" = "#68D192", 
+    "SÓLIDO" = "#9B87F4", 
+    "SUSTENTABLE" = "#F4E785", 
+    "SINGULAR" = "#F8C579"
   )
   
   # Crear gráfico base con ggplot
   p <- ggplot(datos_filtrados, aes(x = ivu_segmentado, y = ivp_segmentado)) +
-    # Cuadrantes de fondo
+    # Cuadrantes de fondo - CORREGIDOS
     annotate("rect", xmin = 0, xmax = 0.5, ymin = 0.5, ymax = 1, 
-             fill = "#9B87F4", alpha = 0.1) +
+             fill = "#9B87F4", alpha = 0.1) +  # SÓLIDO - Superior izquierdo
     annotate("rect", xmin = 0.5, xmax = 1, ymin = 0.5, ymax = 1, 
-             fill = "#68D192", alpha = 0.1) +
+             fill = "#68D192", alpha = 0.1) +  # SUPERIOR - Superior derecho
     annotate("rect", xmin = 0, xmax = 0.5, ymin = 0, ymax = 0.5, 
-             fill = "#EF6558", alpha = 0.1) +
+             fill = "#F8C579", alpha = 0.1) +  # SINGULAR - Inferior izquierdo
     annotate("rect", xmin = 0.5, xmax = 1, ymin = 0, ymax = 0.5, 
-             fill = "#F4E785", alpha = 0.1) +
+             fill = "#F4E785", alpha = 0.1) +  # SUSTENTABLE - Inferior derecho
     
     geom_point(aes(color = categoria_seg, 
                    text = paste0("Proyecto: ", Proyecto, "\n",
@@ -528,29 +528,29 @@ crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
                                  "IVU Segmentado: ", round(ivu_segmentado, 3), "\n",
                                  "IVP Segmentado: ", round(ivp_segmentado, 3), "\n",
                                  "Precio/m²: $", format(p_m2, big.mark = ","), "\n",
-                                 "Categoría: ", categoria_seg)), 
+                                 "Categoría 4S: ", categoria_seg)), 
                size = 4, alpha = 0.8) +
     
     geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray40") +
     geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray40") +
     
-    scale_color_manual(values = colores_matriz, name = "Categoría") +
+    scale_color_manual(values = colores_matriz_4s, name = "Categoría 4S") +
     
-    # Etiquetas de cuadrantes
+    # Etiquetas de cuadrantes 4S CORREGIDAS
     annotate("text", x = 0.25, y = 0.75, 
-             label = "ESTRELLA\n(Proyecto excelente\nUbicación regular)", 
+             label = "⭐ SÓLIDO\n(Propuesta sólida\nalto potencial)", 
              fontface = "bold", hjust = 0.5, size = 3.5, color = "gray20") +
     annotate("text", x = 0.75, y = 0.75, 
-             label = "ORO\n(Excelente ubicación\ny proyecto)", 
+             label = "🏆 SUPERIOR\n(Excelente ubicación\ny proyecto)", 
              fontface = "bold", hjust = 0.5, size = 3.5, color = "gray20") +
     annotate("text", x = 0.25, y = 0.25, 
-             label = "EVITAR\n(Mala ubicación\ny proyecto)", 
+             label = "🎯 SINGULAR\n(Características únicas\nenfoque especializado)", 
              fontface = "bold", hjust = 0.5, size = 3.5, color = "gray20") +
     annotate("text", x = 0.75, y = 0.25, 
-             label = "VACA LECHERA\n(Buena ubicación\nProyecto regular)", 
+             label = "🔄 SUSTENTABLE\n(Ubicación excelente\nfundamentos consistentes)", 
              fontface = "bold", hjust = 0.5, size = 3.5, color = "gray20") +
     
-    labs(title = paste("Matriz de Decisión Segmentada:", segmento_filtro),
+    labs(title = paste("Matriz de Decisión 4S Segmentada:", segmento_filtro),
          subtitle = "Comparación justa intra-segmento (INTERACTIVA)",
          x = "IVU Segmentado", y = "IVP Segmentado") +
     theme_minimal() +
@@ -564,7 +564,7 @@ crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
   p_interactivo <- ggplotly(p, tooltip = "text") %>%
     layout(
       title = list(
-        text = paste("Matriz de Decisión Segmentada:", segmento_filtro, 
+        text = paste("Matriz de Decisión 4S Segmentada:", segmento_filtro, 
                      "<br><sub>Comparación justa intra-segmento (INTERACTIVA)</sub>"),
         font = list(size = 16)
       ),
@@ -585,10 +585,10 @@ segmentos_con_datos <- datos_segmentados %>%
   filter(n >= 5) %>%
   pull(Segmento)
 
-cat("\n=== CREANDO MATRICES DE DECISIÓN INTERACTIVAS ===\n")
+cat("\n=== CREANDO MATRICES DE DECISIÓN 4S INTERACTIVAS ===\n")
 matrices_interactivas <- list()
 for(seg in segmentos_con_datos) {
-  cat("Creando matriz interactiva para segmento:", seg, "\n")
+  cat("Creando matriz interactiva 4S para segmento:", seg, "\n")
   matrices_interactivas[[seg]] <- crear_matriz_segmentada_interactiva(datos_segmentados, seg)
   if(!is.null(matrices_interactivas[[seg]])) {
     print(matrices_interactivas[[seg]])
@@ -649,8 +649,8 @@ crear_mapa_ivp <- function(datos) {
   
   # Crear paleta de colores
   colores_ivp <- c(
-    "Deficiente" = "#EF6558", "Regular" = "#F8C579", "Bueno" = "#F4E785", 
-    "Excelente" = "#68D192", "Excepcional" = "#2C6C66"
+    "Muy Bajo" = "#EF6558", "Bajo" = "#F8C579", "Medio" = "#F4E785", 
+    "Alto" = "#68D192", "Muy Alto" = "#2C6C66"
   )
   pal_ivp <- colorFactor(palette = colores_ivp, domain = datos_validos$ivp_segmentado_categoria, na.color = "#808080")
   
@@ -687,39 +687,39 @@ crear_mapa_ivp <- function(datos) {
             lat = mean(datos_validos$latitud, na.rm = TRUE), zoom = 10)
 }
 
-# 9.2 Crear mapa principal con categorización segmentada
+# 9.2 Crear mapa principal con categorización 4S segmentada - ACTUALIZADO
 crear_mapa_principal_segmentado <- function(datos) {
   # Filtrar datos válidos
   datos_validos <- datos %>% 
     filter(!is.na(latitud) & !is.na(longitud) & 
              !is.na(ivu_segmentado) & !is.na(ivp_segmentado))
   
-  # Crear categorización combinada segmentada
+  # Crear categorización 4S combinada segmentada
   datos_validos <- datos_validos %>%
     mutate(
       categoria_seg = case_when(
-        ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "ORO_SEG",
-        ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "ESTRELLA_SEG",
-        ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "VACA_LECHERA_SEG",
-        TRUE ~ "EVITAR_SEG"
+        ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "SUPERIOR_SEG",
+        ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "SÓLIDO_SEG",
+        ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "SUSTENTABLE_SEG",
+        TRUE ~ "SINGULAR_SEG"
       )
     )
   
-  # Paleta de colores para categorías segmentadas
-  colores_seg <- c(
-    "ORO_SEG" = "#68D192",
-    "ESTRELLA_SEG" = "#9B87F4", 
-    "VACA_LECHERA_SEG" = "#F4E785",
-    "EVITAR_SEG" = "#EF6558"
+  # Paleta de colores 4S para categorías segmentadas
+  colores_seg_4s <- c(
+    "SUPERIOR_SEG" = "#68D192",
+    "SÓLIDO_SEG" = "#9B87F4", 
+    "SUSTENTABLE_SEG" = "#F4E785",
+    "SINGULAR_SEG" = "#F8C579"
   )
   
-  pal_seg <- colorFactor(palette = colores_seg, domain = datos_validos$categoria_seg)
+  pal_seg <- colorFactor(palette = colores_seg_4s, domain = datos_validos$categoria_seg)
   
   # Crear popups detallados con comparación global vs segmentada
   popups <- paste0(
     "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 320px;'>",
     "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos_validos$Proyecto, "</b></h4>",
-    "<div style='background-color: ", colores_seg[datos_validos$categoria_seg], 
+    "<div style='background-color: ", colores_seg_4s[datos_validos$categoria_seg], 
     "; color: white; padding: 5px 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 5px 0;'>",
     gsub("_SEG", " (Segmentado)", datos_validos$categoria_seg), "</div>",
     "<hr style='margin: 5px 0;'>",
@@ -736,31 +736,31 @@ crear_mapa_principal_segmentado <- function(datos) {
     "</div>"
   )
   
-  # Crear mapa con tamaño uniforme (CAMBIO PRINCIPAL)
+  # Crear mapa con tamaño uniforme
   leaflet(datos_validos) %>%
     addTiles() %>%
     addCircleMarkers(
       lng = ~longitud, lat = ~latitud,
-      radius = 8, # TAMAÑO UNIFORME (antes era variable)
+      radius = 8, # TAMAÑO UNIFORME
       fillColor = ~pal_seg(categoria_seg),
       color = "white", weight = 2, opacity = 1, fillOpacity = 0.8,
       popup = popups
     ) %>%
     addLegend(
       position = "bottomright", pal = pal_seg, values = ~categoria_seg,
-      title = "Categorización<br>Segmentada", opacity = 0.8,
+      title = "Categorización 4S<br>Segmentada", opacity = 0.8,
       labFormat = labelFormat(transform = function(x) gsub("_SEG", "", x))
     ) %>%
     addControl(
       html = paste0(
-        "<div style='background: white; padding: 10px; border-radius: 5px; border: 2px solid #ccc;'>",
-        "<h5 style='margin: 0 0 5px 0;'>🎯 Índices Segmentados</h5>",
+        "<div style='background: white; padding: 10px; border-radius: 5px; border: 2px solid #2C6C66;'>",
+        "<h5 style='margin: 0 0 5px 0; color: #2C6C66;'>🎯 Categorías 4S Segmentadas</h5>",
         "<div style='font-size: 12px;'>",
         "Comparación justa intra-segmento<br>",
-        "🥇 <b>ORO:</b> Líderes en su segmento<br>",
-        "⭐ <b>ESTRELLA:</b> Proyectos destacados<br>",
-        "🐄 <b>VACA LECHERA:</b> Ubicación sólida<br>",
-        "❌ <b>EVITAR:</b> Por debajo del promedio",
+        "🏆 <b>SUPERIOR:</b> Líderes en su segmento<br>",
+        "⭐ <b>SÓLIDO:</b> Alto potencial<br>",
+        "🔄 <b>SUSTENTABLE:</b> Ubicación excelente<br>",
+        "🎯 <b>SINGULAR:</b> Características únicas",
         "</div></div>"
       ),
       position = "topleft"
@@ -771,7 +771,7 @@ crear_mapa_principal_segmentado <- function(datos) {
 
 ## 9.3 CREAR Y MOSTRAR TODOS LOS MAPAS
 
-cat("\n=== CREANDO MAPAS INTERACTIVOS (TAMAÑOS UNIFORMES) ===\n")
+cat("\n=== CREANDO MAPAS INTERACTIVOS 4S (TAMAÑOS UNIFORMES) ===\n")
 
 # Mapa 1: IVU Segmentado
 cat("1. Creando mapa de IVU Segmentado...\n")
@@ -783,8 +783,8 @@ cat("\n2. Creando mapa de IVP Segmentado...\n")
 mapa_ivp_seg <- crear_mapa_ivp(datos_segmentados)
 print(mapa_ivp_seg)
 
-# Mapa 3: Mapa Principal Segmentado
-cat("\n3. Creando mapa principal con categorización segmentada...\n")
+# Mapa 3: Mapa Principal 4S Segmentado
+cat("\n3. Creando mapa principal con categorización 4S segmentada...\n")
 mapa_principal_segmentado <- crear_mapa_principal_segmentado(datos_segmentados)
 print(mapa_principal_segmentado)
 
@@ -814,7 +814,7 @@ print(kable(distribucion_categorias))
 # ---- 11. GUARDAR RESULTADOS ----
 
 # 11.1 Guardar dataset completo
-write.csv(datos_segmentados, "proyectos_indices_segmentados.csv", row.names = FALSE)
+write.csv(datos_segmentados, "proyectos_indices_segmentados_4s.csv", row.names = FALSE)
 
 # 11.2 Guardar rankings por segmento
 rankings_finales <- datos_segmentados %>%
@@ -831,15 +831,15 @@ rankings_finales <- datos_segmentados %>%
   arrange(Segmento, rank_final) %>%
   ungroup()
 
-write.csv(rankings_finales, "rankings_por_segmento.csv", row.names = FALSE)
+write.csv(rankings_finales, "rankings_por_segmento_4s.csv", row.names = FALSE)
 
 # 11.3 Guardar matriz de relevancia aplicada
-write.csv(factores_relevancia, "matriz_relevancia_factores.csv", row.names = FALSE)
+write.csv(factores_relevancia, "matriz_relevancia_factores_4s.csv", row.names = FALSE)
 
-# ---- 12. RESUMEN EJECUTIVO ----
+# ---- 12. RESUMEN EJECUTIVO 4S ----
 
 cat("\n" , rep("=", 60), "\n")
-cat("RESUMEN EJECUTIVO - SEGMENTACIÓN DE ÍNDICES\n")
+cat("RESUMEN EJECUTIVO 4S - SEGMENTACIÓN DE ÍNDICES\n")
 cat(rep("=", 60), "\n")
 
 cat("\n📊 ESTADÍSTICAS GENERALES:\n")
@@ -855,32 +855,41 @@ cat("- Correlación promedio IVP original vs segmentado:",
 cat("- Proyectos con cambios significativos en ranking:", nrow(cambios_significativos), "\n")
 cat("- Proyectos que mejoraron ≥3 posiciones:", nrow(mejores_cambios), "\n")
 
-cat("\n📈 BENEFICIOS DE LA SEGMENTACIÓN:\n")
+cat("\n📈 BENEFICIOS DE LA SEGMENTACIÓN 4S:\n")
 cat("✅ Eliminación de sesgos por comparación entre segmentos diferentes\n")
-cat("✅ Rankings justos intra-segmento\n") 
+cat("✅ Rankings justos intra-segmento con categorías diplomáticas\n") 
 cat("✅ Identificación de líderes reales por mercado objetivo\n")
 cat("✅ Pesos específicos por valoración del segmento\n")
 cat("✅ Mejor identificación de oportunidades de inversión\n")
+cat("✅ Lenguaje profesional y constructivo para desarrolladores\n")
+
+cat("\n🏆 CATEGORÍAS 4S REAL ESTATE:\n")
+cat("- SUPERIOR: Líderes del mercado en su segmento\n")
+cat("- SÓLIDO: Proyectos con alto potencial\n") 
+cat("- SUSTENTABLE: Base sólida para crecimiento\n")
+cat("- SINGULAR: Características únicas especializadas\n")
 
 cat("\n📁 ARCHIVOS GENERADOS:\n")
-cat("- proyectos_indices_segmentados.csv (dataset completo)\n")
-cat("- rankings_por_segmento.csv (rankings finales)\n") 
-cat("- matriz_relevancia_factores.csv (pesos por segmento)\n")
+cat("- proyectos_indices_segmentados_4s.csv (dataset completo)\n")
+cat("- rankings_por_segmento_4s.csv (rankings finales)\n") 
+cat("- matriz_relevancia_factores_4s.csv (pesos por segmento)\n")
 
-cat("\n🗺️ VISUALIZACIONES MEJORADAS:\n")
+cat("\n🗺️ VISUALIZACIONES 4S MEJORADAS:\n")
 cat("- Matriz de relevancia de factores por segmento\n")
 cat("- Comparaciones IVU/IVP original vs segmentado\n")
-cat("- Matrices de decisión INTERACTIVAS por segmento (plotly)\n")
-cat("- Mapas interactivos con TAMAÑOS UNIFORMES y categorización segmentada\n")
-cat("- Popups informativos detallados por proyecto\n")
+cat("- Matrices de decisión 4S INTERACTIVAS por segmento (plotly)\n")
+cat("- Mapas interactivos con TAMAÑOS UNIFORMES y categorización 4S\n")
+cat("- Popups informativos detallados con identidad 4S\n")
 
 cat("\n", rep("=", 60), "\n")
-cat("PROCESO DE SEGMENTACIÓN COMPLETADO CON MEJORAS VISUALES\n")
+cat("PROCESO DE SEGMENTACIÓN 4S COMPLETADO CON ÉXITO\n")
 cat(rep("=", 60), "\n\n")
 
-cat("✅ CAMBIOS IMPLEMENTADOS:\n")
-cat("🔸 Tamaños uniformes en todos los mapas (eliminación de sobresaturación visual)\n")
-cat("🔸 Matrices de decisión interactivas con tooltips informativos\n") 
-cat("🔸 Mejor identificación de proyectos en cada cuadrante\n")
+cat("✅ CAMBIOS 4S IMPLEMENTADOS:\n")
+cat("🔸 Categorías diplomáticas SUPERIOR, SÓLIDO, SUSTENTABLE, SINGULAR\n")
+cat("🔸 Tamaños uniformes en todos los mapas (eliminación de sobresaturación)\n")
+cat("🔸 Matrices de decisión 4S interactivas con tooltips informativos\n") 
+cat("🔸 Mejor identificación de proyectos en cada cuadrante 4S\n")
 cat("🔸 Mapas segmentados con categorización justa intra-segmento\n")
 cat("🔸 Popups detallados con comparaciones antes/después\n")
+cat("🔸 Identidad visual y terminología 4S Real Estate consistente\n")
