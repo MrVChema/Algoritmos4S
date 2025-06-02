@@ -11,6 +11,7 @@ library(leaflet)
 library(corrplot)
 library(knitr)
 library(tidyr)
+library(grid)
 library(gridExtra)
 
 # Establecer directorio de trabajo
@@ -893,3 +894,1128 @@ cat("🔸 Mejor identificación de proyectos en cada cuadrante 4S\n")
 cat("🔸 Mapas segmentados con categorización justa intra-segmento\n")
 cat("🔸 Popups detallados con comparaciones antes/después\n")
 cat("🔸 Identidad visual y terminología 4S Real Estate consistente\n")
+
+
+# ---- 13. VISUALIZACIONES PARA PROYECTO INDIVIDUAL ----
+
+# 13.1 Función para seleccionar proyecto
+seleccionar_proyecto_segmentado <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Permitir selección por índice o por nombre
+  if (!is.null(indice_proyecto)) {
+    if(indice_proyecto > nrow(datos) || indice_proyecto < 1) {
+      stop("Índice de proyecto fuera de rango. Debe estar entre 1 y ", nrow(datos))
+    }
+    proyecto <- datos[indice_proyecto, ]
+  } else if (!is.null(nombre_proyecto)) {
+    proyecto <- datos[datos$Proyecto == nombre_proyecto, ]
+    if (nrow(proyecto) == 0) {
+      stop("Proyecto no encontrado: ", nombre_proyecto)
+    }
+  } else {
+    stop("Debe proporcionar un indice_proyecto o un nombre_proyecto")
+  }
+  
+  return(proyecto)
+}
+
+# 13.2 Función para crear termómetro IVU segmentado
+crear_termometro_ivu_segmentado <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Seleccionar proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  valor <- proyecto$ivu_segmentado
+  categoria <- proyecto$ivu_segmentado_categoria
+  nombre <- proyecto$Proyecto
+  segmento <- proyecto$Segmento
+  nse <- proyecto$nse
+  
+  # Colores 4S para IVU
+  colores <- c(
+    "Muy bajo" = "#EF6558",   # Rojo
+    "Bajo" = "#F8C579",       # Naranja
+    "Medio" = "#F4E785",      # Amarillo
+    "Alto" = "#68D192",       # Verde claro
+    "Muy alto" = "#2C6C66"    # Verde oscuro
+  )
+  
+  color <- colores[as.character(categoria)]
+  
+  # Escala del termómetro
+  escala <- data.frame(
+    y = seq(0, 1, 0.2),
+    labels = c("0.0", "0.2", "0.4", "0.6", "0.8", "1.0"),
+    categorias = c("", "Muy bajo", "Bajo", "Medio", "Alto", "Muy alto")
+  )
+  
+  # Crear gráfico
+  p <- ggplot() +
+    # Fondo del termómetro
+    geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = 1), 
+              fill = "lightgrey", color = "black", linewidth = 1) +
+    # Contenido del termómetro
+    geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = valor), 
+              fill = color, alpha = 0.8) +
+    # Líneas de escala
+    geom_segment(data = escala, 
+                 aes(x = 0.38, y = y, xend = 0.62, yend = y), 
+                 color = "black", linewidth = 0.5) +
+    # Etiquetas de escala
+    geom_text(data = escala, 
+              aes(x = 0.35, y = y, label = labels), 
+              hjust = 1, size = 4) +
+    # Etiquetas de categorías
+    geom_text(data = escala[-1,], 
+              aes(x = 0.7, y = y - 0.1, label = categorias), 
+              hjust = 0, size = 3) +
+    # Información del proyecto
+    geom_text(aes(x = 0.5, y = 1.15, 
+                  label = paste0(nombre, "\n", 
+                                 "Segmento: ", segmento, " | NSE: ", nse, "\n",
+                                 "IVU Segmentado: ", round(valor, 3), "\n",
+                                 "Categoría: ", categoria)),
+              fontface = "bold", hjust = 0.5, size = 4) +
+    # Título
+    labs(title = "🎯 Termómetro IVU Segmentado 4S",
+         subtitle = "Comparación justa intra-segmento",
+         x = NULL, y = NULL) +
+    theme_minimal() +
+    theme(
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      panel.grid = element_blank(),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 16, color = "#2C6C66"),
+      plot.subtitle = element_text(hjust = 0.5, size = 12, color = "#2C6C66")
+    ) +
+    coord_cartesian(xlim = c(0, 1), ylim = c(-0.05, 1.3), expand = FALSE)
+  
+  return(p)
+}
+
+# 13.3 Función para crear termómetro IVP segmentado
+crear_termometro_ivp_segmentado <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Seleccionar proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  valor <- proyecto$ivp_segmentado
+  categoria <- proyecto$ivp_segmentado_categoria
+  nombre <- proyecto$Proyecto
+  segmento <- proyecto$Segmento
+  amenidades <- proyecto$num_amenidades
+  
+  # Colores 4S para IVP
+  colores <- c(
+    "Muy Bajo" = "#EF6558",   # Rojo
+    "Bajo" = "#F8C579",       # Naranja
+    "Medio" = "#F4E785",      # Amarillo
+    "Alto" = "#68D192",       # Verde claro
+    "Muy Alto" = "#2C6C66"    # Verde oscuro
+  )
+  
+  color <- colores[as.character(categoria)]
+  
+  # Escala del termómetro
+  escala <- data.frame(
+    y = seq(0, 1, 0.2),
+    labels = c("0.0", "0.2", "0.4", "0.6", "0.8", "1.0"),
+    categorias = c("", "Muy Bajo", "Bajo", "Medio", "Alto", "Muy Alto")
+  )
+  
+  # Crear gráfico
+  p <- ggplot() +
+    # Fondo del termómetro
+    geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = 1), 
+              fill = "lightgrey", color = "black", linewidth = 1) +
+    # Contenido del termómetro
+    geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = valor), 
+              fill = color, alpha = 0.8) +
+    # Líneas de escala
+    geom_segment(data = escala, 
+                 aes(x = 0.38, y = y, xend = 0.62, yend = y), 
+                 color = "black", linewidth = 0.5) +
+    # Etiquetas de escala
+    geom_text(data = escala, 
+              aes(x = 0.35, y = y, label = labels), 
+              hjust = 1, size = 4) +
+    # Etiquetas de categorías
+    geom_text(data = escala[-1,], 
+              aes(x = 0.7, y = y - 0.1, label = categorias), 
+              hjust = 0, size = 3) +
+    # Información del proyecto
+    geom_text(aes(x = 0.5, y = 1.15, 
+                  label = paste0(nombre, "\n", 
+                                 "Segmento: ", segmento, "\n",
+                                 "IVP Segmentado: ", round(valor, 3), "\n",
+                                 "Categoría: ", categoria, "\n",
+                                 "Amenidades: ", amenidades)),
+              fontface = "bold", hjust = 0.5, size = 4) +
+    # Título
+    labs(title = "⭐ Termómetro IVP Segmentado 4S",
+         subtitle = "Valor del proyecto intra-segmento",
+         x = NULL, y = NULL) +
+    theme_minimal() +
+    theme(
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      panel.grid = element_blank(),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 16, color = "#2C6C66"),
+      plot.subtitle = element_text(hjust = 0.5, size = 12, color = "#2C6C66")
+    ) +
+    coord_cartesian(xlim = c(0, 1), ylim = c(-0.05, 1.3), expand = FALSE)
+  
+  return(p)
+}
+
+# 13.4 Función para crear panel de categorización 4S
+crear_panel_categorizacion_4s <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Seleccionar proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Determinar categoría 4S
+  ivu_seg <- proyecto$ivu_segmentado
+  ivp_seg <- proyecto$ivp_segmentado
+  
+  categoria_4s <- case_when(
+    ivu_seg >= 0.5 & ivp_seg >= 0.5 ~ "SUPERIOR",
+    ivu_seg < 0.5 & ivp_seg >= 0.5 ~ "SÓLIDO",
+    ivu_seg >= 0.5 & ivp_seg < 0.5 ~ "SUSTENTABLE",
+    TRUE ~ "SINGULAR"
+  )
+  
+  # Colores y descripciones 4S
+  info_categorias <- data.frame(
+    categoria = c("SUPERIOR", "SÓLIDO", "SUSTENTABLE", "SINGULAR"),
+    color = c("#68D192", "#9B87F4", "#F4E785", "#F8C579"),
+    descripcion = c(
+      "Excelente ubicación\ny proyecto",
+      "Propuesta sólida\nalto potencial", 
+      "Ubicación excelente\nfundamentos consistentes",
+      "Características únicas\nenfoque especializado"
+    ),
+    icono = c("🏆", "⭐", "🔄", "🎯")
+  )
+  
+  categoria_info <- info_categorias[info_categorias$categoria == categoria_4s, ]
+  
+  # Crear gráfico
+  p <- ggplot() +
+    # Cuadro principal de categoría
+    geom_rect(aes(xmin = 0.1, xmax = 0.9, ymin = 0.4, ymax = 0.8), 
+              fill = categoria_info$color, alpha = 0.8, color = "white", linewidth = 2) +
+    
+    # Texto de categoría
+    geom_text(aes(x = 0.5, y = 0.6, 
+                  label = paste0(categoria_info$icono, " ", categoria_4s)), 
+              size = 8, fontface = "bold", color = "white") +
+    
+    # Descripción
+    geom_text(aes(x = 0.5, y = 0.3, 
+                  label = categoria_info$descripcion), 
+              size = 5, fontface = "bold", color = categoria_info$color) +
+    
+    # Información del proyecto
+    geom_text(aes(x = 0.5, y = 0.9, 
+                  label = paste0(proyecto$Proyecto, "\n",
+                                 proyecto$Segmento, " | NSE ", proyecto$nse)), 
+              size = 5, fontface = "bold", color = "#2C6C66") +
+    
+    # Métricas
+    geom_text(aes(x = 0.5, y = 0.1, 
+                  label = paste0("IVU: ", round(ivu_seg, 3), 
+                                 " | IVP: ", round(ivp_seg, 3))), 
+              size = 4, color = "#2C6C66") +
+    
+    labs(title = "🎯 Categorización 4S Segmentada",
+         subtitle = "Posición en la matriz de decisión intra-segmento") +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 16, color = "#2C6C66"),
+      plot.subtitle = element_text(hjust = 0.5, size = 12, color = "#2C6C66")
+    ) +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+  
+  return(p)
+}
+
+# 13.5 Función para crear dashboard completo del proyecto
+crear_dashboard_proyecto_4s <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  
+  # Verificar que el proyecto existe
+  if (!is.null(indice_proyecto)) {
+    if(indice_proyecto > nrow(datos) || indice_proyecto < 1) {
+      stop("Índice de proyecto fuera de rango. Debe estar entre 1 y ", nrow(datos))
+    }
+  }
+  
+  # Crear visualizaciones individuales
+  termometro_ivu <- crear_termometro_ivu_segmentado(datos, indice_proyecto, nombre_proyecto)
+  termometro_ivp <- crear_termometro_ivp_segmentado(datos, indice_proyecto, nombre_proyecto)
+  panel_categoria <- crear_panel_categorizacion_4s(datos, indice_proyecto, nombre_proyecto)
+  
+  # Obtener información del proyecto para contexto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Crear matriz de posición para el proyecto específico
+  datos_segmento <- datos %>% filter(Segmento == proyecto$Segmento)
+  
+  matriz_posicion <- ggplot(datos_segmento, aes(x = ivu_segmentado, y = ivp_segmentado)) +
+    # Cuadrantes de fondo
+    annotate("rect", xmin = 0, xmax = 0.5, ymin = 0.5, ymax = 1, 
+             fill = "#9B87F4", alpha = 0.1) +  # SÓLIDO
+    annotate("rect", xmin = 0.5, xmax = 1, ymin = 0.5, ymax = 1, 
+             fill = "#68D192", alpha = 0.1) +  # SUPERIOR
+    annotate("rect", xmin = 0, xmax = 0.5, ymin = 0, ymax = 0.5, 
+             fill = "#F8C579", alpha = 0.1) +  # SINGULAR
+    annotate("rect", xmin = 0.5, xmax = 1, ymin = 0, ymax = 0.5, 
+             fill = "#F4E785", alpha = 0.1) +  # SUSTENTABLE
+    
+    # Otros proyectos del segmento
+    geom_point(data = datos_segmento[datos_segmento$Proyecto != proyecto$Proyecto, ],
+               alpha = 0.3, size = 2, color = "gray60") +
+    
+    # Proyecto seleccionado
+    geom_point(data = proyecto, aes(x = ivu_segmentado, y = ivp_segmentado),
+               size = 6, color = "#2C6C66", shape = 17) +
+    
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray40") +
+    geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray40") +
+    
+    labs(title = paste("Posición en Matriz 4S -", proyecto$Segmento),
+         subtitle = paste("▲ =", proyecto$Proyecto),
+         x = "IVU Segmentado", y = "IVP Segmentado") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 12, color = "#2C6C66"),
+      plot.subtitle = element_text(size = 10, color = "#2C6C66")
+    )
+  
+  # Combinar todas las visualizaciones
+  dashboard <- grid.arrange(
+    termometro_ivu, termometro_ivp, 
+    panel_categoria, matriz_posicion,
+    ncol = 2, nrow = 2,
+    top = textGrob(paste("Dashboard 4S -", proyecto$Proyecto), 
+                   gp = gpar(fontsize = 18, fontface = "bold", col = "#2C6C66"))
+  )
+  
+  return(dashboard)
+}
+
+# 13.6 Función de análisis comparativo del proyecto
+analizar_proyecto_4s <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Seleccionar proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Obtener datos del segmento
+  datos_segmento <- datos %>% filter(Segmento == proyecto$Segmento)
+  
+  # Calcular percentiles dentro del segmento
+  percentil_ivu <- round(mean(datos_segmento$ivu_segmentado <= proyecto$ivu_segmentado, na.rm = TRUE) * 100, 1)
+  percentil_ivp <- round(mean(datos_segmento$ivp_segmentado <= proyecto$ivp_segmentado, na.rm = TRUE) * 100, 1)
+  
+  # Determinar categoría 4S
+  categoria_4s <- case_when(
+    proyecto$ivu_segmentado >= 0.5 & proyecto$ivp_segmentado >= 0.5 ~ "SUPERIOR",
+    proyecto$ivu_segmentado < 0.5 & proyecto$ivp_segmentado >= 0.5 ~ "SÓLIDO",
+    proyecto$ivu_segmentado >= 0.5 & proyecto$ivp_segmentado < 0.5 ~ "SUSTENTABLE",
+    TRUE ~ "SINGULAR"
+  )
+  
+  # Ranking dentro del segmento
+  score_combinado <- (proyecto$ivu_segmentado * 0.6) + (proyecto$ivp_segmentado * 0.4)
+  datos_segmento$score_temp <- (datos_segmento$ivu_segmentado * 0.6) + (datos_segmento$ivp_segmentado * 0.4)
+  ranking <- sum(datos_segmento$score_temp >= score_combinado, na.rm = TRUE)
+  total_segmento <- nrow(datos_segmento)
+  
+  # Crear reporte
+  cat("\n", rep("=", 60), "\n")
+  cat("ANÁLISIS 4S INDIVIDUAL DEL PROYECTO\n")
+  cat(rep("=", 60), "\n")
+  
+  cat("\n📊 INFORMACIÓN BÁSICA:\n")
+  cat("Proyecto:", proyecto$Proyecto, "\n")
+  cat("Desarrollador:", proyecto$Desarrollador, "\n")
+  cat("Municipio:", proyecto$Municipio, "\n")
+  cat("Segmento:", proyecto$Segmento, "| NSE:", proyecto$nse, "\n")
+  cat("Precio/m²: $", format(proyecto$p_m2, big.mark = ","), "\n")
+  
+  cat("\n🎯 CATEGORIZACIÓN 4S:", categoria_4s, "\n")
+  
+  cat("\n📈 MÉTRICAS SEGMENTADAS:\n")
+  cat("IVU Segmentado:", round(proyecto$ivu_segmentado, 3), 
+      "(", proyecto$ivu_segmentado_categoria, ")\n")
+  cat("IVP Segmentado:", round(proyecto$ivp_segmentado, 3), 
+      "(", proyecto$ivp_segmentado_categoria, ")\n")
+  cat("Score Combinado:", round(score_combinado, 3), "\n")
+  
+  cat("\n🏆 POSICIÓN EN SEGMENTO:\n")
+  cat("Ranking:", ranking, "de", total_segmento, "proyectos\n")
+  cat("Percentil IVU:", percentil_ivu, "% (mejor que", percentil_ivu, "% del segmento)\n")
+  cat("Percentil IVP:", percentil_ivp, "% (mejor que", percentil_ivp, "% del segmento)\n")
+  
+  cat("\n💡 COMPARACIÓN GLOBAL vs SEGMENTADA:\n")
+  cat("IVU: Global", round(proyecto$ivu, 3), "→ Segmentado", round(proyecto$ivu_segmentado, 3), "\n")
+  cat("IVP: Global", round(proyecto$ivp_v2, 3), "→ Segmentado", round(proyecto$ivp_segmentado, 3), "\n")
+  
+  # Interpretación de la categoría 4S
+  cat("\n🎯 INTERPRETACIÓN CATEGORÍA", categoria_4s, ":\n")
+  interpretaciones <- list(
+    "SUPERIOR" = "Líder del segmento con excelente ubicación y proyecto. Inversión premium recomendada.",
+    "SÓLIDO" = "Alto potencial con propuesta sólida. Oportunidad de crecimiento en el segmento.",
+    "SUSTENTABLE" = "Base sólida con ubicación excelente. Fundamentos consistentes para crecimiento.",
+    "SINGULAR" = "Características únicas especializadas. Enfoque diferenciado en el mercado."
+  )
+  cat(interpretaciones[[categoria_4s]], "\n")
+  
+  cat("\n", rep("=", 60), "\n")
+  
+  # Retornar datos para uso programático
+  return(list(
+    proyecto = proyecto$Proyecto,
+    categoria_4s = categoria_4s,
+    ivu_segmentado = proyecto$ivu_segmentado,
+    ivp_segmentado = proyecto$ivp_segmentado,
+    ranking = ranking,
+    total_segmento = total_segmento,
+    percentil_ivu = percentil_ivu,
+    percentil_ivp = percentil_ivp,
+    score_combinado = score_combinado
+  ))
+}
+
+# ---- 14. EJEMPLOS DE USO DE LAS VISUALIZACIONES ----
+
+# 14.1 Definir proyecto a analizar
+PROYECTO_SELECCIONADO <- 10  # Cambiar por el índice del proyecto que quieras analizar
+# O usar por nombre: PROYECTO_SELECCIONADO_NOMBRE <- "Nombre del Proyecto"
+
+cat("\n=== GENERANDO VISUALIZACIONES INDIVIDUALES 4S ===\n")
+
+# 14.2 Verificar que el proyecto existe y tiene datos segmentados
+if(PROYECTO_SELECCIONADO <= nrow(datos_segmentados)) {
+  proyecto_info <- datos_segmentados[PROYECTO_SELECCIONADO, ]
+  
+  if(!is.na(proyecto_info$ivu_segmentado) && !is.na(proyecto_info$ivp_segmentado)) {
+    
+    cat("Analizando proyecto:", proyecto_info$Proyecto, "\n")
+    cat("Segmento:", proyecto_info$Segmento, "| NSE:", proyecto_info$nse, "\n")
+    
+    # 14.3 Crear visualizaciones individuales
+    cat("\n1. Creando termómetro IVU segmentado...\n")
+    termometro_ivu_individual <- crear_termometro_ivu_segmentado(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(termometro_ivu_individual)
+    
+    cat("\n2. Creando termómetro IVP segmentado...\n")
+    termometro_ivp_individual <- crear_termometro_ivp_segmentado(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(termometro_ivp_individual)
+    
+    cat("\n3. Creando panel de categorización 4S...\n")
+    panel_4s_individual <- crear_panel_categorizacion_4s(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(panel_4s_individual)
+    
+    cat("\n4. Creando dashboard completo 4S...\n")
+    dashboard_completo <- crear_dashboard_proyecto_4s(datos_segmentados, PROYECTO_SELECCIONADO)
+    # El dashboard se imprime automáticamente
+    
+    cat("\n5. Generando análisis detallado...\n")
+    analisis_detallado <- analizar_proyecto_4s(datos_segmentados, PROYECTO_SELECCIONADO)
+    
+  } else {
+    cat("ERROR: El proyecto seleccionado no tiene datos segmentados válidos.\n")
+  }
+} else {
+  cat("ERROR: Índice de proyecto fuera de rango. Máximo:", nrow(datos_segmentados), "\n")
+}
+
+# 14.4 Lista de proyectos disponibles para selección
+cat("\n=== PROYECTOS DISPONIBLES PARA ANÁLISIS ===\n")
+proyectos_disponibles <- datos_segmentados %>%
+  filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado)) %>%
+  mutate(indice = row_number()) %>%
+  select(indice, Proyecto, Desarrollador, Segmento, nse, 
+         ivu_segmentado, ivp_segmentado) %>%
+  arrange(Segmento, desc(ivu_segmentado + ivp_segmentado))
+
+cat("Total de proyectos disponibles:", nrow(proyectos_disponibles), "\n")
+cat("\nTop 10 proyectos por score combinado:\n")
+print(kable(head(proyectos_disponibles, 10), digits = 3))
+
+cat("\n💡 INSTRUCCIONES DE USO:\n")
+cat("Para analizar un proyecto específico, cambia la variable PROYECTO_SELECCIONADO\n")
+cat("por el número de índice deseado (1 a", nrow(datos_segmentados), ")\n")
+cat("O usa el nombre del proyecto con las funciones directamente.\n")
+
+cat("\nEjemplos de uso:\n")
+cat("# Por índice:\n")
+cat("termometro <- crear_termometro_ivu_segmentado(datos_segmentados, 25)\n")
+cat("# Por nombre:\n")
+cat("analisis <- analizar_proyecto_4s(datos_segmentados, nombre_proyecto = 'Proyecto XYZ')\n")
+
+
+# ---- 15 Crear archivo específico para Keynote ----
+datos_keynote <- datos_segmentados %>%
+  filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado)) %>%
+  mutate(
+    # Calcular categoría 4S
+    categoria_4s = case_when(
+      ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "SUPERIOR",
+      ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "SÓLIDO",
+      ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "SUSTENTABLE",
+      TRUE ~ "SINGULAR"
+    ),
+    
+    # Redondear valores para mejor visualización
+    IVU_X = round(ivu_segmentado, 3),
+    IVP_Y = round(ivp_segmentado, 3),
+    
+    # Crear etiqueta combinada
+    Etiqueta = paste0(Proyecto, "\n(", Segmento, ")")
+  ) %>%
+  select(
+    Proyecto, Desarrollador, Municipio, Segmento, nse,
+    IVU_X, IVP_Y, categoria_4s, Etiqueta, p_m2
+  ) %>%
+  arrange(Segmento, desc(IVU_X + IVP_Y))
+
+# Guardar archivo optimizado para Keynote
+write.csv(datos_keynote, "matriz_4s_para_keynote.csv", row.names = FALSE)
+
+cat("Archivo creado: matriz_4s_para_keynote.csv\n")
+cat("Proyectos incluidos:", nrow(datos_keynote), "\n")
+
+# ---- 16. ANÁLISIS DE FORTALEZAS DEL PROYECTO ----
+
+# 16.1 Función para identificar fortalezas del proyecto
+identificar_fortalezas_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Seleccionar proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Obtener datos del mismo segmento para comparación
+  datos_segmento <- datos %>% 
+    filter(Segmento == proyecto$Segmento) %>%
+    filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado))
+  
+  # Definir variables clave para análisis
+  variables_analisis <- c(
+    # Performance Comercial
+    "absorcion", "ratio_ventas", "eficiencia_comercial", "velocidad_ventas",
+    
+    # Amenidades y Proyecto
+    "score_amenidades_total", "num_amenidades", "m2_inv",
+    
+    # Ubicación y Accesibilidad
+    "indice_accesibilidad", "accesibilidad_vial", "indice_conveniencia",
+    "cerca_parque_relevante", "dist_to_park", "dist_to_relevant_park",
+    
+    # Cercanías clave
+    "cercania_hospital", "cercania_esc_priv", "cercania_universidad", 
+    "cercania_super", "cercania_tienda_dept", "cerca_avenida_principal",
+    
+    # Cantidades en 1km
+    "cantidad_hospital_1km", "cantidad_esc_priv_1km", "cantidad_super_1km", 
+    "cantidad_restau_1km", "cantidad_oficina_1km",
+    
+    # Desarrollador
+    "proyectos_total", "absorcion_promedio_dev", "consistencia_absorcion",
+    
+    # Entorno demográfico
+    "pob2020_1km", "hogares2020_1km", "alta_densidad_comercial", "alto_entorno_laboral",
+    
+    # Competitividad
+    "competitividad_precio", "propuesta_valor_v2"
+  )
+  
+  # Filtrar solo variables que existen en los datos
+  variables_existentes <- intersect(variables_analisis, names(datos_segmento))
+  
+  # Calcular percentiles para cada variable
+  percentiles_proyecto <- data.frame(
+    Variable = character(0),
+    Valor_Proyecto = numeric(0),
+    Percentil = numeric(0),
+    Promedio_Segmento = numeric(0),
+    Categoria_Fortaleza = character(0),
+    stringsAsFactors = FALSE
+  )
+  
+  for(var in variables_existentes) {
+    valor_proyecto <- proyecto[[var]]
+    
+    if(!is.na(valor_proyecto)) {
+      valores_segmento <- datos_segmento[[var]]
+      valores_validos <- valores_segmento[!is.na(valores_segmento)]
+      
+      if(length(valores_validos) > 2) {
+        # Calcular percentil
+        percentil <- round(mean(valores_validos <= valor_proyecto, na.rm = TRUE) * 100, 1)
+        promedio <- mean(valores_validos, na.rm = TRUE)
+        
+        # Categorizar fortaleza
+        categoria <- case_when(
+          percentil >= 90 ~ "Excepcional",
+          percentil >= 75 ~ "Muy Fuerte", 
+          percentil >= 60 ~ "Fuerte",
+          percentil >= 40 ~ "Promedio",
+          TRUE ~ "Área de Mejora"
+        )
+        
+        # Para variables donde menor es mejor (distancias), invertir percentil
+        if(grepl("^dist_", var)) {
+          percentil <- 100 - percentil
+          categoria <- case_when(
+            percentil >= 90 ~ "Excepcional",
+            percentil >= 75 ~ "Muy Fuerte", 
+            percentil >= 60 ~ "Fuerte",
+            percentil >= 40 ~ "Promedio",
+            TRUE ~ "Área de Mejora"
+          )
+        }
+        
+        percentiles_proyecto <- rbind(percentiles_proyecto, data.frame(
+          Variable = var,
+          Valor_Proyecto = valor_proyecto,
+          Percentil = percentil,
+          Promedio_Segmento = promedio,
+          Categoria_Fortaleza = categoria,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+  
+  # Ordenar por percentil descendente
+  percentiles_proyecto <- percentiles_proyecto %>%
+    arrange(desc(Percentil))
+  
+  return(percentiles_proyecto)
+}
+
+# 16.2 Función para crear visualización de fortalezas
+crear_visualizacion_fortalezas <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Obtener análisis de fortalezas
+  fortalezas <- identificar_fortalezas_proyecto(datos, indice_proyecto, nombre_proyecto)
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Tomar top 12 fortalezas para visualización
+  top_fortalezas <- head(fortalezas, 12)
+  
+  # Crear etiquetas más amigables
+  etiquetas_variables <- c(
+    "absorcion" = "Absorción",
+    "ratio_ventas" = "Ratio de Ventas", 
+    "eficiencia_comercial" = "Eficiencia Comercial",
+    "velocidad_ventas" = "Velocidad Ventas",
+    "score_amenidades_total" = "Score Amenidades",
+    "num_amenidades" = "Número Amenidades",
+    "m2_inv" = "Superficie Inventario",
+    "indice_accesibilidad" = "Accesibilidad",
+    "accesibilidad_vial" = "Accesibilidad Vial",
+    "indice_conveniencia" = "Conveniencia",
+    "cerca_parque_relevante" = "Cercanía Parque",
+    "dist_to_park" = "Distancia Parque",
+    "dist_to_relevant_park" = "Dist. Parque Relevante",
+    "cercania_hospital" = "Cercanía Hospital",
+    "cercania_esc_priv" = "Cercanía Esc. Privada",
+    "cercania_universidad" = "Cercanía Universidad",
+    "cercania_super" = "Cercanía Supermercado",
+    "cercania_tienda_dept" = "Cercanía Tienda Depto",
+    "cerca_avenida_principal" = "Cercanía Av. Principal",
+    "cantidad_hospital_1km" = "Hospitales 1km",
+    "cantidad_esc_priv_1km" = "Esc. Privadas 1km",
+    "cantidad_super_1km" = "Supermercados 1km",
+    "cantidad_restau_1km" = "Restaurantes 1km",
+    "cantidad_oficina_1km" = "Oficinas 1km",
+    "proyectos_total" = "Proyectos Desarrollador",
+    "absorcion_promedio_dev" = "Absorción Prom. Dev.",
+    "consistencia_absorcion" = "Consistencia Dev.",
+    "pob2020_1km" = "Población 1km",
+    "hogares2020_1km" = "Hogares 1km",
+    "alta_densidad_comercial" = "Densidad Comercial",
+    "alto_entorno_laboral" = "Entorno Laboral",
+    "competitividad_precio" = "Competitividad Precio",
+    "propuesta_valor_v2" = "Propuesta de Valor"
+  )
+  
+  # Aplicar etiquetas
+  top_fortalezas$Etiqueta <- sapply(top_fortalezas$Variable, function(x) {
+    if(x %in% names(etiquetas_variables)) etiquetas_variables[x] else x
+  })
+  
+  # Colores por categoría de fortaleza
+  colores_fortaleza <- c(
+    "Excepcional" = "#2C6C66",
+    "Muy Fuerte" = "#68D192", 
+    "Fuerte" = "#F4E785",
+    "Promedio" = "#F8C579",
+    "Área de Mejora" = "#EF6558"
+  )
+  
+  # Crear gráfico de barras horizontales
+  p <- ggplot(top_fortalezas, aes(x = reorder(Etiqueta, Percentil), y = Percentil, 
+                                  fill = Categoria_Fortaleza)) +
+    geom_bar(stat = "identity", alpha = 0.8) +
+    geom_text(aes(label = paste0(round(Percentil, 0), "%")), 
+              hjust = -0.1, size = 3, fontface = "bold") +
+    scale_fill_manual(values = colores_fortaleza, name = "Nivel") +
+    coord_flip() +
+    labs(title = paste("🏆 Principales Fortalezas -", proyecto$Proyecto),
+         subtitle = paste("Percentiles vs otros proyectos", proyecto$Segmento),
+         x = "Factor", y = "Percentil en el Segmento (%)") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14, color = "#2C6C66"),
+      plot.subtitle = element_text(size = 11, color = "#2C6C66"),
+      axis.text.y = element_text(size = 9),
+      legend.position = "bottom"
+    ) +
+    scale_y_continuous(limits = c(0, 105), breaks = seq(0, 100, 25))
+  
+  return(p)
+}
+
+# 16.3 Función para crear gráfico radar de fortalezas clave
+crear_radar_fortalezas <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Obtener proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Definir categorías clave para radar
+  categorias_radar <- list(
+    "Amenidades" = c("score_amenidades_total", "num_amenidades"),
+    "Performance" = c("absorcion", "eficiencia_comercial", "ratio_ventas"),
+    "Ubicación" = c("indice_accesibilidad", "indice_conveniencia", "accesibilidad_vial"),
+    "Servicios" = c("cercania_hospital", "cercania_esc_priv", "cantidad_super_1km"),
+    "Desarrollador" = c("proyectos_total", "absorcion_promedio_dev", "consistencia_absorcion"),
+    "Entorno" = c("pob2020_1km", "alta_densidad_comercial", "alto_entorno_laboral")
+  )
+  
+  # Obtener datos del segmento
+  datos_segmento <- datos %>% 
+    filter(Segmento == proyecto$Segmento) %>%
+    filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado))
+  
+  # Calcular score promedio por categoría
+  scores_categoria <- data.frame(
+    Categoria = character(0),
+    Score = numeric(0),
+    stringsAsFactors = FALSE
+  )
+  
+  for(categoria in names(categorias_radar)) {
+    variables_cat <- intersect(categorias_radar[[categoria]], names(datos_segmento))
+    
+    if(length(variables_cat) > 0) {
+      # Calcular percentiles promedio para esta categoría
+      percentiles_cat <- numeric(0)
+      
+      for(var in variables_cat) {
+        valor_proyecto <- proyecto[[var]]
+        if(!is.na(valor_proyecto)) {
+          valores_segmento <- datos_segmento[[var]]
+          valores_validos <- valores_segmento[!is.na(valores_segmento)]
+          
+          if(length(valores_validos) > 2) {
+            percentil <- mean(valores_validos <= valor_proyecto, na.rm = TRUE) * 100
+            percentiles_cat <- c(percentiles_cat, percentil)
+          }
+        }
+      }
+      
+      if(length(percentiles_cat) > 0) {
+        score_promedio <- mean(percentiles_cat)
+        scores_categoria <- rbind(scores_categoria, data.frame(
+          Categoria = categoria,
+          Score = score_promedio,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+  
+  # Asegurar que tenemos al menos 3 categorías
+  if(nrow(scores_categoria) >= 3) {
+    # Preparar datos para radar (agregar primera fila al final para cerrar)
+    radar_data <- rbind(scores_categoria, scores_categoria[1, ])
+    
+    # Crear gráfico de radar
+    p <- ggplot(radar_data, aes(x = Categoria, y = Score)) +
+      geom_polygon(fill = "#68D192", alpha = 0.3, color = "#2C6C66", linewidth = 1) +
+      geom_point(color = "#2C6C66", size = 3) +
+      coord_polar() +
+      ylim(0, 100) +
+      labs(title = paste("🎯 Perfil de Fortalezas -", proyecto$Proyecto),
+           subtitle = "Percentiles por categoría vs segmento") +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, color = "#2C6C66", hjust = 0.5),
+        plot.subtitle = element_text(size = 11, color = "#2C6C66", hjust = 0.5),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.grid.major.y = element_line(color = "gray90", linewidth = 0.5),
+        axis.text.x = element_text(size = 10, face = "bold")
+      )
+    
+    return(p)
+  } else {
+    # Crear gráfico placeholder si no hay suficientes datos
+    p <- ggplot() +
+      geom_text(aes(x = 0.5, y = 0.5, label = "Datos insuficientes\npara radar"), 
+                size = 6, color = "#2C6C66") +
+      labs(title = paste("🎯 Perfil de Fortalezas -", proyecto$Proyecto)) +
+      theme_void()
+    return(p)
+  }
+}
+
+# 16.4 Función para generar reporte textual de fortalezas
+generar_reporte_fortalezas <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Obtener análisis
+  fortalezas <- identificar_fortalezas_proyecto(datos, indice_proyecto, nombre_proyecto)
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Filtrar solo fortalezas significativas (percentil >= 75)
+  fortalezas_top <- fortalezas %>% filter(Percentil >= 75)
+  
+  cat("\n", rep("🏆", 20), "\n")
+  cat("ANÁLISIS DE FORTALEZAS COMPETITIVAS\n")
+  cat(rep("🏆", 20), "\n")
+  
+  cat("\n📊 PROYECTO:", proyecto$Proyecto, "\n")
+  cat("🏠 SEGMENTO:", proyecto$Segmento, "| NSE:", proyecto$nse, "\n")
+  
+  # Corregir la sintaxis del pipe
+  datos_segmento_count <- datos %>% 
+    filter(Segmento == proyecto$Segmento) %>%
+    pull(ivu_segmentado) %>%
+    {sum(!is.na(.))}
+  
+  cat("📈 POSICIÓN: Comparación vs", datos_segmento_count, "proyectos del segmento\n")
+  
+  if(nrow(fortalezas_top) > 0) {
+    cat("\n🌟 FORTALEZAS DESTACADAS (Percentil ≥75%):\n")
+    
+    # Agrupar por categoría de fortaleza
+    excepcionales <- fortalezas_top %>% filter(Categoria_Fortaleza == "Excepcional")
+    muy_fuertes <- fortalezas_top %>% filter(Categoria_Fortaleza == "Muy Fuerte")
+    
+    if(nrow(excepcionales) > 0) {
+      cat("\n🥇 EXCEPCIONAL (Top 10%):\n")
+      for(i in 1:nrow(excepcionales)) {
+        cat("  •", excepcionales$Variable[i], "- Percentil:", 
+            round(excepcionales$Percentil[i], 0), "%\n")
+      }
+    }
+    
+    if(nrow(muy_fuertes) > 0) {
+      cat("\n🥈 MUY FUERTE (Top 25%):\n")
+      for(i in 1:nrow(muy_fuertes)) {
+        cat("  •", muy_fuertes$Variable[i], "- Percentil:", 
+            round(muy_fuertes$Percentil[i], 0), "%\n")
+      }
+    }
+    
+    # Interpretaciones específicas
+    cat("\n💡 INTERPRETACIÓN DE FORTALEZAS:\n")
+    
+    # Amenidades
+    if(any(grepl("amenidades|num_amenidades", fortalezas_top$Variable))) {
+      cat("🏢 AMENIDADES: Proyecto sobresale en oferta de amenidades vs competencia\n")
+    }
+    
+    # Performance comercial
+    if(any(grepl("absorcion|ratio_ventas|eficiencia", fortalezas_top$Variable))) {
+      cat("📈 PERFORMANCE: Excelente desempeño comercial y de ventas\n")
+    }
+    
+    # Ubicación
+    if(any(grepl("accesibilidad|conveniencia|cercania", fortalezas_top$Variable))) {
+      cat("📍 UBICACIÓN: Localización estratégica con excelente accesibilidad\n")
+    }
+    
+    # Desarrollador
+    if(any(grepl("proyectos_total|absorcion_promedio_dev|consistencia", fortalezas_top$Variable))) {
+      cat("🏗️ DESARROLLADOR: Track record sólido y experiencia comprobada\n")
+    }
+    
+    # Entorno
+    if(any(grepl("pob2020|hogares|densidad", fortalezas_top$Variable))) {
+      cat("🌆 ENTORNO: Zona con excelente densidad poblacional y comercial\n")
+    }
+    
+  } else {
+    cat("\n⚠️  No se identificaron fortalezas destacadas (percentil ≥75%)\n")
+    cat("📊 Top 5 aspectos relativos del proyecto:\n")
+    top_5 <- head(fortalezas, 5)
+    for(i in 1:nrow(top_5)) {
+      cat("  ", i, ".", top_5$Variable[i], "- Percentil:", 
+          round(top_5$Percentil[i], 0), "%\n")
+    }
+  }
+  
+  # Áreas de mejora
+  areas_mejora <- fortalezas %>% filter(Percentil < 40) %>% head(3)
+  if(nrow(areas_mejora) > 0) {
+    cat("\n🔧 ÁREAS DE OPORTUNIDAD (Percentil <40%):\n")
+    for(i in 1:nrow(areas_mejora)) {
+      cat("  •", areas_mejora$Variable[i], "- Percentil:", 
+          round(areas_mejora$Percentil[i], 0), "%\n")
+    }
+  }
+  
+  cat("\n", rep("🏆", 20), "\n")
+  
+  return(fortalezas_top)
+}
+
+# 16.5 Función para dashboard completo de fortalezas
+crear_dashboard_fortalezas <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  
+  # Crear visualizaciones
+  grafico_barras <- crear_visualizacion_fortalezas(datos, indice_proyecto, nombre_proyecto)
+  grafico_radar <- crear_radar_fortalezas(datos, indice_proyecto, nombre_proyecto)
+  
+  # Obtener proyecto para título
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Combinar gráficos
+  dashboard_fortalezas <- grid.arrange(
+    grafico_barras, grafico_radar,
+    ncol = 2, nrow = 1,
+    top = grid::textGrob(paste("🏆 Análisis de Fortalezas Competitivas -", proyecto$Proyecto), 
+                         gp = grid::gpar(fontsize = 16, fontface = "bold", col = "#2C6C66"))
+  )
+  
+  return(dashboard_fortalezas)
+}
+
+# 16.6 Análisis de factores únicos (diferenciadores)
+identificar_diferenciadores <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Obtener proyecto y fortalezas
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  fortalezas <- identificar_fortalezas_proyecto(datos, indice_proyecto, nombre_proyecto)
+  
+  # Identificar factores únicos o muy raros
+  datos_segmento <- datos %>% filter(Segmento == proyecto$Segmento)
+  
+  diferenciadores <- list()
+  
+  # 1. Amenidades únicas o superiores
+  if(!is.na(proyecto$num_amenidades)) {
+    amenidades_prom <- mean(datos_segmento$num_amenidades, na.rm = TRUE)
+    if(proyecto$num_amenidades >= amenidades_prom * 1.5) {
+      diferenciadores$amenidades <- paste0("Número excepcional de amenidades (", 
+                                           proyecto$num_amenidades, " vs promedio ", 
+                                           round(amenidades_prom, 1), ")")
+    }
+  }
+  
+  # 2. Performance comercial excepcional
+  if(!is.na(proyecto$absorcion)) {
+    absorcion_p90 <- quantile(datos_segmento$absorcion, 0.9, na.rm = TRUE)
+    if(proyecto$absorcion >= absorcion_p90) {
+      diferenciadores$performance <- paste0("Absorción en top 10% del segmento (", 
+                                            round(proyecto$absorcion, 1), ")")
+    }
+  }
+  
+  # 3. Ubicación privilegiada
+  factores_ubicacion <- c("indice_accesibilidad", "accesibilidad_vial", "indice_conveniencia")
+  ubicacion_scores <- numeric(0)
+  
+  for(factor in factores_ubicacion) {
+    if(factor %in% names(proyecto) && !is.na(proyecto[[factor]])) {
+      valores_segmento <- datos_segmento[[factor]]
+      percentil <- mean(valores_segmento <= proyecto[[factor]], na.rm = TRUE) * 100
+      ubicacion_scores <- c(ubicacion_scores, percentil)
+    }
+  }
+  
+  if(length(ubicacion_scores) > 0 && mean(ubicacion_scores) >= 85) {
+    diferenciadores$ubicacion <- "Ubicación en top 15% con excelente accesibilidad integral"
+  }
+  
+  # 4. Desarrollador de elite
+  if(!is.na(proyecto$proyectos_total) && !is.na(proyecto$absorcion_promedio_dev)) {
+    if(proyecto$proyectos_total >= 5 && proyecto$absorcion_promedio_dev >= 4) {
+      diferenciadores$desarrollador <- paste0("Desarrollador experimentado (", 
+                                              proyecto$proyectos_total, " proyectos, absorción prom: ", 
+                                              round(proyecto$absorcion_promedio_dev, 1), ")")
+    }
+  }
+  
+  return(diferenciadores)
+}
+
+# ---- 17. INTEGRACIÓN CON ANÁLISIS EXISTENTE ----
+
+# 17.1 Actualizar función de análisis principal para incluir fortalezas
+analizar_proyecto_4s_completo <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Ejecutar análisis 4S original
+  analisis_base <- analizar_proyecto_4s(datos, indice_proyecto, nombre_proyecto)
+  
+  # Agregar análisis de fortalezas
+  cat("\n" , rep("🏆", 30), "\n")
+  cat("ANÁLISIS DETALLADO DE FORTALEZAS COMPETITIVAS\n")
+  cat(rep("🏆", 30), "\n")
+  
+  fortalezas_detalle <- generar_reporte_fortalezas(datos, indice_proyecto, nombre_proyecto)
+  
+  # Diferenciadores únicos
+  diferenciadores <- identificar_diferenciadores(datos, indice_proyecto, nombre_proyecto)
+  
+  if(length(diferenciadores) > 0) {
+    cat("\n🎯 DIFERENCIADORES ÚNICOS:\n")
+    for(i in 1:length(diferenciadores)) {
+      cat("  ", i, ".", diferenciadores[[i]], "\n")
+    }
+  }
+  
+  cat("\n", rep("🏆", 30), "\n")
+  
+  # Retornar análisis combinado
+  return(list(
+    analisis_4s = analisis_base,
+    fortalezas = fortalezas_detalle,
+    diferenciadores = diferenciadores
+  ))
+}
+
+# 17.2 Actualizar dashboard principal para incluir fortalezas
+crear_dashboard_proyecto_4s_completo <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  
+  # Dashboard original (4 paneles)
+  dashboard_original <- crear_dashboard_proyecto_4s(datos, indice_proyecto, nombre_proyecto)
+  
+  # Dashboard de fortalezas (2 paneles)
+  dashboard_fortalezas <- crear_dashboard_fortalezas(datos, indice_proyecto, nombre_proyecto)
+  
+  # Mostrar ambos dashboards
+  cat("\n=== DASHBOARD PRINCIPAL 4S ===\n")
+  print(dashboard_original)
+  
+  cat("\n=== DASHBOARD DE FORTALEZAS ===\n") 
+  print(dashboard_fortalezas)
+  
+  return(list(
+    dashboard_principal = dashboard_original,
+    dashboard_fortalezas = dashboard_fortalezas
+  ))
+}
+
+# ---- 18. ACTUALIZACIÓN DE EJEMPLOS DE USO ----
+
+# Actualizar la sección 14 del script original para incluir análisis de fortalezas
+# Esta sección reemplaza o complementa la sección 14 existente
+
+# 18.1 Definir proyecto a analizar (mismo que antes)
+# PROYECTO_SELECCIONADO <- 29  # Ya definido en el script principal
+
+# 18.2 Análisis completo incluyendo fortalezas
+cat("\n=== ANÁLISIS COMPLETO CON FORTALEZAS ===\n")
+
+if(PROYECTO_SELECCIONADO <= nrow(datos_segmentados)) {
+  proyecto_info <- datos_segmentados[PROYECTO_SELECCIONADO, ]
+  
+  if(!is.na(proyecto_info$ivu_segmentado) && !is.na(proyecto_info$ivp_segmentado)) {
+    
+    cat("Analizando proyecto:", proyecto_info$Proyecto, "\n")
+    cat("Segmento:", proyecto_info$Segmento, "| NSE:", proyecto_info$nse, "\n")
+    
+    # Visualizaciones principales (como antes)
+    cat("\n1. Creando termómetros y panel 4S...\n")
+    termometro_ivu_individual <- crear_termometro_ivu_segmentado(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(termometro_ivu_individual)
+    
+    termometro_ivp_individual <- crear_termometro_ivp_segmentado(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(termometro_ivp_individual)
+    
+    panel_4s_individual <- crear_panel_categorizacion_4s(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(panel_4s_individual)
+    
+    # NUEVAS VISUALIZACIONES DE FORTALEZAS
+    cat("\n2. Creando análisis de fortalezas...\n")
+    
+    # Gráfico de barras de fortalezas
+    cat("   a) Gráfico de fortalezas principales...\n")
+    grafico_fortalezas <- crear_visualizacion_fortalezas(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(grafico_fortalezas)
+    
+    # Gráfico radar de categorías
+    cat("   b) Radar de perfil de fortalezas...\n")
+    radar_fortalezas <- crear_radar_fortalezas(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(radar_fortalezas)
+    
+    # Dashboard combinado de fortalezas
+    cat("   c) Dashboard integrado de fortalezas...\n")
+    dashboard_fortalezas_completo <- crear_dashboard_fortalezas(datos_segmentados, PROYECTO_SELECCIONADO)
+    
+    # Análisis textual completo
+    cat("\n3. Generando análisis completo con fortalezas...\n")
+    analisis_completo <- analizar_proyecto_4s_completo(datos_segmentados, PROYECTO_SELECCIONADO)
+    
+    # Dashboard completo (original + fortalezas)
+    cat("\n4. Creando dashboard completo...\n")
+    dashboards_completos <- crear_dashboard_proyecto_4s_completo(datos_segmentados, PROYECTO_SELECCIONADO)
+    
+  } else {
+    cat("ERROR: El proyecto seleccionado no tiene datos segmentados válidos.\n")
+  }
+} else {
+  cat("ERROR: Índice de proyecto fuera de rango. Máximo:", nrow(datos_segmentados), "\n")
+}
+
+# 18.3 Funciones de uso directo para análisis rápido
+cat("\n=== FUNCIONES DE USO RÁPIDO ===\n")
+cat("Para análisis rápido de fortalezas de cualquier proyecto:\n\n")
+
+cat("# Análisis de fortalezas específico:\n")
+cat("fortalezas <- identificar_fortalezas_proyecto(datos_segmentados, 25)\n")
+cat("View(fortalezas)  # Ver tabla completa de percentiles\n\n")
+
+cat("# Visualización rápida de fortalezas:\n") 
+cat("crear_visualizacion_fortalezas(datos_segmentados, 25)\n\n")
+
+cat("# Reporte textual de fortalezas:\n")
+cat("generar_reporte_fortalezas(datos_segmentados, 25)\n\n")
+
+cat("# Dashboard completo:\n")
+cat("crear_dashboard_proyecto_4s_completo(datos_segmentados, 25)\n\n")
+
+cat("# Análisis por nombre:\n")
+cat("analizar_proyecto_4s_completo(datos_segmentados, nombre_proyecto = 'Nombre Proyecto')\n\n")
+
+# 18.4 Ejemplo de análisis comparativo entre proyectos
+comparar_fortalezas_proyectos <- function(datos, proyecto1, proyecto2) {
+  cat("\n=== COMPARACIÓN DE FORTALEZAS ENTRE PROYECTOS ===\n")
+  
+  # Obtener fortalezas de ambos proyectos
+  fortalezas1 <- identificar_fortalezas_proyecto(datos, proyecto1)
+  fortalezas2 <- identificar_fortalezas_proyecto(datos, proyecto2)
+  
+  proy1 <- seleccionar_proyecto_segmentado(datos, proyecto1)
+  proy2 <- seleccionar_proyecto_segmentado(datos, proyecto2)
+  
+  cat("Proyecto 1:", proy1$Proyecto, "(", proy1$Segmento, ")\n")
+  cat("Proyecto 2:", proy2$Proyecto, "(", proy2$Segmento, ")\n\n")
+  
+  # Top 5 fortalezas de cada uno
+  cat("🏆 TOP 5 FORTALEZAS PROYECTO 1:\n")
+  top5_1 <- head(fortalezas1, 5)
+  for(i in 1:nrow(top5_1)) {
+    cat("  ", i, ".", top5_1$Variable[i], "- Percentil:", round(top5_1$Percentil[i], 0), "%\n")
+  }
+  
+  cat("\n🏆 TOP 5 FORTALEZAS PROYECTO 2:\n") 
+  top5_2 <- head(fortalezas2, 5)
+  for(i in 1:nrow(top5_2)) {
+    cat("  ", i, ".", top5_2$Variable[i], "- Percentil:", round(top5_2$Percentil[i], 0), "%\n")
+  }
+  
+  cat("\n💡 Usar esta función: comparar_fortalezas_proyectos(datos_segmentados, 15, 25)\n")
+}
+
+cat("\n=== ANÁLISIS DE FORTALEZAS IMPLEMENTADO EXITOSAMENTE ===\n")
+cat("✅ Identificación automática de fortalezas por percentiles\n")
+cat("✅ Visualizaciones de barras y radar para fortalezas\n") 
+cat("✅ Reporte textual interpretativo de diferenciadores\n")
+cat("✅ Dashboard integrado con análisis 4S + fortalezas\n")
+cat("✅ Funciones de comparación entre proyectos\n")
+cat("✅ Análisis de factores únicos y diferenciadores\n")
