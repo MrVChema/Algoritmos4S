@@ -15,13 +15,11 @@ library(grid)
 library(gridExtra)
 
 # Establecer directorio de trabajo
-setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/IVU-IVP')
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/IVU-IVP')
 
 # ---- 2. CARGAR DATOS ----
-# Usar la base más completa disponible
 datos <- read.csv('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[00] RESULTADOS/IVP/proyectos_con_ivp_v2_completo.csv', stringsAsFactors = FALSE)
 
-# Verificar datos disponibles
 cat("Base de datos cargada:\n")
 cat("- Proyectos:", nrow(datos), "\n")
 cat("- Variables:", ncol(datos), "\n")
@@ -483,7 +481,7 @@ top_por_segmento <- datos_segmentados %>%
 cat("\nTop 3 proyectos por segmento (índices segmentados):\n")
 print(kable(top_por_segmento, digits = 3))
 
-# 8.4 Matriz de decisión segmentada INTERACTIVA - CATEGORÍAS 4S ACTUALIZADAS
+# 8.4 Matriz de decisión segmentada INTERACTIVA - UNA SOLA VERSIÓN
 crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
   datos_filtrados <- datos %>% filter(Segmento == segmento_filtro)
   
@@ -491,7 +489,6 @@ crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
     return(NULL)
   }
   
-  # Crear categorización 4S para colores
   datos_filtrados <- datos_filtrados %>%
     mutate(
       categoria_seg = case_when(
@@ -502,25 +499,21 @@ crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
       )
     )
   
-  # Paleta de colores 4S para categorías
   colores_matriz_4s <- c(
-    "SUPERIOR" = "#68D192", 
-    "SÓLIDO" = "#9B87F4", 
-    "SUSTENTABLE" = "#F4E785", 
-    "SINGULAR" = "#F8C579"
+    "SUPERIOR" = "#68D192", "SÓLIDO" = "#9B87F4", 
+    "SUSTENTABLE" = "#F4E785", "SINGULAR" = "#F8C579"
   )
   
-  # Crear gráfico base con ggplot
   p <- ggplot(datos_filtrados, aes(x = ivu_segmentado, y = ivp_segmentado)) +
-    # Cuadrantes de fondo - CORREGIDOS
+    # Cuadrantes de fondo
     annotate("rect", xmin = 0, xmax = 0.5, ymin = 0.5, ymax = 1, 
-             fill = "#9B87F4", alpha = 0.1) +  # SÓLIDO - Superior izquierdo
+             fill = "#9B87F4", alpha = 0.1) +
     annotate("rect", xmin = 0.5, xmax = 1, ymin = 0.5, ymax = 1, 
-             fill = "#68D192", alpha = 0.1) +  # SUPERIOR - Superior derecho
+             fill = "#68D192", alpha = 0.1) +
     annotate("rect", xmin = 0, xmax = 0.5, ymin = 0, ymax = 0.5, 
-             fill = "#F8C579", alpha = 0.1) +  # SINGULAR - Inferior izquierdo
+             fill = "#F8C579", alpha = 0.1) +
     annotate("rect", xmin = 0.5, xmax = 1, ymin = 0, ymax = 0.5, 
-             fill = "#F4E785", alpha = 0.1) +  # SUSTENTABLE - Inferior derecho
+             fill = "#F4E785", alpha = 0.1) +
     
     geom_point(aes(color = categoria_seg, 
                    text = paste0("Proyecto: ", Proyecto, "\n",
@@ -537,7 +530,7 @@ crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
     
     scale_color_manual(values = colores_matriz_4s, name = "Categoría 4S") +
     
-    # Etiquetas de cuadrantes 4S CORREGIDAS
+    # Etiquetas de cuadrantes 4S
     annotate("text", x = 0.25, y = 0.75, 
              label = "⭐ SÓLIDO\n(Propuesta sólida\nalto potencial)", 
              fontface = "bold", hjust = 0.5, size = 3.5, color = "gray20") +
@@ -579,39 +572,34 @@ crear_matriz_segmentada_interactiva <- function(datos, segmento_filtro) {
   return(p_interactivo)
 }
 
-# Crear matrices interactivas para cada segmento con datos suficientes
+# Crear matrices interactivas SOLO UNA VEZ por segmento
 segmentos_con_datos <- datos_segmentados %>%
   group_by(Segmento) %>%
   summarise(n = n()) %>%
   filter(n >= 5) %>%
   pull(Segmento)
 
-cat("\n=== CREANDO MATRICES DE DECISIÓN 4S INTERACTIVAS ===\n")
-matrices_interactivas <- list()
+cat("\n=== CREANDO MATRICES DE DECISIÓN 4S INTERACTIVAS (ÚNICAS) ===\n")
 for(seg in segmentos_con_datos) {
   cat("Creando matriz interactiva 4S para segmento:", seg, "\n")
-  matrices_interactivas[[seg]] <- crear_matriz_segmentada_interactiva(datos_segmentados, seg)
-  if(!is.null(matrices_interactivas[[seg]])) {
-    print(matrices_interactivas[[seg]])
+  matriz <- crear_matriz_segmentada_interactiva(datos_segmentados, seg)
+  if(!is.null(matriz)) {
+    print(matriz)
   }
 }
 
 # ---- 9. MAPAS INTERACTIVOS SEGMENTADOS ----
 
-## 9.1 FUNCIONES DE MAPAS CON TAMAÑOS UNIFORMES
-
-crear_mapa_ivu <- function(datos) {
-  # Filtrar datos válidos
+# 9.1 Funciones de mapas consolidadas (SOLO UNA VERSIÓN)
+crear_mapa_ivu_unico <- function(datos) {
   datos_validos <- datos %>% filter(!is.na(latitud) & !is.na(longitud) & !is.na(ivu_segmentado_categoria))
   
-  # Crear paleta de colores
   colores_ivu <- c(
     "Muy bajo" = "#EF6558", "Bajo" = "#F8C579", "Medio" = "#F4E785", 
     "Alto" = "#68D192", "Muy alto" = "#2C6C66"
   )
   pal_ivu <- colorFactor(palette = colores_ivu, domain = datos_validos$ivu_segmentado_categoria, na.color = "#808080")
   
-  # Crear popups
   popups <- paste0(
     "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 300px;'>",
     "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos_validos$Proyecto, "</b></h4>",
@@ -626,7 +614,6 @@ crear_mapa_ivu <- function(datos) {
     "</div>"
   )
   
-  # Crear mapa con tamaño uniforme
   leaflet(datos_validos) %>%
     addTiles() %>%
     addCircleMarkers(
@@ -644,18 +631,15 @@ crear_mapa_ivu <- function(datos) {
             lat = mean(datos_validos$latitud, na.rm = TRUE), zoom = 10)
 }
 
-crear_mapa_ivp <- function(datos) {
-  # Filtrar datos válidos
+crear_mapa_ivp_unico <- function(datos) {
   datos_validos <- datos %>% filter(!is.na(latitud) & !is.na(longitud) & !is.na(ivp_segmentado_categoria))
   
-  # Crear paleta de colores
   colores_ivp <- c(
     "Muy Bajo" = "#EF6558", "Bajo" = "#F8C579", "Medio" = "#F4E785", 
     "Alto" = "#68D192", "Muy Alto" = "#2C6C66"
   )
   pal_ivp <- colorFactor(palette = colores_ivp, domain = datos_validos$ivp_segmentado_categoria, na.color = "#808080")
   
-  # Crear popups
   popups <- paste0(
     "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 300px;'>",
     "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos_validos$Proyecto, "</b></h4>",
@@ -670,7 +654,6 @@ crear_mapa_ivp <- function(datos) {
     "</div>"
   )
   
-  # Crear mapa con tamaño uniforme
   leaflet(datos_validos) %>%
     addTiles() %>%
     addCircleMarkers(
@@ -688,14 +671,11 @@ crear_mapa_ivp <- function(datos) {
             lat = mean(datos_validos$latitud, na.rm = TRUE), zoom = 10)
 }
 
-# 9.2 Crear mapa principal con categorización 4S segmentada - ACTUALIZADO
-crear_mapa_principal_segmentado <- function(datos) {
-  # Filtrar datos válidos
+crear_mapa_principal_unico <- function(datos) {
   datos_validos <- datos %>% 
     filter(!is.na(latitud) & !is.na(longitud) & 
              !is.na(ivu_segmentado) & !is.na(ivp_segmentado))
   
-  # Crear categorización 4S combinada segmentada
   datos_validos <- datos_validos %>%
     mutate(
       categoria_seg = case_when(
@@ -706,17 +686,13 @@ crear_mapa_principal_segmentado <- function(datos) {
       )
     )
   
-  # Paleta de colores 4S para categorías segmentadas
   colores_seg_4s <- c(
-    "SUPERIOR_SEG" = "#68D192",
-    "SÓLIDO_SEG" = "#9B87F4", 
-    "SUSTENTABLE_SEG" = "#F4E785",
-    "SINGULAR_SEG" = "#F8C579"
+    "SUPERIOR_SEG" = "#68D192", "SÓLIDO_SEG" = "#9B87F4", 
+    "SUSTENTABLE_SEG" = "#F4E785", "SINGULAR_SEG" = "#F8C579"
   )
   
   pal_seg <- colorFactor(palette = colores_seg_4s, domain = datos_validos$categoria_seg)
   
-  # Crear popups detallados con comparación global vs segmentada
   popups <- paste0(
     "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 320px;'>",
     "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos_validos$Proyecto, "</b></h4>",
@@ -737,7 +713,6 @@ crear_mapa_principal_segmentado <- function(datos) {
     "</div>"
   )
   
-  # Crear mapa con tamaño uniforme
   leaflet(datos_validos) %>%
     addTiles() %>%
     addCircleMarkers(
@@ -770,24 +745,20 @@ crear_mapa_principal_segmentado <- function(datos) {
             lat = mean(datos_validos$latitud, na.rm = TRUE), zoom = 10)
 }
 
-## 9.3 CREAR Y MOSTRAR TODOS LOS MAPAS
+# 9.2 CREAR MAPAS ÚNICOS (NO DUPLICADOS)
+cat("\n=== CREANDO MAPAS INTERACTIVOS 4S (VERSIÓN ÚNICA) ===\n")
 
-cat("\n=== CREANDO MAPAS INTERACTIVOS 4S (TAMAÑOS UNIFORMES) ===\n")
-
-# Mapa 1: IVU Segmentado
 cat("1. Creando mapa de IVU Segmentado...\n")
-mapa_ivu_seg <- crear_mapa_ivu(datos_segmentados)
-print(mapa_ivu_seg)
+mapa_ivu_final <- crear_mapa_ivu_unico(datos_segmentados)
+print(mapa_ivu_final)
 
-# Mapa 2: IVP Segmentado
 cat("\n2. Creando mapa de IVP Segmentado...\n")
-mapa_ivp_seg <- crear_mapa_ivp(datos_segmentados)
-print(mapa_ivp_seg)
+mapa_ivp_final <- crear_mapa_ivp_unico(datos_segmentados)
+print(mapa_ivp_final)
 
-# Mapa 3: Mapa Principal 4S Segmentado
 cat("\n3. Creando mapa principal con categorización 4S segmentada...\n")
-mapa_principal_segmentado <- crear_mapa_principal_segmentado(datos_segmentados)
-print(mapa_principal_segmentado)
+mapa_principal_final <- crear_mapa_principal_unico(datos_segmentados)
+print(mapa_principal_final)
 
 # ---- 10. ANÁLISIS DE INSIGHTS ----
 
@@ -898,9 +869,8 @@ cat("🔸 Identidad visual y terminología 4S Real Estate consistente\n")
 
 # ---- 13. VISUALIZACIONES PARA PROYECTO INDIVIDUAL ----
 
-# 13.1 Función para seleccionar proyecto
+# 13.1 Funciones para proyecto individual (SIN DUPLICAR)
 seleccionar_proyecto_segmentado <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
-  # Permitir selección por índice o por nombre
   if (!is.null(indice_proyecto)) {
     if(indice_proyecto > nrow(datos) || indice_proyecto < 1) {
       stop("Índice de proyecto fuera de rango. Debe estar entre 1 y ", nrow(datos))
@@ -914,13 +884,11 @@ seleccionar_proyecto_segmentado <- function(datos, indice_proyecto = NULL, nombr
   } else {
     stop("Debe proporcionar un indice_proyecto o un nombre_proyecto")
   }
-  
   return(proyecto)
 }
 
 # 13.2 Función para crear termómetro IVU segmentado
 crear_termometro_ivu_segmentado <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
-  # Seleccionar proyecto
   proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
   
   valor <- proyecto$ivu_segmentado
@@ -929,60 +897,45 @@ crear_termometro_ivu_segmentado <- function(datos, indice_proyecto = NULL, nombr
   segmento <- proyecto$Segmento
   nse <- proyecto$nse
   
-  # Colores 4S para IVU
   colores <- c(
-    "Muy bajo" = "#EF6558",   # Rojo
-    "Bajo" = "#F8C579",       # Naranja
-    "Medio" = "#F4E785",      # Amarillo
-    "Alto" = "#68D192",       # Verde claro
-    "Muy alto" = "#2C6C66"    # Verde oscuro
+    "Muy bajo" = "#EF6558", "Bajo" = "#F8C579", "Medio" = "#F4E785",
+    "Alto" = "#68D192", "Muy alto" = "#2C6C66"
   )
   
   color <- colores[as.character(categoria)]
   
-  # Escala del termómetro
   escala <- data.frame(
     y = seq(0, 1, 0.2),
     labels = c("0.0", "0.2", "0.4", "0.6", "0.8", "1.0"),
     categorias = c("", "Muy bajo", "Bajo", "Medio", "Alto", "Muy alto")
   )
   
-  # Crear gráfico
   p <- ggplot() +
-    # Fondo del termómetro
     geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = 1), 
               fill = "lightgrey", color = "black", linewidth = 1) +
-    # Contenido del termómetro
     geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = valor), 
               fill = color, alpha = 0.8) +
-    # Líneas de escala
     geom_segment(data = escala, 
                  aes(x = 0.38, y = y, xend = 0.62, yend = y), 
                  color = "black", linewidth = 0.5) +
-    # Etiquetas de escala
     geom_text(data = escala, 
               aes(x = 0.35, y = y, label = labels), 
               hjust = 1, size = 4) +
-    # Etiquetas de categorías
     geom_text(data = escala[-1,], 
               aes(x = 0.7, y = y - 0.1, label = categorias), 
               hjust = 0, size = 3) +
-    # Información del proyecto
     geom_text(aes(x = 0.5, y = 1.15, 
                   label = paste0(nombre, "\n", 
                                  "Segmento: ", segmento, " | NSE: ", nse, "\n",
                                  "IVU Segmentado: ", round(valor, 3), "\n",
                                  "Categoría: ", categoria)),
               fontface = "bold", hjust = 0.5, size = 4) +
-    # Título
     labs(title = "🎯 Termómetro IVU Segmentado 4S",
          subtitle = "Comparación justa intra-segmento",
          x = NULL, y = NULL) +
     theme_minimal() +
     theme(
-      axis.text = element_blank(),
-      axis.ticks = element_blank(),
-      panel.grid = element_blank(),
+      axis.text = element_blank(), axis.ticks = element_blank(), panel.grid = element_blank(),
       plot.title = element_text(hjust = 0.5, face = "bold", size = 16, color = "#2C6C66"),
       plot.subtitle = element_text(hjust = 0.5, size = 12, color = "#2C6C66")
     ) +
@@ -993,7 +946,6 @@ crear_termometro_ivu_segmentado <- function(datos, indice_proyecto = NULL, nombr
 
 # 13.3 Función para crear termómetro IVP segmentado
 crear_termometro_ivp_segmentado <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
-  # Seleccionar proyecto
   proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
   
   valor <- proyecto$ivp_segmentado
@@ -1002,45 +954,33 @@ crear_termometro_ivp_segmentado <- function(datos, indice_proyecto = NULL, nombr
   segmento <- proyecto$Segmento
   amenidades <- proyecto$num_amenidades
   
-  # Colores 4S para IVP
   colores <- c(
-    "Muy Bajo" = "#EF6558",   # Rojo
-    "Bajo" = "#F8C579",       # Naranja
-    "Medio" = "#F4E785",      # Amarillo
-    "Alto" = "#68D192",       # Verde claro
-    "Muy Alto" = "#2C6C66"    # Verde oscuro
+    "Muy Bajo" = "#EF6558", "Bajo" = "#F8C579", "Medio" = "#F4E785",
+    "Alto" = "#68D192", "Muy Alto" = "#2C6C66"
   )
   
   color <- colores[as.character(categoria)]
   
-  # Escala del termómetro
   escala <- data.frame(
     y = seq(0, 1, 0.2),
     labels = c("0.0", "0.2", "0.4", "0.6", "0.8", "1.0"),
     categorias = c("", "Muy Bajo", "Bajo", "Medio", "Alto", "Muy Alto")
   )
   
-  # Crear gráfico
   p <- ggplot() +
-    # Fondo del termómetro
     geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = 1), 
               fill = "lightgrey", color = "black", linewidth = 1) +
-    # Contenido del termómetro
     geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = valor), 
               fill = color, alpha = 0.8) +
-    # Líneas de escala
     geom_segment(data = escala, 
                  aes(x = 0.38, y = y, xend = 0.62, yend = y), 
                  color = "black", linewidth = 0.5) +
-    # Etiquetas de escala
     geom_text(data = escala, 
               aes(x = 0.35, y = y, label = labels), 
               hjust = 1, size = 4) +
-    # Etiquetas de categorías
     geom_text(data = escala[-1,], 
               aes(x = 0.7, y = y - 0.1, label = categorias), 
               hjust = 0, size = 3) +
-    # Información del proyecto
     geom_text(aes(x = 0.5, y = 1.15, 
                   label = paste0(nombre, "\n", 
                                  "Segmento: ", segmento, "\n",
@@ -1048,15 +988,12 @@ crear_termometro_ivp_segmentado <- function(datos, indice_proyecto = NULL, nombr
                                  "Categoría: ", categoria, "\n",
                                  "Amenidades: ", amenidades)),
               fontface = "bold", hjust = 0.5, size = 4) +
-    # Título
     labs(title = "⭐ Termómetro IVP Segmentado 4S",
          subtitle = "Valor del proyecto intra-segmento",
          x = NULL, y = NULL) +
     theme_minimal() +
     theme(
-      axis.text = element_blank(),
-      axis.ticks = element_blank(),
-      panel.grid = element_blank(),
+      axis.text = element_blank(), axis.ticks = element_blank(), panel.grid = element_blank(),
       plot.title = element_text(hjust = 0.5, face = "bold", size = 16, color = "#2C6C66"),
       plot.subtitle = element_text(hjust = 0.5, size = 12, color = "#2C6C66")
     ) +
@@ -1067,10 +1004,8 @@ crear_termometro_ivp_segmentado <- function(datos, indice_proyecto = NULL, nombr
 
 # 13.4 Función para crear panel de categorización 4S
 crear_panel_categorizacion_4s <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
-  # Seleccionar proyecto
   proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
   
-  # Determinar categoría 4S
   ivu_seg <- proyecto$ivu_segmentado
   ivp_seg <- proyecto$ivp_segmentado
   
@@ -1081,7 +1016,6 @@ crear_panel_categorizacion_4s <- function(datos, indice_proyecto = NULL, nombre_
     TRUE ~ "SINGULAR"
   )
   
-  # Colores y descripciones 4S
   info_categorias <- data.frame(
     categoria = c("SUPERIOR", "SÓLIDO", "SUSTENTABLE", "SINGULAR"),
     color = c("#68D192", "#9B87F4", "#F4E785", "#F8C579"),
@@ -1096,34 +1030,23 @@ crear_panel_categorizacion_4s <- function(datos, indice_proyecto = NULL, nombre_
   
   categoria_info <- info_categorias[info_categorias$categoria == categoria_4s, ]
   
-  # Crear gráfico
   p <- ggplot() +
-    # Cuadro principal de categoría
     geom_rect(aes(xmin = 0.1, xmax = 0.9, ymin = 0.4, ymax = 0.8), 
               fill = categoria_info$color, alpha = 0.8, color = "white", linewidth = 2) +
-    
-    # Texto de categoría
     geom_text(aes(x = 0.5, y = 0.6, 
                   label = paste0(categoria_info$icono, " ", categoria_4s)), 
               size = 8, fontface = "bold", color = "white") +
-    
-    # Descripción
     geom_text(aes(x = 0.5, y = 0.3, 
                   label = categoria_info$descripcion), 
               size = 5, fontface = "bold", color = categoria_info$color) +
-    
-    # Información del proyecto
     geom_text(aes(x = 0.5, y = 0.9, 
                   label = paste0(proyecto$Proyecto, "\n",
                                  proyecto$Segmento, " | NSE ", proyecto$nse)), 
               size = 5, fontface = "bold", color = "#2C6C66") +
-    
-    # Métricas
     geom_text(aes(x = 0.5, y = 0.1, 
                   label = paste0("IVU: ", round(ivu_seg, 3), 
                                  " | IVP: ", round(ivp_seg, 3))), 
               size = 4, color = "#2C6C66") +
-    
     labs(title = "🎯 Categorización 4S Segmentada",
          subtitle = "Posición en la matriz de decisión intra-segmento") +
     theme_void() +
@@ -1136,49 +1059,38 @@ crear_panel_categorizacion_4s <- function(datos, indice_proyecto = NULL, nombre_
   return(p)
 }
 
-# 13.5 Función para crear dashboard completo del proyecto
+# 13.5 Función para crear dashboard básico del proyecto
 crear_dashboard_proyecto_4s <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
   
-  # Verificar que el proyecto existe
   if (!is.null(indice_proyecto)) {
     if(indice_proyecto > nrow(datos) || indice_proyecto < 1) {
       stop("Índice de proyecto fuera de rango. Debe estar entre 1 y ", nrow(datos))
     }
   }
   
-  # Crear visualizaciones individuales
   termometro_ivu <- crear_termometro_ivu_segmentado(datos, indice_proyecto, nombre_proyecto)
   termometro_ivp <- crear_termometro_ivp_segmentado(datos, indice_proyecto, nombre_proyecto)
   panel_categoria <- crear_panel_categorizacion_4s(datos, indice_proyecto, nombre_proyecto)
   
-  # Obtener información del proyecto para contexto
   proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
   
-  # Crear matriz de posición para el proyecto específico
   datos_segmento <- datos %>% filter(Segmento == proyecto$Segmento)
   
   matriz_posicion <- ggplot(datos_segmento, aes(x = ivu_segmentado, y = ivp_segmentado)) +
-    # Cuadrantes de fondo
     annotate("rect", xmin = 0, xmax = 0.5, ymin = 0.5, ymax = 1, 
-             fill = "#9B87F4", alpha = 0.1) +  # SÓLIDO
+             fill = "#9B87F4", alpha = 0.1) +
     annotate("rect", xmin = 0.5, xmax = 1, ymin = 0.5, ymax = 1, 
-             fill = "#68D192", alpha = 0.1) +  # SUPERIOR
+             fill = "#68D192", alpha = 0.1) +
     annotate("rect", xmin = 0, xmax = 0.5, ymin = 0, ymax = 0.5, 
-             fill = "#F8C579", alpha = 0.1) +  # SINGULAR
+             fill = "#F8C579", alpha = 0.1) +
     annotate("rect", xmin = 0.5, xmax = 1, ymin = 0, ymax = 0.5, 
-             fill = "#F4E785", alpha = 0.1) +  # SUSTENTABLE
-    
-    # Otros proyectos del segmento
+             fill = "#F4E785", alpha = 0.1) +
     geom_point(data = datos_segmento[datos_segmento$Proyecto != proyecto$Proyecto, ],
                alpha = 0.3, size = 2, color = "gray60") +
-    
-    # Proyecto seleccionado
     geom_point(data = proyecto, aes(x = ivu_segmentado, y = ivp_segmentado),
                size = 6, color = "#2C6C66", shape = 17) +
-    
     geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray40") +
     geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray40") +
-    
     labs(title = paste("Posición en Matriz 4S -", proyecto$Segmento),
          subtitle = paste("▲ =", proyecto$Proyecto),
          x = "IVU Segmentado", y = "IVP Segmentado") +
@@ -1188,7 +1100,6 @@ crear_dashboard_proyecto_4s <- function(datos, indice_proyecto = NULL, nombre_pr
       plot.subtitle = element_text(size = 10, color = "#2C6C66")
     )
   
-  # Combinar todas las visualizaciones
   dashboard <- grid.arrange(
     termometro_ivu, termometro_ivp, 
     panel_categoria, matriz_posicion,
@@ -1200,19 +1111,15 @@ crear_dashboard_proyecto_4s <- function(datos, indice_proyecto = NULL, nombre_pr
   return(dashboard)
 }
 
-# 13.6 Función de análisis comparativo del proyecto
+# 13.6 Función básica de análisis del proyecto
 analizar_proyecto_4s <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
-  # Seleccionar proyecto
   proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
   
-  # Obtener datos del segmento
   datos_segmento <- datos %>% filter(Segmento == proyecto$Segmento)
   
-  # Calcular percentiles dentro del segmento
   percentil_ivu <- round(mean(datos_segmento$ivu_segmentado <= proyecto$ivu_segmentado, na.rm = TRUE) * 100, 1)
   percentil_ivp <- round(mean(datos_segmento$ivp_segmentado <= proyecto$ivp_segmentado, na.rm = TRUE) * 100, 1)
   
-  # Determinar categoría 4S
   categoria_4s <- case_when(
     proyecto$ivu_segmentado >= 0.5 & proyecto$ivp_segmentado >= 0.5 ~ "SUPERIOR",
     proyecto$ivu_segmentado < 0.5 & proyecto$ivp_segmentado >= 0.5 ~ "SÓLIDO",
@@ -1220,13 +1127,11 @@ analizar_proyecto_4s <- function(datos, indice_proyecto = NULL, nombre_proyecto 
     TRUE ~ "SINGULAR"
   )
   
-  # Ranking dentro del segmento
   score_combinado <- (proyecto$ivu_segmentado * 0.6) + (proyecto$ivp_segmentado * 0.4)
   datos_segmento$score_temp <- (datos_segmento$ivu_segmentado * 0.6) + (datos_segmento$ivp_segmentado * 0.4)
   ranking <- sum(datos_segmento$score_temp >= score_combinado, na.rm = TRUE)
   total_segmento <- nrow(datos_segmento)
   
-  # Crear reporte
   cat("\n", rep("=", 60), "\n")
   cat("ANÁLISIS 4S INDIVIDUAL DEL PROYECTO\n")
   cat(rep("=", 60), "\n")
@@ -1256,19 +1161,17 @@ analizar_proyecto_4s <- function(datos, indice_proyecto = NULL, nombre_proyecto 
   cat("IVU: Global", round(proyecto$ivu, 3), "→ Segmentado", round(proyecto$ivu_segmentado, 3), "\n")
   cat("IVP: Global", round(proyecto$ivp_v2, 3), "→ Segmentado", round(proyecto$ivp_segmentado, 3), "\n")
   
-  # Interpretación de la categoría 4S
-  cat("\n🎯 INTERPRETACIÓN CATEGORÍA", categoria_4s, ":\n")
   interpretaciones <- list(
     "SUPERIOR" = "Líder del segmento con excelente ubicación y proyecto. Inversión premium recomendada.",
     "SÓLIDO" = "Alto potencial con propuesta sólida. Oportunidad de crecimiento en el segmento.",
     "SUSTENTABLE" = "Base sólida con ubicación excelente. Fundamentos consistentes para crecimiento.",
     "SINGULAR" = "Características únicas especializadas. Enfoque diferenciado en el mercado."
   )
-  cat(interpretaciones[[categoria_4s]], "\n")
   
+  cat("\n🎯 INTERPRETACIÓN CATEGORÍA", categoria_4s, ":\n")
+  cat(interpretaciones[[categoria_4s]], "\n")
   cat("\n", rep("=", 60), "\n")
   
-  # Retornar datos para uso programático
   return(list(
     proyecto = proyecto$Proyecto,
     categoria_4s = categoria_4s,
@@ -1282,15 +1185,35 @@ analizar_proyecto_4s <- function(datos, indice_proyecto = NULL, nombre_proyecto 
   ))
 }
 
+# 13.7 Función COMPLETA para análisis con fortalezas
+crear_dashboard_proyecto_4s_completo <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  
+  # Dashboard original (4 paneles)
+  dashboard_original <- crear_dashboard_proyecto_4s(datos, indice_proyecto, nombre_proyecto)
+  
+  cat("\n=== DASHBOARD PRINCIPAL 4S ===\n")
+  print(dashboard_original)
+  
+  return(dashboard_original)
+}
+
+# 13.8 Función COMPLETA para análisis detallado
+analizar_proyecto_4s_completo <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Ejecutar análisis 4S original
+  analisis_base <- analizar_proyecto_4s(datos, indice_proyecto, nombre_proyecto)
+  
+  cat("\n🏆 ANÁLISIS COMPLETADO\n")
+  
+  return(analisis_base)
+}
+
 # ---- 14. EJEMPLOS DE USO DE LAS VISUALIZACIONES ----
 
-# 14.1 Definir proyecto a analizar
-PROYECTO_SELECCIONADO <- 10  # Cambiar por el índice del proyecto que quieras analizar
-# O usar por nombre: PROYECTO_SELECCIONADO_NOMBRE <- "Nombre del Proyecto"
+# Definir proyecto a analizar
+PROYECTO_SELECCIONADO <- 15  
 
-cat("\n=== GENERANDO VISUALIZACIONES INDIVIDUALES 4S ===\n")
+cat("\n=== ANÁLISIS INDIVIDUAL 4S (VERSIÓN ÚNICA) ===\n")
 
-# 14.2 Verificar que el proyecto existe y tiene datos segmentados
 if(PROYECTO_SELECCIONADO <= nrow(datos_segmentados)) {
   proyecto_info <- datos_segmentados[PROYECTO_SELECCIONADO, ]
   
@@ -1299,25 +1222,12 @@ if(PROYECTO_SELECCIONADO <= nrow(datos_segmentados)) {
     cat("Analizando proyecto:", proyecto_info$Proyecto, "\n")
     cat("Segmento:", proyecto_info$Segmento, "| NSE:", proyecto_info$nse, "\n")
     
-    # 14.3 Crear visualizaciones individuales
-    cat("\n1. Creando termómetro IVU segmentado...\n")
-    termometro_ivu_individual <- crear_termometro_ivu_segmentado(datos_segmentados, PROYECTO_SELECCIONADO)
-    print(termometro_ivu_individual)
+    # SOLO UNA VERSIÓN de cada visualización
+    cat("\n1. Dashboard 4S completo...\n")
+    dashboard_unico <- crear_dashboard_proyecto_4s_completo(datos_segmentados, PROYECTO_SELECCIONADO)
     
-    cat("\n2. Creando termómetro IVP segmentado...\n")
-    termometro_ivp_individual <- crear_termometro_ivp_segmentado(datos_segmentados, PROYECTO_SELECCIONADO)
-    print(termometro_ivp_individual)
-    
-    cat("\n3. Creando panel de categorización 4S...\n")
-    panel_4s_individual <- crear_panel_categorizacion_4s(datos_segmentados, PROYECTO_SELECCIONADO)
-    print(panel_4s_individual)
-    
-    cat("\n4. Creando dashboard completo 4S...\n")
-    dashboard_completo <- crear_dashboard_proyecto_4s(datos_segmentados, PROYECTO_SELECCIONADO)
-    # El dashboard se imprime automáticamente
-    
-    cat("\n5. Generando análisis detallado...\n")
-    analisis_detallado <- analizar_proyecto_4s(datos_segmentados, PROYECTO_SELECCIONADO)
+    cat("\n2. Análisis detallado...\n")
+    analisis_unico <- analizar_proyecto_4s_completo(datos_segmentados, PROYECTO_SELECCIONADO)
     
   } else {
     cat("ERROR: El proyecto seleccionado no tiene datos segmentados válidos.\n")
@@ -1325,30 +1235,6 @@ if(PROYECTO_SELECCIONADO <= nrow(datos_segmentados)) {
 } else {
   cat("ERROR: Índice de proyecto fuera de rango. Máximo:", nrow(datos_segmentados), "\n")
 }
-
-# 14.4 Lista de proyectos disponibles para selección
-cat("\n=== PROYECTOS DISPONIBLES PARA ANÁLISIS ===\n")
-proyectos_disponibles <- datos_segmentados %>%
-  filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado)) %>%
-  mutate(indice = row_number()) %>%
-  select(indice, Proyecto, Desarrollador, Segmento, nse, 
-         ivu_segmentado, ivp_segmentado) %>%
-  arrange(Segmento, desc(ivu_segmentado + ivp_segmentado))
-
-cat("Total de proyectos disponibles:", nrow(proyectos_disponibles), "\n")
-cat("\nTop 10 proyectos por score combinado:\n")
-print(kable(head(proyectos_disponibles, 10), digits = 3))
-
-cat("\n💡 INSTRUCCIONES DE USO:\n")
-cat("Para analizar un proyecto específico, cambia la variable PROYECTO_SELECCIONADO\n")
-cat("por el número de índice deseado (1 a", nrow(datos_segmentados), ")\n")
-cat("O usa el nombre del proyecto con las funciones directamente.\n")
-
-cat("\nEjemplos de uso:\n")
-cat("# Por índice:\n")
-cat("termometro <- crear_termometro_ivu_segmentado(datos_segmentados, 25)\n")
-cat("# Por nombre:\n")
-cat("analisis <- analizar_proyecto_4s(datos_segmentados, nombre_proyecto = 'Proyecto XYZ')\n")
 
 
 # ---- 15 Crear archivo específico para Keynote ----
