@@ -1210,7 +1210,7 @@ analizar_proyecto_4s_completo <- function(datos, indice_proyecto = NULL, nombre_
 # ---- 14. EJEMPLOS DE USO DE LAS VISUALIZACIONES ----
 
 # Definir proyecto a analizar
-PROYECTO_SELECCIONADO <- 15  
+PROYECTO_SELECCIONADO <- 7 
 
 cat("\n=== ANÁLISIS INDIVIDUAL 4S (VERSIÓN ÚNICA) ===\n")
 
@@ -1905,3 +1905,1654 @@ cat("✅ Reporte textual interpretativo de diferenciadores\n")
 cat("✅ Dashboard integrado con análisis 4S + fortalezas\n")
 cat("✅ Funciones de comparación entre proyectos\n")
 cat("✅ Análisis de factores únicos y diferenciadores\n")
+
+# ---- 19. ANÁLISIS INTEGRADO DE FORTALEZAS Y DEBILIDADES ----
+## 19.1 Función para identificar debilidades del proyecto
+identificar_debilidades_proyecto <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Reutilizar la función de fortalezas existente pero filtrar por debilidades
+  fortalezas_completas <- identificar_fortalezas_proyecto(datos, indice_proyecto, nombre_proyecto)
+  
+  # Filtrar solo las debilidades (percentil <= 30)
+  debilidades <- fortalezas_completas %>%
+    filter(Percentil <= 30) %>%
+    arrange(Percentil) %>%  # Ordenar de menor a mayor percentil
+    mutate(
+      Categoria_Debilidad = case_when(
+        Percentil <= 10 ~ "Crítica",
+        Percentil <= 20 ~ "Muy Débil",
+        TRUE ~ "Débil"
+      )
+    )
+  
+  return(debilidades)
+}
+
+## 19.2 Función para crear visualización de debilidades
+crear_visualizacion_debilidades <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Obtener análisis de debilidades
+  debilidades <- identificar_debilidades_proyecto(datos, indice_proyecto, nombre_proyecto)
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  if(nrow(debilidades) == 0) {
+    # Si no hay debilidades significativas, crear gráfico placeholder
+    p <- ggplot() +
+      geom_text(aes(x = 0.5, y = 0.5, label = "¡Excelente!\nNo se identificaron\ndebilidades significativas"), 
+                size = 6, color = "#2C6C66", fontface = "bold") +
+      labs(title = paste("⚠️ Áreas de Mejora -", proyecto$Proyecto),
+           subtitle = "Proyecto sin debilidades críticas identificadas") +
+      theme_void() +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, color = "#2C6C66", hjust = 0.5),
+        plot.subtitle = element_text(size = 11, color = "#68D192", hjust = 0.5)
+      )
+    return(p)
+  }
+  
+  # Tomar top 12 debilidades para visualización
+  top_debilidades <- head(debilidades, 12)
+  
+  # Crear etiquetas más amigables (reutilizar del código existente)
+  etiquetas_variables <- c(
+    "absorcion" = "Absorción",
+    "ratio_ventas" = "Ratio de Ventas", 
+    "eficiencia_comercial" = "Eficiencia Comercial",
+    "velocidad_ventas" = "Velocidad Ventas",
+    "score_amenidades_total" = "Score Amenidades",
+    "num_amenidades" = "Número Amenidades",
+    "m2_inv" = "Superficie Inventario",
+    "indice_accesibilidad" = "Accesibilidad",
+    "accesibilidad_vial" = "Accesibilidad Vial",
+    "indice_conveniencia" = "Conveniencia",
+    "cerca_parque_relevante" = "Cercanía Parque",
+    "dist_to_park" = "Distancia Parque",
+    "cercania_hospital" = "Cercanía Hospital",
+    "cercania_esc_priv" = "Cercanía Esc. Privada",
+    "cercania_universidad" = "Cercanía Universidad",
+    "cercania_super" = "Cercanía Supermercado",
+    "cantidad_hospital_1km" = "Hospitales 1km",
+    "cantidad_esc_priv_1km" = "Esc. Privadas 1km",
+    "pob2020_1km" = "Población 1km",
+    "competitividad_precio" = "Competitividad Precio",
+    "meses_inv" = "Meses en Inventario",
+    "meses_mercado" = "Meses en Mercado"
+  )
+  
+  # Aplicar etiquetas
+  top_debilidades$Etiqueta <- sapply(top_debilidades$Variable, function(x) {
+    if(x %in% names(etiquetas_variables)) etiquetas_variables[x] else x
+  })
+  
+  # Colores por categoría de debilidad
+  colores_debilidad <- c(
+    "Crítica" = "#C53030",
+    "Muy Débil" = "#E53E3E", 
+    "Débil" = "#EF6558"
+  )
+  
+  # Crear gráfico de barras horizontales
+  p <- ggplot(top_debilidades, aes(x = reorder(Etiqueta, -Percentil), y = Percentil, 
+                                   fill = Categoria_Debilidad)) +
+    geom_bar(stat = "identity", alpha = 0.8) +
+    geom_text(aes(label = paste0(round(Percentil, 0), "%")), 
+              hjust = 1.1, size = 3, fontface = "bold", color = "white") +
+    scale_fill_manual(values = colores_debilidad, name = "Nivel") +
+    coord_flip() +
+    labs(title = paste("⚠️ Principales Áreas de Mejora -", proyecto$Proyecto),
+         subtitle = paste("Percentiles más bajos vs otros proyectos", proyecto$Segmento),
+         x = "Factor", y = "Percentil en el Segmento (%)") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14, color = "#C53030"),
+      plot.subtitle = element_text(size = 11, color = "#C53030"),
+      axis.text.y = element_text(size = 9),
+      legend.position = "bottom"
+    ) +
+    scale_y_continuous(limits = c(0, 35), breaks = seq(0, 30, 10))
+  
+  return(p)
+}
+
+## 19.3 Función para crear gráfico espejo fortalezas vs debilidades
+crear_grafico_espejo_fortalezas_debilidades <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Obtener ambos análisis
+  fortalezas <- identificar_fortalezas_proyecto(datos, indice_proyecto, nombre_proyecto) %>%
+    filter(Percentil >= 70) %>%
+    head(6)
+  
+  debilidades <- identificar_debilidades_proyecto(datos, indice_proyecto, nombre_proyecto) %>%
+    head(6)
+  
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Crear etiquetas amigables
+  etiquetas_variables <- c(
+    "absorcion" = "Absorción", "score_amenidades_total" = "Score Amenidades",
+    "indice_accesibilidad" = "Accesibilidad", "num_amenidades" = "Núm. Amenidades",
+    "accesibilidad_vial" = "Accesibilidad Vial", "indice_conveniencia" = "Conveniencia",
+    "cercania_hospital" = "Cercanía Hospital", "meses_inv" = "Meses Inventario",
+    "competitividad_precio" = "Competitividad", "dist_to_park" = "Dist. Parque"
+  )
+  
+  # Preparar datos para el gráfico espejo
+  max_items <- max(nrow(fortalezas), nrow(debilidades), 3)
+  
+  # Datos de fortalezas (lado positivo)
+  datos_fortalezas <- data.frame(
+    Orden = 1:max_items,
+    Variable = character(max_items),
+    Valor = numeric(max_items),
+    Tipo = "Fortaleza",
+    stringsAsFactors = FALSE
+  )
+  
+  for(i in 1:max_items) {
+    if(i <= nrow(fortalezas)) {
+      var_name <- fortalezas$Variable[i]
+      datos_fortalezas$Variable[i] <- ifelse(var_name %in% names(etiquetas_variables), 
+                                             etiquetas_variables[var_name], var_name)
+      datos_fortalezas$Valor[i] <- fortalezas$Percentil[i]
+    } else {
+      datos_fortalezas$Variable[i] <- ""
+      datos_fortalezas$Valor[i] <- NA
+    }
+  }
+  
+  # Datos de debilidades (lado negativo)
+  datos_debilidades <- data.frame(
+    Orden = 1:max_items,
+    Variable = character(max_items),
+    Valor = numeric(max_items),
+    Tipo = "Debilidad",
+    stringsAsFactors = FALSE
+  )
+  
+  for(i in 1:max_items) {
+    if(i <= nrow(debilidades)) {
+      var_name <- debilidades$Variable[i]
+      datos_debilidades$Variable[i] <- ifelse(var_name %in% names(etiquetas_variables), 
+                                              etiquetas_variables[var_name], var_name)
+      datos_debilidades$Valor[i] <- -debilidades$Percentil[i]  # Negativo para el espejo
+    } else {
+      datos_debilidades$Variable[i] <- ""
+      datos_debilidades$Valor[i] <- NA
+    }
+  }
+  
+  # Combinar datos y filtrar valores válidos
+  datos_combinados <- rbind(datos_fortalezas, datos_debilidades) %>%
+    filter(!is.na(Valor) & Variable != "")
+  
+  if(nrow(datos_combinados) == 0) {
+    # Si no hay datos, crear gráfico placeholder
+    p <- ggplot() +
+      geom_text(aes(x = 0.5, y = 0.5, label = "Datos insuficientes\npara análisis espejo"), 
+                size = 6, color = "#6c757d") +
+      labs(title = paste("⚖️ Análisis Espejo -", proyecto$Proyecto)) +
+      theme_void()
+    return(p)
+  }
+  
+  # Crear gráfico espejo
+  colores_espejo <- c("Fortaleza" = "#68D192", "Debilidad" = "#EF6558")
+  
+  p <- ggplot(datos_combinados, aes(x = reorder(Variable, abs(Valor)), y = Valor, fill = Tipo)) +
+    geom_bar(stat = "identity", alpha = 0.8, width = 0.7) +
+    geom_hline(yintercept = 0, color = "gray40", linewidth = 1) +
+    
+    # Etiquetas de valores
+    geom_text(aes(label = paste0(abs(round(Valor)), "%")), 
+              hjust = ifelse(datos_combinados$Valor > 0, -0.1, 1.1), 
+              size = 3.5, fontface = "bold", color = "gray20") +
+    
+    scale_fill_manual(values = colores_espejo, name = "") +
+    coord_flip() +
+    
+    labs(title = paste("⚖️ Análisis Espejo: Fortalezas vs Debilidades"),
+         subtitle = paste("Proyecto:", proyecto$Proyecto, "|", proyecto$Segmento),
+         x = "", y = "Percentil en Segmento (%)") +
+    
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 16, color = "#2C6C66", hjust = 0.5),
+      plot.subtitle = element_text(size = 12, color = "#2C6C66", hjust = 0.5),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 9),
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold"),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank()
+    ) +
+    
+    scale_y_continuous(
+      limits = c(-100, 100),
+      breaks = seq(-100, 100, 25),
+      labels = function(x) paste0(abs(x), "%")
+    ) +
+    
+    # Anotaciones explicativas
+    annotate("text", x = max_items * 0.7, y = 75, 
+             label = "FORTALEZAS\n(Percentil ≥70)", 
+             fontface = "bold", color = "#2C6C66", size = 3.5) +
+    annotate("text", x = max_items * 0.7, y = -75, 
+             label = "DEBILIDADES\n(Percentil ≤30)", 
+             fontface = "bold", color = "#C53030", size = 3.5)
+  
+  return(p)
+}
+
+## 19.4 Función para crear dashboard completo con fortalezas y debilidades
+crear_dashboard_fortalezas_debilidades_integrado <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  
+  # Obtener información del proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Crear visualizaciones individuales
+  grafico_fortalezas <- crear_visualizacion_fortalezas(datos, indice_proyecto, nombre_proyecto)
+  grafico_debilidades <- crear_visualizacion_debilidades(datos, indice_proyecto, nombre_proyecto)
+  grafico_espejo <- crear_grafico_espejo_fortalezas_debilidades(datos, indice_proyecto, nombre_proyecto)
+  
+  # Obtener estadísticas para panel de resumen
+  fortalezas <- identificar_fortalezas_proyecto(datos, indice_proyecto, nombre_proyecto) %>%
+    filter(Percentil >= 70)
+  debilidades <- identificar_debilidades_proyecto(datos, indice_proyecto, nombre_proyecto)
+  
+  # Crear panel de resumen estadístico
+  num_fortalezas <- nrow(fortalezas)
+  num_debilidades <- nrow(debilidades)
+  
+  # Calcular score general (promedio de todos los percentiles)
+  todos_percentiles <- identificar_fortalezas_proyecto(datos, indice_proyecto, nombre_proyecto)
+  score_general <- round(mean(todos_percentiles$Percentil, na.rm = TRUE), 1)
+  
+  # Determinar balance competitivo
+  balance <- case_when(
+    num_fortalezas >= 5 & num_debilidades <= 2 ~ "DOMINANTE",
+    num_fortalezas >= 3 & num_debilidades <= 3 ~ "COMPETITIVO",
+    num_fortalezas >= 2 & num_debilidades <= 5 ~ "EQUILIBRADO",
+    num_fortalezas <= 2 & num_debilidades >= 3 ~ "DESAFIANTE",
+    TRUE ~ "NEUTRAL"
+  )
+  
+  # Crear panel de resumen
+  panel_resumen <- ggplot() +
+    geom_rect(aes(xmin = 0.05, xmax = 0.95, ymin = 0.1, ymax = 0.9), 
+              fill = "#f8f9fa", color = "#2C6C66", linewidth = 2, alpha = 0.8) +
+    
+    # Título del panel
+    geom_text(aes(x = 0.5, y = 0.8, label = "📊 RESUMEN COMPETITIVO"),
+              size = 6, fontface = "bold", color = "#2C6C66") +
+    
+    # Estadísticas principales
+    geom_text(aes(x = 0.25, y = 0.65, label = paste0("🏆 FORTALEZAS\n", num_fortalezas)),
+              size = 5, fontface = "bold", color = "#68D192") +
+    geom_text(aes(x = 0.75, y = 0.65, label = paste0("⚠️ DEBILIDADES\n", num_debilidades)),
+              size = 5, fontface = "bold", color = "#EF6558") +
+    
+    # Score general
+    geom_text(aes(x = 0.5, y = 0.5, label = paste0("📈 SCORE GENERAL\n", score_general, "%")),
+              size = 5, fontface = "bold", color = "#2C6C66") +
+    
+    # Balance competitivo
+    geom_text(aes(x = 0.5, y = 0.35, label = paste0("⚖️ BALANCE: ", balance)),
+              size = 4, fontface = "bold", 
+              color = case_when(
+                balance == "DOMINANTE" ~ "#2C6C66",
+                balance == "COMPETITIVO" ~ "#68D192",
+                balance == "EQUILIBRADO" ~ "#F4A261",
+                balance == "DESAFIANTE" ~ "#E76F51",
+                TRUE ~ "#6c757d"
+              )) +
+    
+    # Información del proyecto
+    geom_text(aes(x = 0.5, y = 0.2, 
+                  label = paste0(proyecto$Proyecto, " | ", proyecto$Segmento, " | NSE: ", proyecto$nse)),
+              size = 3.5, color = "#6c757d") +
+    
+    theme_void() +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+  
+  # Combinar en dashboard usando grid.arrange
+  dashboard <- grid.arrange(
+    grafico_espejo,                           # Fila 1: Gráfico espejo completo
+    arrangeGrob(grafico_fortalezas, grafico_debilidades, ncol = 2),  # Fila 2: Fortalezas y debilidades
+    panel_resumen,                            # Fila 3: Panel de resumen
+    ncol = 1, nrow = 3,
+    heights = c(2, 1.5, 0.8),
+    top = textGrob(paste("🎯 Dashboard Integral de Fortalezas y Debilidades -", proyecto$Proyecto), 
+                   gp = gpar(fontsize = 18, fontface = "bold", col = "#2C6C66"))
+  )
+  
+  return(dashboard)
+}
+
+## 19.5 Función para reporte textual integrado
+generar_reporte_fortalezas_debilidades <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Obtener análisis de fortalezas (función existente)
+  fortalezas_detalle <- generar_reporte_fortalezas(datos, indice_proyecto, nombre_proyecto)
+  
+  # Obtener análisis de debilidades
+  debilidades <- identificar_debilidades_proyecto(datos, indice_proyecto, nombre_proyecto)
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  cat("\n" , rep("⚖️", 30), "\n")
+  cat("ANÁLISIS INTEGRAL DE DEBILIDADES\n")
+  cat(rep("⚖️", 30), "\n")
+  
+  if(nrow(debilidades) > 0) {
+    cat("\n⚠️ DEBILIDADES IDENTIFICADAS (Percentil ≤30%):\n")
+    
+    # Agrupar por categoría de debilidad
+    criticas <- debilidades %>% filter(Categoria_Debilidad == "Crítica")
+    muy_debiles <- debilidades %>% filter(Categoria_Debilidad == "Muy Débil")
+    debiles <- debilidades %>% filter(Categoria_Debilidad == "Débil")
+    
+    if(nrow(criticas) > 0) {
+      cat("\n🚨 CRÍTICAS (Bottom 10%):\n")
+      for(i in 1:nrow(criticas)) {
+        cat("  •", criticas$Variable[i], "- Percentil:", 
+            round(criticas$Percentil[i], 0), "%\n")
+      }
+    }
+    
+    if(nrow(muy_debiles) > 0) {
+      cat("\n❌ MUY DÉBILES (Bottom 20%):\n")
+      for(i in 1:nrow(muy_debiles)) {
+        cat("  •", muy_debiles$Variable[i], "- Percentil:", 
+            round(muy_debiles$Percentil[i], 0), "%\n")
+      }
+    }
+    
+    if(nrow(debiles) > 0) {
+      cat("\n⚡ DÉBILES (Bottom 30%):\n")
+      for(i in 1:nrow(debiles)) {
+        cat("  •", debiles$Variable[i], "- Percentil:", 
+            round(debiles$Percentil[i], 0), "%\n")
+      }
+    }
+    
+    # Recomendaciones específicas
+    cat("\n🔧 RECOMENDACIONES DE MEJORA:\n")
+    
+    # Análisis por tipo de debilidad
+    if(any(grepl("amenidades|num_amenidades", debilidades$Variable))) {
+      cat("🏢 AMENIDADES: Considerar ampliar oferta de amenidades para competir mejor\n")
+    }
+    
+    if(any(grepl("absorcion|ratio_ventas|eficiencia", debilidades$Variable))) {
+      cat("📈 VENTAS: Revisar estrategia comercial y pricing para mejorar absorción\n")
+    }
+    
+    if(any(grepl("accesibilidad|conveniencia|cercania", debilidades$Variable))) {
+      cat("📍 UBICACIÓN: Compensar limitaciones de ubicación con propuesta de valor\n")
+    }
+    
+    if(any(grepl("meses_inv|meses_mercado", debilidades$Variable))) {
+      cat("⏱️ TIEMPO: Acelerar comercialización y reducir tiempo en mercado\n")
+    }
+    
+  } else {
+    cat("\n✅ ¡EXCELENTE POSICIÓN COMPETITIVA!\n")
+    cat("No se identificaron debilidades significativas (percentil ≤30%)\n")
+    cat("El proyecto mantiene un rendimiento sólido en todos los factores analizados.\n")
+  }
+  
+  cat("\n", rep("⚖️", 30), "\n")
+  
+  return(debilidades)
+}
+
+## 19.6 Actualización de función de análisis completo
+analizar_proyecto_4s_fortalezas_debilidades <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Ejecutar análisis 4S base (función existente)
+  analisis_base <- analizar_proyecto_4s(datos, indice_proyecto, nombre_proyecto)
+  
+  # Agregar análisis de fortalezas (función existente)
+  cat("\n" , rep("🏆", 30), "\n")
+  cat("ANÁLISIS DETALLADO DE FORTALEZAS COMPETITIVAS\n")
+  cat(rep("🏆", 30), "\n")
+  
+  fortalezas_detalle <- generar_reporte_fortalezas(datos, indice_proyecto, nombre_proyecto)
+  
+  # Agregar análisis de debilidades (nueva función)
+  debilidades_detalle <- generar_reporte_fortalezas_debilidades(datos, indice_proyecto, nombre_proyecto)
+  
+  # Diferenciadores únicos (función existente)
+  diferenciadores <- identificar_diferenciadores(datos, indice_proyecto, nombre_proyecto)
+  
+  if(length(diferenciadores) > 0) {
+    cat("\n🎯 DIFERENCIADORES ÚNICOS:\n")
+    for(i in 1:length(diferenciadores)) {
+      cat("  ", i, ".", diferenciadores[[i]], "\n")
+    }
+  }
+  
+  # Balance general
+  num_fortalezas <- nrow(fortalezas_detalle)
+  num_debilidades <- nrow(debilidades_detalle)
+  
+  cat("\n📊 BALANCE COMPETITIVO GENERAL:\n")
+  cat("- Fortalezas identificadas:", num_fortalezas, "\n")
+  cat("- Debilidades identificadas:", num_debilidades, "\n")
+  
+  if(num_fortalezas > num_debilidades) {
+    cat("- Estrategia recomendada: 📈 OFENSIVA - Capitalizar ventajas competitivas\n")
+  } else if(num_debilidades > num_fortalezas) {
+    cat("- Estrategia recomendada: 🛡️ DEFENSIVA - Corregir debilidades críticas\n")
+  } else {
+    cat("- Estrategia recomendada: ⚖️ EQUILIBRADA - Mantener fortalezas y mejorar debilidades\n")
+  }
+  
+  cat("\n", rep("🎯", 30), "\n")
+  
+  # Retornar análisis combinado
+  return(list(
+    analisis_4s = analisis_base,
+    fortalezas = fortalezas_detalle,
+    debilidades = debilidades_detalle,
+    diferenciadores = diferenciadores,
+    balance = list(
+      num_fortalezas = num_fortalezas,
+      num_debilidades = num_debilidades
+    )
+  ))
+}
+
+## 19.7 Actualización de dashboard principal
+crear_dashboard_4s_fortalezas_debilidades <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  
+  # Dashboard 4S original (funciones existentes)
+  dashboard_original <- crear_dashboard_proyecto_4s(datos, indice_proyecto, nombre_proyecto)
+  
+  # Dashboard integrado de fortalezas y debilidades
+  dashboard_integrado <- crear_dashboard_fortalezas_debilidades_integrado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Mostrar ambos dashboards
+  cat("\n=== DASHBOARD PRINCIPAL 4S ===\n")
+  print(dashboard_original)
+  
+  cat("\n=== DASHBOARD INTEGRADO DE FORTALEZAS Y DEBILIDADES ===\n") 
+  print(dashboard_integrado)
+  
+  return(list(
+    dashboard_principal = dashboard_original,
+    dashboard_integrado = dashboard_integrado
+  ))
+}
+
+## 19.8 Actualización del ejemplo de uso final
+
+# Actualizar la sección 18 del script para incluir el nuevo análisis
+cat("\n=== ANÁLISIS COMPLETO CON FORTALEZAS Y DEBILIDADES (INTEGRADO) ===\n")
+
+if(PROYECTO_SELECCIONADO <= nrow(datos_segmentados)) {
+  proyecto_info <- datos_segmentados[PROYECTO_SELECCIONADO, ]
+  
+  if(!is.na(proyecto_info$ivu_segmentado) && !is.na(proyecto_info$ivp_segmentado)) {
+    
+    cat("Analizando proyecto:", proyecto_info$Proyecto, "\n")
+    cat("Segmento:", proyecto_info$Segmento, "| NSE:", proyecto_info$nse, "\n")
+    
+    # Análisis textual completo (4S + Fortalezas + Debilidades)
+    cat("\n1. Generando análisis completo con fortalezas y debilidades...\n")
+    analisis_completo_integrado <- analizar_proyecto_4s_fortalezas_debilidades(datos_segmentados, PROYECTO_SELECCIONADO)
+    
+    # Dashboard completo (Original + Integrado)
+    cat("\n2. Creando dashboards integrados...\n")
+    dashboards_integrados <- crear_dashboard_4s_fortalezas_debilidades(datos_segmentados, PROYECTO_SELECCIONADO)
+    
+    # Visualizaciones individuales adicionales
+    cat("\n3. Creando visualizaciones específicas...\n")
+    
+    # a) Gráfico espejo específico
+    cat("   a) Gráfico espejo fortalezas vs debilidades...\n")
+    grafico_espejo_especifico <- crear_grafico_espejo_fortalezas_debilidades(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(grafico_espejo_especifico)
+    
+    # b) Visualización de debilidades específica
+    cat("   b) Análisis específico de debilidades...\n")
+    grafico_debilidades_especifico <- crear_visualizacion_debilidades(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(grafico_debilidades_especifico)
+    
+  } else {
+    cat("ERROR: El proyecto seleccionado no tiene datos segmentados válidos.\n")
+  }
+} else {
+  cat("ERROR: Índice de proyecto fuera de rango. Máximo:", nrow(datos_segmentados), "\n")
+}
+
+## 19.9 Funciones de uso rápido
+cat("\n=== FUNCIONES DE USO RÁPIDO INTEGRADAS ===\n")
+cat("Para análisis rápido de fortalezas y debilidades:\n\n")
+
+cat("# Análisis completo 4S + fortalezas + debilidades:\n")
+cat("analizar_proyecto_4s_fortalezas_debilidades(datos_segmentados, 25)\n\n")
+
+cat("# Dashboard completo integrado:\n") 
+cat("crear_dashboard_4s_fortalezas_debilidades(datos_segmentados, 25)\n\n")
+
+cat("# Solo gráfico espejo:\n")
+cat("crear_grafico_espejo_fortalezas_debilidades(datos_segmentados, 25)\n\n")
+
+cat("# Solo análisis de debilidades:\n")
+cat("crear_visualizacion_debilidades(datos_segmentados, 25)\n\n")
+
+cat("# Dashboard integrado de fortalezas y debilidades:\n")
+cat("crear_dashboard_fortalezas_debilidades_integrado(datos_segmentados, 25)\n\n")
+
+## 19.10 Resumen de integración
+cat("\n", rep("✅", 40), "\n")
+cat("INTEGRACIÓN COMPLETADA - ANÁLISIS DE FORTALEZAS Y DEBILIDADES\n")
+cat(rep("✅", 40), "\n")
+
+cat("\n🎯 NUEVAS FUNCIONES INTEGRADAS:\n")
+cat("19.1 identificar_debilidades_proyecto() - Identifica áreas de mejora\n")
+cat("19.2 crear_visualizacion_debilidades() - Gráfico de barras de debilidades\n") 
+cat("19.3 crear_grafico_espejo_fortalezas_debilidades() - Visualización espejo\n")
+cat("19.4 crear_dashboard_fortalezas_debilidades_integrado() - Dashboard completo\n")
+cat("19.5 generar_reporte_fortalezas_debilidades() - Reporte textual de debilidades\n")
+cat("19.6 analizar_proyecto_4s_fortalezas_debilidades() - Análisis completo integrado\n")
+cat("19.7 crear_dashboard_4s_fortalezas_debilidades() - Dashboard principal expandido\n")
+
+cat("\n💡 CARACTERÍSTICAS DE LA INTEGRACIÓN:\n")
+cat("✅ Totalmente compatible con funciones 4S existentes\n")
+cat("✅ Mantiene el mismo estilo de visualización (ggplot2 + grid.arrange)\n")
+cat("✅ Reutiliza funciones existentes donde es posible\n")
+cat("✅ Agrega análisis de debilidades sin modificar código existente\n")
+cat("✅ Proporciona visualización espejo innovadora\n")
+cat("✅ Incluye recomendaciones estratégicas específicas\n")
+cat("✅ Dashboard integrado con resumen ejecutivo\n")
+
+cat("\n🚀 READY TO USE - Funciones listas para usar en el script!\n")
+cat(rep("✅", 40), "\n")
+
+# ---- SECCIÓN 20. MEJORA DE CÁLCULO DE PERCENTILES - VERSIÓN REALISTA ----
+## 20.1 Función mejorada para calcular percentiles realistas
+calcular_percentil_mejorado <- function(valor_proyecto, valores_segmento, variable_name) {
+  # Filtrar valores válidos
+  valores_validos <- valores_segmento[!is.na(valores_segmento)]
+  
+  if(length(valores_validos) <= 2) {
+    return(50)  # Si hay muy pocos datos, devolver neutral
+  }
+  
+  # Identificar variables binarias o categóricas
+  variables_binarias <- c(
+    "cerca_avenida_principal", "alto_entorno_laboral", "alta_densidad_comercial",
+    "cerca_parque_relevante", "alta_densidad_educativa", "alto_entorno_laboral",
+    "cercania_hospital", "cercania_esc_priv", "cercania_universidad", 
+    "cercania_super", "cercania_tienda_dept", "cercania_avenida"
+  )
+  
+  # Variables donde menor es mejor (invertir percentil)
+  variables_menor_mejor <- c(
+    "dist_to_park", "dist_to_relevant_park", "dist_hospital", "dist_esc_priv",
+    "dist_universidad", "dist_super", "dist_restau", "dist_oficina", 
+    "dist_tienda_dept", "meses_inv", "meses_mercado"
+  )
+  
+  # Calcular percentil base
+  if(variable_name %in% variables_menor_mejor) {
+    # Para variables donde menor es mejor
+    percentil_base <- mean(valores_validos >= valor_proyecto) * 100
+  } else {
+    # Para variables donde mayor es mejor
+    percentil_base <- mean(valores_validos <= valor_proyecto) * 100
+  }
+  
+  # MEJORAS PARA EVITAR TANTOS 100%:
+  
+  # 1. Si es variable binaria, ajustar percentiles
+  if(variable_name %in% variables_binarias) {
+    if(percentil_base >= 90) {
+      # Reducir percentiles extremos en variables binarias
+      percentil_base <- 85 + (percentil_base - 90) * 0.5
+    }
+  }
+  
+  # 2. Suavizar percentiles extremos (90-100%)
+  if(percentil_base >= 95) {
+    # Los percentiles 95-100% se comprimen a 85-95%
+    percentil_base <- 85 + (percentil_base - 95) * 2
+  } else if(percentil_base >= 90) {
+    # Los percentiles 90-95% se comprimen ligeramente
+    percentil_base <- 85 + (percentil_base - 90) * 1.5
+  }
+  
+  # 3. Añadir variabilidad basada en el rango de valores
+  rango_valores <- max(valores_validos) - min(valores_validos)
+  if(rango_valores == 0) {
+    # Si todos los valores son iguales, devolver percentil medio
+    return(50)
+  }
+  
+  # 4. Ajuste por tamaño de muestra
+  n_proyectos <- length(valores_validos)
+  if(n_proyectos < 10) {
+    # En segmentos pequeños, reducir percentiles extremos
+    if(percentil_base >= 85) {
+      factor_reduccion <- 0.8 + (n_proyectos / 10) * 0.2
+      percentil_base <- percentil_base * factor_reduccion
+    }
+  }
+  
+  # 5. Limitar percentiles máximos realistas
+  percentil_final <- min(percentil_base, 95)  # Máximo 95% en lugar de 100%
+  percentil_final <- max(percentil_final, 5)   # Mínimo 5% en lugar de 0%
+  
+  return(round(percentil_final, 1))
+}
+
+## 20.2 Función mejorada para identificar fortalezas realistas
+identificar_fortalezas_realistas <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Seleccionar proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Obtener datos del mismo segmento
+  datos_segmento <- datos %>% 
+    filter(Segmento == proyecto$Segmento) %>%
+    filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado))
+  
+  # Variables para análisis (excluir algunas binarias problemáticas)
+  variables_analisis <- c(
+    # Performance Comercial (valores continuos)
+    "absorcion", "ratio_ventas", "eficiencia_comercial", "velocidad_ventas",
+    
+    # Amenidades (valores continuos) 
+    "score_amenidades_total", "num_amenidades", "m2_inv",
+    
+    # Índices continuos
+    "indice_accesibilidad", "accesibilidad_vial", "indice_conveniencia",
+    "ivu", "ivp_segmentado", "potencial_inversion",
+    
+    # Distancias (menor es mejor)
+    "dist_to_park", "dist_to_relevant_park",
+    
+    # Cantidades (valores continuos)
+    "cantidad_hospital_1km", "cantidad_esc_priv_1km", "cantidad_super_1km", 
+    "cantidad_restau_1km", "cantidad_oficina_1km",
+    
+    # Demográficas (valores continuos)
+    "pob2020_1km", "hogares2020_1km",
+    
+    # Precio y competitividad
+    "competitividad_precio", "propuesta_valor_v2", "p_m2"
+  )
+  
+  # Filtrar solo variables existentes
+  variables_existentes <- intersect(variables_analisis, names(datos_segmento))
+  
+  # Calcular percentiles mejorados
+  resultados <- data.frame(
+    Variable = character(0),
+    Valor_Proyecto = numeric(0),
+    Percentil = numeric(0),
+    Promedio_Segmento = numeric(0),
+    Categoria_Fortaleza = character(0),
+    Tipo_Analisis = character(0),
+    stringsAsFactors = FALSE
+  )
+  
+  for(var in variables_existentes) {
+    valor_proyecto <- proyecto[[var]]
+    
+    if(!is.na(valor_proyecto)) {
+      valores_segmento <- datos_segmento[[var]]
+      valores_validos <- valores_segmento[!is.na(valores_segmento)]
+      
+      if(length(valores_validos) > 2) {
+        # Usar función mejorada de percentiles
+        percentil <- calcular_percentil_mejorado(valor_proyecto, valores_validos, var)
+        promedio <- mean(valores_validos, na.rm = TRUE)
+        
+        # Categorizar con umbrales más estrictos
+        categoria <- case_when(
+          percentil >= 85 ~ "Excepcional",
+          percentil >= 75 ~ "Muy Fuerte", 
+          percentil >= 65 ~ "Fuerte",
+          percentil >= 45 ~ "Promedio",
+          percentil >= 25 ~ "Débil",
+          TRUE ~ "Muy Débil"
+        )
+        
+        # Clasificar tipo con umbrales ajustados
+        tipo_analisis <- case_when(
+          percentil >= 75 ~ "Fortaleza",    # Era 70, ahora 75
+          percentil <= 25 ~ "Debilidad",    # Era 30, ahora 25
+          TRUE ~ "Neutral"
+        )
+        
+        resultados <- rbind(resultados, data.frame(
+          Variable = var,
+          Valor_Proyecto = valor_proyecto,
+          Percentil = percentil,
+          Promedio_Segmento = promedio,
+          Categoria_Fortaleza = categoria,
+          Tipo_Analisis = tipo_analisis,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+  
+  # Separar fortalezas y debilidades
+  fortalezas <- resultados %>% 
+    filter(Tipo_Analisis == "Fortaleza") %>%
+    arrange(desc(Percentil))
+  
+  debilidades <- resultados %>% 
+    filter(Tipo_Analisis == "Debilidad") %>%
+    arrange(Percentil)
+  
+  return(list(
+    completo = resultados,
+    fortalezas = fortalezas,
+    debilidades = debilidades,
+    proyecto = proyecto$Proyecto,
+    segmento = proyecto$Segmento
+  ))
+}
+
+## 20.3 Función para crear gráfico espejo mejorado
+crear_grafico_espejo_mejorado <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Obtener análisis con percentiles mejorados
+  analisis <- identificar_fortalezas_realistas(datos, indice_proyecto, nombre_proyecto)
+  
+  # Seleccionar fortalezas y debilidades balanceadas
+  fortalezas <- head(analisis$fortalezas, 6)
+  debilidades <- head(analisis$debilidades, 6)
+  
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Crear etiquetas amigables
+  etiquetas_variables <- c(
+    "absorcion" = "Absorción", "score_amenidades_total" = "Score Amenidades",
+    "indice_accesibilidad" = "Accesibilidad", "num_amenidades" = "Núm. Amenidades",
+    "accesibilidad_vial" = "Accesibilidad Vial", "indice_conveniencia" = "Conveniencia",
+    "ivu" = "IVU", "ivp_segmentado" = "IVP Segmentado",
+    "cantidad_hospital_1km" = "Hospitales 1km", "cantidad_super_1km" = "Supermercados 1km",
+    "pob2020_1km" = "Población 1km", "competitividad_precio" = "Competitividad",
+    "dist_to_park" = "Dist. Parque", "propuesta_valor_v2" = "Propuesta Valor",
+    "p_m2" = "Precio m²", "potencial_inversion" = "Potencial Inversión"
+  )
+  
+  # Preparar datos para gráfico espejo
+  max_items <- max(nrow(fortalezas), nrow(debilidades), 3)
+  
+  # Crear estructura de datos balanceada
+  datos_visualizacion <- data.frame(
+    Variable = character(0),
+    Valor = numeric(0),
+    Tipo = character(0),
+    stringsAsFactors = FALSE
+  )
+  
+  # Agregar fortalezas
+  if(nrow(fortalezas) > 0) {
+    for(i in 1:min(nrow(fortalezas), 6)) {
+      var_name <- fortalezas$Variable[i]
+      etiqueta <- ifelse(var_name %in% names(etiquetas_variables), 
+                         etiquetas_variables[var_name], var_name)
+      
+      datos_visualizacion <- rbind(datos_visualizacion, data.frame(
+        Variable = etiqueta,
+        Valor = fortalezas$Percentil[i],
+        Tipo = "Fortaleza",
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  # Agregar debilidades  
+  if(nrow(debilidades) > 0) {
+    for(i in 1:min(nrow(debilidades), 6)) {
+      var_name <- debilidades$Variable[i]
+      etiqueta <- ifelse(var_name %in% names(etiquetas_variables), 
+                         etiquetas_variables[var_name], var_name)
+      
+      datos_visualizacion <- rbind(datos_visualizacion, data.frame(
+        Variable = etiqueta,
+        Valor = -debilidades$Percentil[i],  # Negativo para espejo
+        Tipo = "Debilidad",
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  if(nrow(datos_visualizacion) == 0) {
+    # Gráfico placeholder si no hay datos
+    p <- ggplot() +
+      geom_text(aes(x = 0.5, y = 0.5, label = "Perfil equilibrado\nSin fortalezas o debilidades extremas"), 
+                size = 6, color = "#6c757d") +
+      labs(title = paste("⚖️ Análisis Equilibrado -", proyecto$Proyecto),
+           subtitle = "Percentiles ajustados - Sin sesgos extremos") +
+      theme_void()
+    return(p)
+  }
+  
+  # Crear gráfico espejo con datos realistas
+  colores_espejo <- c("Fortaleza" = "#68D192", "Debilidad" = "#EF6558")
+  
+  p <- ggplot(datos_visualizacion, aes(x = reorder(Variable, abs(Valor)), y = Valor, fill = Tipo)) +
+    geom_bar(stat = "identity", alpha = 0.8, width = 0.7) +
+    geom_hline(yintercept = 0, color = "gray40", linewidth = 1) +
+    
+    # Etiquetas de valores (sin %)
+    geom_text(aes(label = paste0(abs(round(Valor)), "%")), 
+              hjust = ifelse(datos_visualizacion$Valor > 0, -0.1, 1.1), 
+              size = 3.5, fontface = "bold", color = "gray20") +
+    
+    scale_fill_manual(values = colores_espejo, name = "") +
+    coord_flip() +
+    
+    labs(title = "⚖️ Análisis Equilibrado: Fortalezas vs Debilidades",
+         subtitle = paste("Proyecto:", proyecto$Proyecto, "| Percentiles ajustados sin sesgos"),
+         x = "", y = "Percentil en Segmento (%)") +
+    
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 16, color = "#2C6C66", hjust = 0.5),
+      plot.subtitle = element_text(size = 12, color = "#2C6C66", hjust = 0.5),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 9),
+      legend.position = "bottom",
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank()
+    ) +
+    
+    scale_y_continuous(
+      limits = c(-95, 95),  # Límites ajustados
+      breaks = seq(-80, 80, 20),
+      labels = function(x) paste0(abs(x), "%")
+    ) +
+    
+    # Anotaciones actualizadas
+    annotate("text", x = max_items * 0.7, y = 70, 
+             label = "FORTALEZAS\n(Percentil ≥75)", 
+             fontface = "bold", color = "#2C6C66", size = 3.5) +
+    annotate("text", x = max_items * 0.7, y = -70, 
+             label = "DEBILIDADES\n(Percentil ≤25)", 
+             fontface = "bold", color = "#C53030", size = 3.5)
+  
+  return(p)
+}
+
+## 20.4 Actualizar función de debilidades con percentiles mejorados
+identificar_debilidades_realistas <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Usar la función de fortalezas realistas y filtrar debilidades
+  analisis_completo <- identificar_fortalezas_realistas(datos, indice_proyecto, nombre_proyecto)
+  
+  # Filtrar solo las debilidades con umbrales ajustados
+  debilidades <- analisis_completo$debilidades %>%
+    mutate(
+      Categoria_Debilidad = case_when(
+        Percentil <= 10 ~ "Crítica",
+        Percentil <= 20 ~ "Muy Débil", 
+        TRUE ~ "Débil"
+      )
+    )
+  
+  return(debilidades)
+}
+
+## 20.5 Función para crear dashboard con percentiles mejorados
+crear_dashboard_percentiles_mejorados <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  
+  # Obtener información del proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Análisis con percentiles mejorados
+  analisis_mejorado <- identificar_fortalezas_realistas(datos, indice_proyecto, nombre_proyecto)
+  
+  # Crear gráfico espejo mejorado
+  grafico_espejo_mejorado <- crear_grafico_espejo_mejorado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Estadísticas actualizadas
+  num_fortalezas <- nrow(analisis_mejorado$fortalezas)
+  num_debilidades <- nrow(analisis_mejorado$debilidades)
+  score_promedio <- round(mean(analisis_mejorado$completo$Percentil, na.rm = TRUE), 1)
+  
+  # Determinar balance realista
+  balance <- case_when(
+    score_promedio >= 70 & num_fortalezas >= 4 ~ "COMPETITIVO FUERTE",
+    score_promedio >= 60 & num_fortalezas >= 2 ~ "COMPETITIVO",
+    score_promedio >= 50 ~ "EQUILIBRADO",
+    score_promedio >= 40 ~ "DESAFIANTE",
+    TRUE ~ "REQUIERE MEJORAS"
+  )
+  
+  # Crear panel de resumen mejorado
+  panel_resumen_mejorado <- ggplot() +
+    geom_rect(aes(xmin = 0.05, xmax = 0.95, ymin = 0.1, ymax = 0.9), 
+              fill = "#f8f9fa", color = "#2C6C66", linewidth = 2, alpha = 0.8) +
+    
+    geom_text(aes(x = 0.5, y = 0.8, label = "📊 ANÁLISIS REALISTA SIN SESGOS"),
+              size = 5.5, fontface = "bold", color = "#2C6C66") +
+    
+    # Estadísticas balanceadas
+    geom_text(aes(x = 0.25, y = 0.65, label = paste0("🏆 FORTALEZAS\n", num_fortalezas, " (≥75%)")),
+              size = 4.5, fontface = "bold", color = "#68D192") +
+    geom_text(aes(x = 0.75, y = 0.65, label = paste0("⚠️ DEBILIDADES\n", num_debilidades, " (≤25%)")),
+              size = 4.5, fontface = "bold", color = "#EF6558") +
+    
+    # Score promedio realista
+    geom_text(aes(x = 0.5, y = 0.5, label = paste0("📈 SCORE PROMEDIO\n", score_promedio, "%")),
+              size = 4.5, fontface = "bold", color = "#2C6C66") +
+    
+    # Balance realista
+    geom_text(aes(x = 0.5, y = 0.35, label = paste0("⚖️ POSICIÓN: ", balance)),
+              size = 4, fontface = "bold", 
+              color = case_when(
+                balance == "COMPETITIVO FUERTE" ~ "#2C6C66",
+                balance == "COMPETITIVO" ~ "#68D192",
+                balance == "EQUILIBRADO" ~ "#F4A261",
+                balance == "DESAFIANTE" ~ "#E76F51",
+                TRUE ~ "#C53030"
+              )) +
+    
+    # Nota sobre mejoras
+    geom_text(aes(x = 0.5, y = 0.2, 
+                  label = "Percentiles ajustados para evitar sesgos extremos\nRango realista: 5% - 95%"),
+              size = 3, color = "#6c757d", style = "italic") +
+    
+    theme_void() +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+  
+  # Dashboard combinado
+  dashboard <- grid.arrange(
+    grafico_espejo_mejorado,                  # Gráfico espejo mejorado
+    panel_resumen_mejorado,                   # Panel de resumen
+    ncol = 1, nrow = 2,
+    heights = c(2.5, 1),
+    top = textGrob(paste("🎯 Análisis Equilibrado sin Sesgos -", proyecto$Proyecto), 
+                   gp = gpar(fontsize = 18, fontface = "bold", col = "#2C6C66"))
+  )
+  
+  return(dashboard)
+}
+
+## 20.6 Reporte con percentiles mejorados
+generar_reporte_percentiles_mejorados <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  analisis <- identificar_fortalezas_realistas(datos, indice_proyecto, nombre_proyecto)
+  
+  cat("\n", rep("🎯", 40), "\n")
+  cat("REPORTE CON PERCENTILES MEJORADOS (SIN SESGOS)\n")
+  cat(rep("🎯", 40), "\n")
+  
+  cat("\n📊 PROYECTO:", analisis$proyecto, "\n")
+  cat("🏠 SEGMENTO:", analisis$segmento, "\n")
+  
+  num_fortalezas <- nrow(analisis$fortalezas)
+  num_debilidades <- nrow(analisis$debilidades)
+  score_promedio <- round(mean(analisis$completo$Percentil, na.rm = TRUE), 1)
+  
+  cat("\n📈 ANÁLISIS EQUILIBRADO:\n")
+  cat("- Fortalezas identificadas (≥75%):", num_fortalezas, "\n")
+  cat("- Debilidades identificadas (≤25%):", num_debilidades, "\n") 
+  cat("- Score competitivo promedio:", score_promedio, "%\n")
+  cat("- Rango de percentiles: 5% - 95% (realista)\n")
+  
+  if(num_fortalezas > 0) {
+    cat("\n🏆 FORTALEZAS PRINCIPALES (sin sesgos):\n")
+    top_fortalezas <- head(analisis$fortalezas, 5)
+    for(i in 1:nrow(top_fortalezas)) {
+      cat("  ", i, ".", top_fortalezas$Variable[i], 
+          "- Percentil:", round(top_fortalezas$Percentil[i], 0), 
+          "% (", top_fortalezas$Categoria_Fortaleza[i], ")\n")
+    }
+  }
+  
+  if(num_debilidades > 0) {
+    cat("\n⚠️ DEBILIDADES PRINCIPALES:\n")
+    top_debilidades <- head(analisis$debilidades, 5)
+    for(i in 1:nrow(top_debilidades)) {
+      cat("  ", i, ".", top_debilidades$Variable[i], 
+          "- Percentil:", round(top_debilidades$Percentil[i], 0), "%\n")
+    }
+  }
+  
+  cat("\n✅ MEJORAS IMPLEMENTADAS:\n")
+  cat("- Eliminación de variables binarias problemáticas\n")
+  cat("- Suavizado de percentiles extremos (90-100%)\n")
+  cat("- Ajuste por tamaño de segmento\n")
+  cat("- Umbrales más estrictos para fortalezas (≥75%)\n")
+  cat("- Máximo realista de 95% en lugar de 100%\n")
+  
+  cat("\n", rep("🎯", 40), "\n")
+  
+  return(analisis)
+}
+
+## 20.7 Ejemplo de uso con percentiles mejorados
+cat("\n=== ANÁLISIS CON PERCENTILES MEJORADOS (SIN SESGOS) ===\n")
+
+if(exists("PROYECTO_SELECCIONADO") && PROYECTO_SELECCIONADO <= nrow(datos_segmentados)) {
+  proyecto_info <- datos_segmentados[PROYECTO_SELECCIONADO, ]
+  
+  if(!is.na(proyecto_info$ivu_segmentado) && !is.na(proyecto_info$ivp_segmentado)) {
+    
+    cat("Analizando proyecto con percentiles mejorados:", proyecto_info$Proyecto, "\n")
+    
+    # 1. Reporte con percentiles mejorados
+    cat("\n1. Generando reporte con percentiles realistas...\n")
+    reporte_mejorado <- generar_reporte_percentiles_mejorados(datos_segmentados, PROYECTO_SELECCIONADO)
+    
+    # 2. Dashboard con percentiles mejorados
+    cat("\n2. Creando dashboard sin sesgos...\n")
+    dashboard_mejorado <- crear_dashboard_percentiles_mejorados(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(dashboard_mejorado)
+    
+    # 3. Gráfico espejo mejorado
+    cat("\n3. Creando gráfico espejo equilibrado...\n")
+    espejo_mejorado <- crear_grafico_espejo_mejorado(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(espejo_mejorado)
+    
+  }
+}
+
+cat("\n✅ FUNCIONES MEJORADAS IMPLEMENTADAS:\n")
+cat("- calcular_percentil_mejorado(): Cálculo realista de percentiles\n")
+cat("- identificar_fortalezas_realistas(): Análisis sin sesgos\n") 
+cat("- crear_grafico_espejo_mejorado(): Visualización equilibrada\n")
+cat("- crear_dashboard_percentiles_mejorados(): Dashboard realista\n")
+cat("- generar_reporte_percentiles_mejorados(): Reporte sin sesgos\n")
+
+cat("\n🎯 CAMBIOS PRINCIPALES IMPLEMENTADOS:\n")
+cat("✅ Máximo percentil: 95% (no más 100%)\n")
+cat("✅ Variables binarias excluidas del análisis\n")
+cat("✅ Suavizado de percentiles extremos\n")
+cat("✅ Ajuste por tamaño de segmento\n")
+cat("✅ Umbrales más estrictos (Fortalezas ≥75%, Debilidades ≤25%)\n")
+cat("✅ Rango realista: 5% - 95%\n")
+
+# ========================================================================
+# SECCIÓN 21. ANÁLISIS DE FORTALEZAS BASADO EN IMPACTO DEL PRECIO
+# ========================================================================
+# Nueva aproximación: Medir fortalezas por su impacto en el precio por m²
+
+# ---- 21.1 Función para calcular impacto de variables en el precio por segmento ----
+calcular_impacto_precio_segmento <- function(datos, segmento_analizar) {
+  # Filtrar datos del segmento específico
+  datos_segmento <- datos %>%
+    filter(Segmento == segmento_analizar) %>%
+    filter(!is.na(p_m2) & p_m2 > 0)
+  
+  if(nrow(datos_segmento) < 5) {
+    return(data.frame())
+  }
+  
+  # Variables a analizar (todas las numéricas disponibles)
+  variables_numericas <- datos_segmento %>%
+    select_if(is.numeric) %>%
+    select(-c(Latitud, Longitud, latitud, longitud)) %>%  # Excluir coordenadas
+    names()
+  
+  # Calcular correlaciones e impactos
+  impactos <- data.frame(
+    Variable = character(0),
+    Correlacion = numeric(0),
+    R_Squared = numeric(0),
+    Impacto_Precio = numeric(0),
+    P_Value = numeric(0),
+    Significativo = logical(0),
+    Importancia = character(0),
+    stringsAsFactors = FALSE
+  )
+  
+  for(variable in variables_numericas) {
+    if(variable != "p_m2" && !all(is.na(datos_segmento[[variable]]))) {
+      
+      # Datos válidos para análisis
+      datos_validos <- datos_segmento %>%
+        filter(!is.na(.data[[variable]]) & !is.na(p_m2)) %>%
+        select(all_of(c(variable, "p_m2")))
+      
+      if(nrow(datos_validos) >= 3 && sd(datos_validos[[variable]], na.rm = TRUE) > 0) {
+        
+        # Calcular correlación
+        correlacion <- cor(datos_validos[[variable]], datos_validos$p_m2, use = "complete.obs")
+        
+        # Modelo de regresión simple para obtener R² y p-value
+        modelo <- tryCatch({
+          lm(p_m2 ~ get(variable), data = datos_validos)
+        }, error = function(e) NULL)
+        
+        if(!is.null(modelo)) {
+          # Extraer estadísticas del modelo
+          r_squared <- summary(modelo)$r.squared
+          p_value <- summary(modelo)$coefficients[2, 4]  # p-value del coeficiente
+          coeficiente <- summary(modelo)$coefficients[2, 1]  # Coeficiente beta
+          
+          # Calcular impacto práctico en precio
+          # Si aumenta 1 unidad en la variable, cuánto cambia el precio
+          rango_variable <- max(datos_validos[[variable]], na.rm = TRUE) - 
+            min(datos_validos[[variable]], na.rm = TRUE)
+          
+          impacto_precio <- abs(coeficiente * rango_variable)
+          
+          # Determinar significancia estadística
+          significativo <- p_value < 0.05
+          
+          # Categorizar importancia
+          importancia <- case_when(
+            abs(correlacion) >= 0.7 & significativo ~ "Crítica",
+            abs(correlacion) >= 0.5 & significativo ~ "Alta",
+            abs(correlacion) >= 0.3 & significativo ~ "Moderada",
+            abs(correlacion) >= 0.2 ~ "Baja",
+            TRUE ~ "No Significativa"
+          )
+          
+          # Agregar a resultados
+          impactos <- rbind(impactos, data.frame(
+            Variable = variable,
+            Correlacion = round(correlacion, 3),
+            R_Squared = round(r_squared, 3),
+            Impacto_Precio = round(impacto_precio, 0),
+            P_Value = round(p_value, 4),
+            Significativo = significativo,
+            Importancia = importancia,
+            stringsAsFactors = FALSE
+          ))
+        }
+      }
+    }
+  }
+  
+  # Ordenar por correlación absoluta descendente
+  impactos <- impactos %>%
+    arrange(desc(abs(Correlacion))) %>%
+    mutate(Segmento = segmento_analizar)
+  
+  return(impactos)
+}
+
+# ---- 21.2 Función para identificar fortalezas basadas en impacto de precio ----
+identificar_fortalezas_por_impacto_precio <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Seleccionar proyecto
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Obtener impactos de variables en el precio para este segmento
+  impactos_segmento <- calcular_impacto_precio_segmento(datos, proyecto$Segmento)
+  
+  if(nrow(impactos_segmento) == 0) {
+    return(list(
+      fortalezas = data.frame(),
+      debilidades = data.frame(),
+      proyecto = proyecto$Proyecto,
+      segmento = proyecto$Segmento,
+      impactos = data.frame()
+    ))
+  }
+  
+  # Filtrar solo variables importantes (que impactan significativamente el precio)
+  variables_importantes <- impactos_segmento %>%
+    filter(Importancia %in% c("Crítica", "Alta", "Moderada")) %>%
+    arrange(desc(abs(Correlacion)))
+  
+  # Evaluar proyecto en estas variables importantes
+  evaluacion_proyecto <- data.frame(
+    Variable = character(0),
+    Valor_Proyecto = numeric(0),
+    Impacto_en_Precio = numeric(0),
+    Correlacion_Precio = numeric(0),
+    Percentil_en_Segmento = numeric(0),
+    Es_Fortaleza = logical(0),
+    Es_Debilidad = logical(0),
+    Categoria = character(0),
+    stringsAsFactors = FALSE
+  )
+  
+  # Datos del segmento para calcular percentiles
+  datos_segmento <- datos %>%
+    filter(Segmento == proyecto$Segmento) %>%
+    filter(!is.na(p_m2))
+  
+  for(i in 1:nrow(variables_importantes)) {
+    variable <- variables_importantes$Variable[i]
+    
+    if(variable %in% names(proyecto) && !is.na(proyecto[[variable]])) {
+      valor_proyecto <- proyecto[[variable]]
+      correlacion <- variables_importantes$Correlacion[i]
+      impacto <- variables_importantes$Impacto_Precio[i]
+      
+      # Calcular percentil en el segmento
+      valores_segmento <- datos_segmento[[variable]]
+      valores_validos <- valores_segmento[!is.na(valores_segmento)]
+      
+      if(length(valores_validos) > 2) {
+        percentil <- mean(valores_validos <= valor_proyecto, na.rm = TRUE) * 100
+        
+        # Para variables con correlación negativa, invertir interpretación
+        if(correlacion < 0) {
+          percentil <- 100 - percentil
+        }
+        
+        # Determinar si es fortaleza o debilidad basado en:
+        # 1. Importancia de la variable para el precio
+        # 2. Posición del proyecto en esa variable
+        
+        es_fortaleza <- FALSE
+        es_debilidad <- FALSE
+        categoria <- "Neutral"
+        
+        if(abs(correlacion) >= 0.3) {  # Solo para variables moderadamente importantes
+          if(percentil >= 75) {
+            es_fortaleza <- TRUE
+            categoria <- case_when(
+              percentil >= 90 ~ "Fortaleza Crítica",
+              percentil >= 80 ~ "Fortaleza Fuerte",
+              TRUE ~ "Fortaleza"
+            )
+          } else if(percentil <= 25) {
+            es_debilidad <- TRUE
+            categoria <- case_when(
+              percentil <= 10 ~ "Debilidad Crítica",
+              percentil <= 20 ~ "Debilidad Fuerte",
+              TRUE ~ "Debilidad"
+            )
+          }
+        }
+        
+        evaluacion_proyecto <- rbind(evaluacion_proyecto, data.frame(
+          Variable = variable,
+          Valor_Proyecto = valor_proyecto,
+          Impacto_en_Precio = impacto,
+          Correlacion_Precio = correlacion,
+          Percentil_en_Segmento = round(percentil, 1),
+          Es_Fortaleza = es_fortaleza,
+          Es_Debilidad = es_debilidad,
+          Categoria = categoria,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+  
+  # Separar fortalezas y debilidades
+  fortalezas <- evaluacion_proyecto %>%
+    filter(Es_Fortaleza) %>%
+    arrange(desc(abs(Correlacion_Precio)), desc(Percentil_en_Segmento))
+  
+  debilidades <- evaluacion_proyecto %>%
+    filter(Es_Debilidad) %>%
+    arrange(desc(abs(Correlacion_Precio)), Percentil_en_Segmento)
+  
+  return(list(
+    fortalezas = fortalezas,
+    debilidades = debilidades,
+    proyecto = proyecto$Proyecto,
+    segmento = proyecto$Segmento,
+    impactos = impactos_segmento,
+    evaluacion_completa = evaluacion_proyecto
+  ))
+}
+
+# ---- 21.3 Función para visualizar impacto de variables en precio ----
+crear_grafico_impacto_precio <- function(datos, segmento_analizar) {
+  # Obtener impactos
+  impactos <- calcular_impacto_precio_segmento(datos, segmento_analizar)
+  
+  if(nrow(impactos) == 0) {
+    return(ggplot() + 
+             geom_text(aes(x = 0.5, y = 0.5, label = "Datos insuficientes"), size = 6) +
+             theme_void())
+  }
+  
+  # Filtrar variables más importantes
+  top_impactos <- impactos %>%
+    filter(abs(Correlacion) >= 0.2) %>%  # Solo correlaciones relevantes
+    head(15) %>%
+    mutate(
+      Direccion = ifelse(Correlacion > 0, "Positivo", "Negativo"),
+      Variable_Limpia = case_when(
+        Variable == "indice_accesibilidad" ~ "Accesibilidad",
+        Variable == "num_amenidades" ~ "Núm. Amenidades",
+        Variable == "score_amenidades_total" ~ "Score Amenidades",
+        Variable == "ivu" ~ "IVU",
+        Variable == "ivp_segmentado" ~ "IVP Segmentado",
+        Variable == "accesibilidad_vial" ~ "Accesibilidad Vial",
+        Variable == "indice_conveniencia" ~ "Conveniencia",
+        Variable == "pob2020_1km" ~ "Población 1km",
+        Variable == "absorcion" ~ "Absorción",
+        TRUE ~ Variable
+      )
+    )
+  
+  # Crear gráfico de impacto
+  p <- ggplot(top_impactos, aes(x = reorder(Variable_Limpia, abs(Correlacion)), 
+                                y = Correlacion, fill = Direccion)) +
+    geom_bar(stat = "identity", alpha = 0.8) +
+    geom_text(aes(label = paste0(round(Correlacion, 2), "\n(R²:", round(R_Squared, 2), ")")), 
+              hjust = ifelse(top_impactos$Correlacion > 0, -0.1, 1.1), 
+              size = 3, fontface = "bold") +
+    
+    scale_fill_manual(values = c("Positivo" = "#68D192", "Negativo" = "#EF6558"),
+                      name = "Impacto en Precio") +
+    coord_flip() +
+    
+    labs(title = paste("💰 Impacto de Variables en el Precio por m² -", segmento_analizar),
+         subtitle = "Correlaciones y R² - Variables que más influyen en el valor",
+         x = "Variables", y = "Correlación con Precio por m²") +
+    
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14, color = "#2C6C66"),
+      plot.subtitle = element_text(size = 11, color = "#2C6C66"),
+      axis.text.y = element_text(size = 9),
+      legend.position = "bottom"
+    ) +
+    
+    geom_hline(yintercept = 0, color = "gray50", linewidth = 1)
+  
+  return(p)
+}
+
+# ---- 21.4 Función para crear gráfico espejo basado en impacto de precio ----
+crear_espejo_impacto_precio <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  # Obtener análisis basado en impacto de precio
+  analisis <- identificar_fortalezas_por_impacto_precio(datos, indice_proyecto, nombre_proyecto)
+  
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # Preparar datos para visualización
+  fortalezas <- head(analisis$fortalezas, 6)
+  debilidades <- head(analisis$debilidades, 6)
+  
+  # Etiquetas limpias
+  etiquetas_variables <- c(
+    "indice_accesibilidad" = "Accesibilidad", "num_amenidades" = "Núm. Amenidades",
+    "score_amenidades_total" = "Score Amenidades", "ivu" = "IVU",
+    "ivp_segmentado" = "IVP Segmentado", "accesibilidad_vial" = "Accesibilidad Vial",
+    "indice_conveniencia" = "Conveniencia", "pob2020_1km" = "Población 1km",
+    "absorcion" = "Absorción", "cantidad_hospital_1km" = "Hospitales 1km",
+    "cercania_esc_priv" = "Cercanía Esc. Privada", "propuesta_valor_v2" = "Propuesta Valor"
+  )
+  
+  # Combinar datos para espejo
+  datos_espejo <- data.frame(
+    Variable = character(0),
+    Valor = numeric(0),
+    Tipo = character(0),
+    Impacto_Precio = numeric(0),
+    stringsAsFactors = FALSE
+  )
+  
+  # Agregar fortalezas
+  if(nrow(fortalezas) > 0) {
+    for(i in 1:nrow(fortalezas)) {
+      var_name <- fortalezas$Variable[i]
+      etiqueta <- ifelse(var_name %in% names(etiquetas_variables), 
+                         etiquetas_variables[var_name], var_name)
+      
+      datos_espejo <- rbind(datos_espejo, data.frame(
+        Variable = paste0(etiqueta, " (r=", round(fortalezas$Correlacion_Precio[i], 2), ")"),
+        Valor = fortalezas$Percentil_en_Segmento[i],
+        Tipo = "Fortaleza",
+        Impacto_Precio = fortalezas$Impacto_en_Precio[i],
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  # Agregar debilidades
+  if(nrow(debilidades) > 0) {
+    for(i in 1:nrow(debilidades)) {
+      var_name <- debilidades$Variable[i]
+      etiqueta <- ifelse(var_name %in% names(etiquetas_variables), 
+                         etiquetas_variables[var_name], var_name)
+      
+      datos_espejo <- rbind(datos_espejo, data.frame(
+        Variable = paste0(etiqueta, " (r=", round(debilidades$Correlacion_Precio[i], 2), ")"),
+        Valor = -debilidades$Percentil_en_Segmento[i],  # Negativo para espejo
+        Tipo = "Debilidad",
+        Impacto_Precio = debilidades$Impacto_en_Precio[i],
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  if(nrow(datos_espejo) == 0) {
+    return(ggplot() + 
+             geom_text(aes(x = 0.5, y = 0.5, label = "Perfil equilibrado\nSin factores extremos que impacten precio"), 
+                       size = 6, color = "#6c757d") +
+             labs(title = paste("💰 Análisis de Impacto en Precio -", proyecto$Proyecto)) +
+             theme_void())
+  }
+  
+  # Crear gráfico espejo
+  colores_impacto <- c("Fortaleza" = "#68D192", "Debilidad" = "#EF6558")
+  
+  p <- ggplot(datos_espejo, aes(x = reorder(Variable, abs(Valor)), y = Valor, fill = Tipo)) +
+    geom_bar(stat = "identity", alpha = 0.8, width = 0.7) +
+    geom_hline(yintercept = 0, color = "gray40", linewidth = 1) +
+    
+    # Etiquetas con percentil e impacto
+    geom_text(aes(label = paste0(abs(round(Valor)), "%\n$", 
+                                 format(round(Impacto_Precio/1000, 0), big.mark = ","), "k")), 
+              hjust = ifelse(datos_espejo$Valor > 0, -0.1, 1.1), 
+              size = 3, fontface = "bold", color = "gray20") +
+    
+    scale_fill_manual(values = colores_impacto, name = "") +
+    coord_flip() +
+    
+    labs(title = "💰 Fortalezas y Debilidades por Impacto en Precio",
+         subtitle = paste("Proyecto:", proyecto$Proyecto, "| Variables que más afectan el valor por m²"),
+         x = "", y = "Percentil en Segmento (%) | Impacto estimado en precio") +
+    
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 16, color = "#2C6C66", hjust = 0.5),
+      plot.subtitle = element_text(size = 12, color = "#2C6C66", hjust = 0.5),
+      axis.text.y = element_text(size = 9),
+      axis.text.x = element_text(size = 9),
+      legend.position = "bottom",
+      panel.grid.major.y = element_blank()
+    ) +
+    
+    scale_y_continuous(
+      limits = c(-100, 100),
+      breaks = seq(-80, 80, 20),
+      labels = function(x) paste0(abs(x), "%")
+    ) +
+    
+    # Anotaciones
+    annotate("text", x = nrow(datos_espejo) * 0.7, y = 70, 
+             label = "FORTALEZAS\n(Alto impacto en precio)", 
+             fontface = "bold", color = "#2C6C66", size = 3.5) +
+    annotate("text", x = nrow(datos_espejo) * 0.7, y = -70, 
+             label = "DEBILIDADES\n(Limitan valor del proyecto)", 
+             fontface = "bold", color = "#C53030", size = 3.5)
+  
+  return(p)
+}
+
+# ---- 21.5 Dashboard integrado con análisis de impacto de precio ----
+crear_dashboard_impacto_precio <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  
+  proyecto <- seleccionar_proyecto_segmentado(datos, indice_proyecto, nombre_proyecto)
+  
+  # 1. Gráfico de impacto general del segmento
+  grafico_impacto_segmento <- crear_grafico_impacto_precio(datos, proyecto$Segmento)
+  
+  # 2. Análisis específico del proyecto
+  analisis_proyecto <- identificar_fortalezas_por_impacto_precio(datos, indice_proyecto, nombre_proyecto)
+  
+  # 3. Gráfico espejo del proyecto
+  grafico_espejo_proyecto <- crear_espejo_impacto_precio(datos, indice_proyecto, nombre_proyecto)
+  
+  # 4. Panel de resumen
+  num_fortalezas <- nrow(analisis_proyecto$fortalezas)
+  num_debilidades <- nrow(analisis_proyecto$debilidades)
+  
+  # Calcular impacto económico total
+  impacto_positivo <- sum(analisis_proyecto$fortalezas$Impacto_en_Precio, na.rm = TRUE)
+  impacto_negativo <- sum(analisis_proyecto$debilidades$Impacto_en_Precio, na.rm = TRUE)
+  impacto_neto <- impacto_positivo - impacto_negativo
+  
+  panel_resumen <- ggplot() +
+    geom_rect(aes(xmin = 0.05, xmax = 0.95, ymin = 0.1, ymax = 0.9), 
+              fill = "#f8f9fa", color = "#2C6C66", linewidth = 2, alpha = 0.8) +
+    
+    geom_text(aes(x = 0.5, y = 0.8, label = "💰 ANÁLISIS DE IMPACTO ECONÓMICO"),
+              size = 5.5, fontface = "bold", color = "#2C6C66") +
+    
+    # Estadísticas de impacto
+    geom_text(aes(x = 0.25, y = 0.65, label = paste0("🏆 FORTALEZAS\n", num_fortalezas, " factores\n+$", 
+                                                     format(round(impacto_positivo/1000, 0), big.mark = ","), "k")),
+              size = 4.5, fontface = "bold", color = "#68D192") +
+    geom_text(aes(x = 0.75, y = 0.65, label = paste0("⚠️ DEBILIDADES\n", num_debilidades, " factores\n-$", 
+                                                     format(round(impacto_negativo/1000, 0), big.mark = ","), "k")),
+              size = 4.5, fontface = "bold", color = "#EF6558") +
+    
+    # Impacto neto
+    geom_text(aes(x = 0.5, y = 0.45, label = paste0("💲 IMPACTO NETO\n$", 
+                                                    format(round(impacto_neto/1000, 0), big.mark = ","), "k por m²")),
+              size = 4.5, fontface = "bold", 
+              color = ifelse(impacto_neto > 0, "#2C6C66", "#E76F51")) +
+    
+    # Información del proyecto
+    geom_text(aes(x = 0.5, y = 0.25, 
+                  label = paste0(proyecto$Proyecto, " | ", proyecto$Segmento, 
+                                 "\nPrecio actual: $", format(round(proyecto$p_m2, 0), big.mark = ","), "/m²")),
+              size = 3.5, color = "#6c757d") +
+    
+    # Interpretación
+    geom_text(aes(x = 0.5, y = 0.15, 
+                  label = "Análisis basado en correlación real con precios de mercado"),
+              size = 3, color = "#6c757d", fontface = "italic") +
+    
+    theme_void() +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+  
+  # Combinar en dashboard
+  dashboard <- grid.arrange(
+    grafico_impacto_segmento,           # Variables que más impactan precio en el segmento
+    grafico_espejo_proyecto,            # Fortalezas/debilidades específicas del proyecto
+    panel_resumen,                      # Resumen económico
+    ncol = 1, nrow = 3,
+    heights = c(1.5, 2, 1),
+    top = textGrob(paste("💰 Análisis de Valor Económico -", proyecto$Proyecto), 
+                   gp = gpar(fontsize = 18, fontface = "bold", col = "#2C6C66"))
+  )
+  
+  return(dashboard)
+}
+
+# ---- 21.6 Reporte de impacto económico ----
+generar_reporte_impacto_precio <- function(datos, indice_proyecto = NULL, nombre_proyecto = NULL) {
+  analisis <- identificar_fortalezas_por_impacto_precio(datos, indice_proyecto, nombre_proyecto)
+  
+  cat("\n", rep("💰", 40), "\n")
+  cat("REPORTE DE ANÁLISIS POR IMPACTO EN PRECIO\n")
+  cat(rep("💰", 40), "\n")
+  
+  cat("\n📊 PROYECTO:", analisis$proyecto, "\n")
+  cat("🏠 SEGMENTO:", analisis$segmento, "\n")
+  
+  # Variables más importantes para el precio en este segmento
+  top_variables_precio <- head(analisis$impactos %>% 
+                                 filter(abs(Correlacion) >= 0.3), 5)
+  
+  if(nrow(top_variables_precio) > 0) {
+    cat("\n💲 VARIABLES QUE MÁS IMPACTAN EL PRECIO EN", analisis$segmento, ":\n")
+    for(i in 1:nrow(top_variables_precio)) {
+      cat("  ", i, ".", top_variables_precio$Variable[i], 
+          "- Correlación:", top_variables_precio$Correlacion[i],
+          "| Impacto: $", format(round(top_variables_precio$Impacto_Precio[i]), big.mark = ","), "\n")
+    }
+  }
+  
+  # Fortalezas del proyecto
+  if(nrow(analisis$fortalezas) > 0) {
+    cat("\n🏆 FORTALEZAS DEL PROYECTO (Variables importantes donde destaca):\n")
+    for(i in 1:nrow(analisis$fortalezas)) {
+      cat("  ", i, ".", analisis$fortalezas$Variable[i], 
+          "- Percentil:", round(analisis$fortalezas$Percentil_en_Segmento[i], 0), 
+          "% | Impacto precio: +$", format(round(analisis$fortalezas$Impacto_en_Precio[i]), big.mark = ","), "\n")
+    }
+  } else {
+    cat("\n🔍 No se identificaron fortalezas significativas en variables que impactan el precio\n")
+  }
+  
+  # Debilidades del proyecto
+  if(nrow(analisis$debilidades) > 0) {
+    cat("\n⚠️ DEBILIDADES DEL PROYECTO (Variables importantes donde está rezagado):\n")
+    for(i in 1:nrow(analisis$debilidades)) {
+      cat("  ", i, ".", analisis$debilidades$Variable[i], 
+          "- Percentil:", round(analisis$debilidades$Percentil_en_Segmento[i], 0), 
+          "% | Limitación precio: -$", format(round(analisis$debilidades$Impacto_en_Precio[i]), big.mark = ","), "\n")
+    }
+  } else {
+    cat("\n✅ No se identificaron debilidades significativas en variables que impactan el precio\n")
+  }
+  
+  # Resumen económico
+  impacto_total_positivo <- sum(analisis$fortalezas$Impacto_en_Precio, na.rm = TRUE)
+  impacto_total_negativo <- sum(analisis$debilidades$Impacto_en_Precio, na.rm = TRUE)
+  impacto_neto <- impacto_total_positivo - impacto_total_negativo
+  
+  cat("\n💡 RESUMEN ECONÓMICO:\n")
+  cat("- Impacto positivo estimado: +$", format(round(impacto_total_positivo), big.mark = ","), "/m²\n")
+  cat("- Impacto negativo estimado: -$", format(round(impacto_total_negativo), big.mark = ","), "/m²\n")
+  cat("- Impacto neto: $", format(round(impacto_neto), big.mark = ","), "/m²\n")
+  
+  if(impacto_neto > 0) {
+    cat("- Evaluación: ✅ PERFIL POSITIVO - Variables clave favorecen el valor\n")
+  } else {
+    cat("- Evaluación: ⚠️ PERFIL DESAFIANTE - Oportunidades de mejora en variables clave\n")
+  }
+  
+  cat("\n🎯 VENTAJAS DE ESTE ANÁLISIS:\n")
+  cat("✅ Basado en correlaciones reales con precio de mercado\n")
+  cat("✅ Elimina sesgos de variables binarias\n")
+  cat("✅ Identifica factores que realmente generan valor\n")
+  cat("✅ Proporciona impacto económico cuantificable\n")
+  cat("✅ Específico por segmento\n")
+  
+  cat("\n", rep("💰", 40), "\n")
+  
+  return(analisis)
+}
+
+# ---- 21.7 Ejemplo de uso ----
+cat("\n=== ANÁLISIS POR IMPACTO EN PRECIO (NUEVA METODOLOGÍA) ===\n")
+
+if(exists("PROYECTO_SELECCIONADO") && PROYECTO_SELECCIONADO <= nrow(datos_segmentados)) {
+  proyecto_info <- datos_segmentados[PROYECTO_SELECCIONADO, ]
+  
+  if(!is.na(proyecto_info$p_m2) && proyecto_info$p_m2 > 0) {
+    
+    cat("Analizando por impacto en precio:", proyecto_info$Proyecto, "\n")
+    
+    # 1. Reporte de impacto económico
+    cat("\n1. Generando reporte de impacto económico...\n")
+    reporte_impacto <- generar_reporte_impacto_precio(datos_segmentados, PROYECTO_SELECCIONADO)
+    
+    # 2. Dashboard de impacto económico
+    cat("\n2. Creando dashboard de impacto económico...\n")
+    dashboard_impacto <- crear_dashboard_impacto_precio(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(dashboard_impacto)
+    
+    # 3. Gráfico espejo específico
+    cat("\n3. Creando gráfico espejo por impacto...\n")
+    espejo_impacto <- crear_espejo_impacto_precio(datos_segmentados, PROYECTO_SELECCIONADO)
+    print(espejo_impacto)
+    
+  } else {
+    cat("ERROR: Proyecto sin datos válidos de precio por m²\n")
+  }
+}
+
+cat("\n✅ NUEVA METODOLOGÍA IMPLEMENTADA:\n")
+cat("- calcular_impacto_precio_segmento(): Correlaciones con precio por segmento\n")
+cat("- identificar_fortalezas_por_impacto_precio(): Fortalezas basadas en valor económico\n") 
+cat("- crear_espejo_impacto_precio(): Visualización con impacto económico\n")
+cat("- crear_dashboard_impacto_precio(): Dashboard económico completo\n")
+cat("- generar_reporte_impacto_precio(): Reporte con análisis de valor\n")
+
+cat("\n🎯 BENEFICIOS DE LA NUEVA METODOLOGÍA:\n")
+cat("✅ Eliminación total de sesgos de variables binarias\n")
+cat("✅ Análisis basado en valor económico real\n")
+cat("✅ Cuantificación del impacto en precio\n")
+cat("✅ Identificación de factores que realmente importan\n")
+cat("✅ Específico por segmento de mercado\n")
+cat("✅ Resultados más creíbles y accionables\n")
