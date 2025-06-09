@@ -177,7 +177,8 @@ calcular_ivp_segmentado <- function(datos) {
     ungroup()
 }
 
-# 4.3 Función para categorización 4S
+
+# 4.3 Función para categorización 4S CORREGIDA
 agregar_categorizacion_4s <- function(datos) {
   datos %>%
     group_by(segmento_nse) %>%
@@ -191,10 +192,22 @@ agregar_categorizacion_4s <- function(datos) {
         ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "SÓLIDO",
         ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "SUSTENTABLE",
         TRUE ~ "SINGULAR"
-      )
+      ),
+      # FORZAR EL ORDEN CORRECTO DE LOS FACTORES
+      categoria_4s = factor(categoria_4s, 
+                            levels = c("SUPERIOR", "SÓLIDO", "SUSTENTABLE", "SINGULAR"),
+                            ordered = FALSE)
     ) %>%
     ungroup()
 }
+
+# ---- COLORES 4S ESTANDARIZADOS EN EL ORDEN CORRECTO ----
+COLORES_4S <- c(
+  "SUPERIOR" = "#68D192",      # Verde - Posición 1
+  "SÓLIDO" = "#9B87F4",        # Morado/Azul - Posición 2
+  "SUSTENTABLE" = "#F4E785",   # Amarillo - Posición 3
+  "SINGULAR" = "#F8C579"       # Naranja - Posición 4
+)
 
 # ---- 5. APLICAR CÁLCULOS ----
 
@@ -205,7 +218,7 @@ datos_segmentados <- agregar_categorizacion_4s(datos_segmentados)
 
 # ---- 6. FUNCIONES DE VISUALIZACIÓN ----
 
-# 6.1 Función principal para matriz de decisión interactiva
+# 6.1 Función principal para matriz de decisión interactiva CORREGIDA
 crear_matriz_4s_interactiva <- function(datos, segmento_filtro = NULL) {
   if(!is.null(segmento_filtro)) {
     datos_filtrados <- datos %>% filter(Segmento == segmento_filtro)
@@ -217,14 +230,16 @@ crear_matriz_4s_interactiva <- function(datos, segmento_filtro = NULL) {
   
   if(nrow(datos_filtrados) < 3) return(NULL)
   
-  colores_4s <- c("SUPERIOR" = "#68D192", "SÓLIDO" = "#9B87F4", 
-                  "SUSTENTABLE" = "#F4E785", "SINGULAR" = "#F8C579")
-  
   p <- ggplot(datos_filtrados, aes(x = ivu_segmentado, y = ivp_segmentado)) +
-    annotate("rect", xmin = 0, xmax = 0.5, ymin = 0.5, ymax = 1, fill = "#9B87F4", alpha = 0.1) +
-    annotate("rect", xmin = 0.5, xmax = 1, ymin = 0.5, ymax = 1, fill = "#68D192", alpha = 0.1) +
-    annotate("rect", xmin = 0, xmax = 0.5, ymin = 0, ymax = 0.5, fill = "#F8C579", alpha = 0.1) +
-    annotate("rect", xmin = 0.5, xmax = 1, ymin = 0, ymax = 0.5, fill = "#F4E785", alpha = 0.1) +
+    # Fondos de cuadrantes con colores correctos
+    annotate("rect", xmin = 0, xmax = 0.5, ymin = 0.5, ymax = 1, 
+             fill = COLORES_4S["SÓLIDO"], alpha = 0.1) +
+    annotate("rect", xmin = 0.5, xmax = 1, ymin = 0.5, ymax = 1, 
+             fill = COLORES_4S["SUPERIOR"], alpha = 0.1) +
+    annotate("rect", xmin = 0, xmax = 0.5, ymin = 0, ymax = 0.5, 
+             fill = COLORES_4S["SINGULAR"], alpha = 0.1) +
+    annotate("rect", xmin = 0.5, xmax = 1, ymin = 0, ymax = 0.5, 
+             fill = COLORES_4S["SUSTENTABLE"], alpha = 0.1) +
     
     geom_point(aes(color = categoria_4s, 
                    text = paste0("Proyecto: ", Proyecto, "\n",
@@ -238,7 +253,9 @@ crear_matriz_4s_interactiva <- function(datos, segmento_filtro = NULL) {
     
     geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray40") +
     geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray40") +
-    scale_color_manual(values = colores_4s, name = "Categoría 4S") +
+    
+    # Usar colores estandarizados
+    scale_color_manual(values = COLORES_4S, name = "Categoría 4S") +
     
     labs(title = titulo, x = "IVU Segmentado", y = "IVP Segmentado") +
     theme_minimal()
@@ -246,7 +263,7 @@ crear_matriz_4s_interactiva <- function(datos, segmento_filtro = NULL) {
   return(ggplotly(p, tooltip = "text"))
 }
 
-# 6.2 Función principal para mapas interactivos
+# 6.2 Función principal para mapas interactivos DEFINITIVA
 crear_mapa_4s <- function(datos, tipo = "principal") {
   datos_validos <- datos %>% 
     filter(!is.na(latitud) & !is.na(longitud) & 
@@ -265,9 +282,15 @@ crear_mapa_4s <- function(datos, tipo = "principal") {
     variable_color <- "ivp_segmentado_categoria"
     titulo_leyenda <- "IVP Segmentado"
   } else {
-    colores <- c("SUPERIOR" = "#68D192", "SÓLIDO" = "#9B87F4", 
-                 "SUSTENTABLE" = "#F4E785", "SINGULAR" = "#F8C579")
-    pal <- colorFactor(palette = colores, domain = datos_validos$categoria_4s)
+    # ASEGURAR EL ORDEN CORRECTO PARA CATEGORÍA 4S
+    # Primero verificar que categoria_4s sea factor con el orden correcto
+    datos_validos$categoria_4s <- factor(datos_validos$categoria_4s, 
+                                         levels = c("SUPERIOR", "SÓLIDO", "SUSTENTABLE", "SINGULAR"))
+    
+    # Crear paleta en el orden específico de los levels
+    pal <- colorFactor(palette = COLORES_4S, 
+                       domain = levels(datos_validos$categoria_4s),
+                       levels = levels(datos_validos$categoria_4s))
     variable_color <- "categoria_4s"
     titulo_leyenda <- "Categoría 4S"
   }
@@ -290,9 +313,9 @@ crear_mapa_4s <- function(datos, tipo = "principal") {
   leaflet(datos_validos) %>%
     addTiles() %>%
     addCircleMarkers(
-      lng = ~longitud, lat = ~latitud, radius = 8,
+      lng = ~longitud, lat = ~latitud, radius = 7,
       fillColor = ~pal(get(variable_color)),
-      color = "white", weight = 2, opacity = 1, fillOpacity = 0.8,
+      color = "transparent", weight = 0, opacity = 0, fillOpacity = 0.9,
       popup = popups
     ) %>%
     addLegend(
@@ -301,6 +324,36 @@ crear_mapa_4s <- function(datos, tipo = "principal") {
     ) %>%
     setView(lng = mean(datos_validos$longitud, na.rm = TRUE), 
             lat = mean(datos_validos$latitud, na.rm = TRUE), zoom = 10)
+}
+
+# ---- VERIFICACIÓN DETALLADA ----
+cat("\n=== VERIFICACIÓN DE ORDEN DE FACTORES ===\n")
+cat("Orden correcto de categorías 4S:\n")
+cat("1. SUPERIOR (Verde) - Alto IVU + Alto IVP\n")
+cat("2. SÓLIDO (Morado) - Bajo IVU + Alto IVP\n") 
+cat("3. SUSTENTABLE (Amarillo) - Alto IVU + Bajo IVP\n")
+cat("4. SINGULAR (Naranja) - Bajo IVU + Bajo IVP\n")
+
+# Función para verificar el orden después de aplicar la categorización
+verificar_orden_factores <- function(datos) {
+  cat("\n=== VERIFICACIÓN POST-CATEGORIZACIÓN ===\n")
+  if("categoria_4s" %in% names(datos)) {
+    if(is.factor(datos$categoria_4s)) {
+      cat("✅ categoria_4s es un factor\n")
+      cat("Levels:", paste(levels(datos$categoria_4s), collapse = ", "), "\n")
+      cat("Colores asignados:\n")
+      for(i in seq_along(levels(datos$categoria_4s))) {
+        level_name <- levels(datos$categoria_4s)[i]
+        color <- COLORES_4S[level_name]
+        cat("  ", i, ".", level_name, "=", color, "\n")
+      }
+    } else {
+      cat("⚠️ categoria_4s NO es un factor - se convertirá automáticamente\n")
+      cat("Valores únicos:", paste(unique(datos$categoria_4s), collapse = ", "), "\n")
+    }
+  } else {
+    cat("❌ categoria_4s no existe en los datos\n")
+  }
 }
 
 # ---- 7. ANÁLISIS DE PROYECTO INDIVIDUAL ----
