@@ -1,0 +1,1542 @@
+# ========================================
+# SCRIPT UNIFICADO - ANÁLISIS INTEGRAL DE PROYECTOS 4S
+# Combina todos los análisis avanzados en un solo flujo
+# ========================================
+
+# ---- CONFIGURACIÓN INICIAL ----
+cat("🚀 INICIANDO ANÁLISIS INTEGRAL DE PROYECTOS 4S\n")
+cat("===============================================\n\n")
+
+# DEFINIR PROYECTOS A ANALIZAR (MODIFICAR AQUÍ)
+PROYECTO_PRINCIPAL <- 10  # Proyecto principal a analizar en detalle
+PROYECTO_COMPARACION_1 <- 13  # Primer proyecto de comparación
+PROYECTO_COMPARACION_2 <- 24  # Segundo proyecto de comparación
+
+cat("📊 CONFIGURACIÓN DEL ANÁLISIS:\n")
+cat("• Proyecto Principal:", PROYECTO_PRINCIPAL, "\n")
+cat("• Comparación 1:", PROYECTO_COMPARACION_1, "\n")
+cat("• Comparación 2:", PROYECTO_COMPARACION_2, "\n\n")
+
+# Verificar que los datos existen
+if(!exists("datos_segmentados")) {
+  stop("❌ Ejecutar primero el script principal IVU-IVP segmentado")
+}
+
+# ---- DEFINICIONES DE DIMENSIONES Y CARACTERÍSTICAS ----
+
+# 1. DIMENSIONES ESTRATÉGICAS DE NEGOCIO
+dimensiones_negocio <- list(
+  
+  # PERFORMANCE COMERCIAL (variables continuas clave)
+  performance_comercial = list(
+    variables = c("absorcion", "ratio_ventas", "eficiencia_comercial", "velocidad_ventas", 
+                  "eficiencia_inventario", "momentum_ventas_norm"),
+    peso_consultoria = 0.25,
+    descripcion = "Capacidad de generar ventas y gestionar inventario eficientemente"
+  ),
+  
+  # UBICACIÓN Y ACCESIBILIDAD (índices compuestos)
+  ubicacion_accesibilidad = list(
+    variables = c("indice_accesibilidad", "accesibilidad_vial", "indice_conveniencia",
+                  "ponderacion_jerarquia", "ponderacion_flujo"),
+    peso_consultoria = 0.20,
+    descripcion = "Calidad estratégica de la ubicación y conectividad"
+  ),
+  
+  # ENTORNO DEMOGRÁFICO (densidades y crecimiento)
+  entorno_demografico = list(
+    variables = c("pob2020_1km", "hogares2020_1km", "crecimiento_pob", 
+                  "pob_ocupada_2020_1km", "alta_densidad_pob"),
+    peso_consultoria = 0.15,
+    descripcion = "Densidad poblacional y dinamismo del entorno"
+  ),
+  
+  # ECOSISTEMA DE SERVICIOS (cantidades, no cercanías binarias)
+  ecosistema_servicios = list(
+    variables = c("cantidad_hospital_1km", "cantidad_esc_priv_1km", "cantidad_super_1km",
+                  "cantidad_restau_1km", "cantidad_oficina_1km", "cantidad_tienda_dept_1km"),
+    peso_consultoria = 0.15,
+    descripcion = "Riqueza del ecosistema de servicios circundante"
+  ),
+  
+  # COMPETITIVIDAD DEL PRODUCTO (precio y valor)
+  competitividad_producto = list(
+    variables = c("competitividad_precio", "propuesta_valor_v2", "valor_futuro_esperado",
+                  "competitividad_ajustada", "precio_relativo_log"),
+    peso_consultoria = 0.15,
+    descripcion = "Posicionamiento competitivo en precio-valor"
+  ),
+  
+  # CREDIBILIDAD DESARROLLADOR (track record)
+  credibilidad_desarrollador = list(
+    variables = c("proyectos_total", "absorcion_promedio_dev", "consistencia_absorcion",
+                  "amenidades_promedio_dev", "prop_premium"),
+    peso_consultoria = 0.10,
+    descripcion = "Experiencia y track record del desarrollador"
+  )
+)
+
+# 2. CARACTERÍSTICAS DISTINTIVAS
+caracteristicas_distintivas <- list(
+  
+  # AMENIDADES PREMIUM (exclusivas o raras)
+  amenidades_premium = list(
+    variables = c("campo_de_golf", "spa", "sala_de_cine_tv", "golf_virtual", "sauna"),
+    descripcion = "Amenidades de lujo que diferencian significativamente",
+    tipo = "exclusividad"
+  ),
+  
+  # AMENIDADES WELLNESS (tendencia actual)
+  amenidades_wellness = list(
+    variables = c("gimnasio", "pista_de_jogging_vitapista", "salon_de_yoga", "jacuzzi", "areas_verdes"),
+    descripcion = "Enfoque en bienestar y estilo de vida saludable",
+    tipo = "tendencia"
+  ),
+  
+  # AMENIDADES SOCIALES (community building)
+  amenidades_sociales = list(
+    variables = c("casa_club", "salon_usos_multiples", "asadores", "fogatero", "lounges"),
+    descripcion = "Espacios para socialización y construcción de comunidad",
+    tipo = "comunidad"
+  ),
+  
+  # AMENIDADES FAMILIARES (target familias)
+  amenidades_familiares = list(
+    variables = c("ludoteca_juegos_infantiles", "pet_zone", "canchas_deportivas", "patio_central"),
+    descripcion = "Orientadas a familias con niños y mascotas",
+    tipo = "familia"
+  ),
+  
+  # CARACTERÍSTICAS DE SEGURIDAD Y EXCLUSIVIDAD
+  seguridad_exclusividad = list(
+    variables = c("control_de_acceso", "vestidores"),
+    descripcion = "Enfoque en seguridad y privacidad",
+    tipo = "seguridad"
+  ),
+  
+  # CARACTERÍSTICAS DE UBICACIÓN PRIVILEGIADA
+  ubicacion_privilegiada = list(
+    variables = c("cerca_avenida_principal", "cerca_parque_relevante", "alta_densidad_comercial", 
+                  "alto_entorno_laboral", "alta_densidad_educativa"),
+    descripcion = "Indicadores de ubicación estratégica premium",
+    tipo = "ubicacion_premium"
+  )
+)
+
+# 3. MÉTRICAS DE ÉXITO
+metricas_exito <- list(
+  exito_comercial = list(
+    variables = c("absorcion", "ratio_ventas", "velocidad_ventas", "eficiencia_comercial"),
+    descripcion = "Performance directo de ventas y comercialización",
+    peso = 0.4
+  ),
+  exito_ubicacion = list(
+    variables = c("ivu_segmentado", "indice_accesibilidad", "indice_conveniencia"),
+    descripcion = "Calidad estratégica de ubicación",
+    peso = 0.3
+  ),
+  exito_proyecto = list(
+    variables = c("ivp_segmentado", "score_amenidades_total", "propuesta_valor_v2"),
+    descripcion = "Calidad y atractivo del proyecto",
+    peso = 0.3
+  )
+)
+
+# ---- FUNCIONES DE ANÁLISIS POR DIMENSIONES ----
+
+calcular_scores_dimensiones <- function(datos, dimensiones, segmento_filtro = NULL) {
+  
+  if(!is.null(segmento_filtro)) {
+    datos_analisis <- datos %>% filter(Segmento == segmento_filtro)
+  } else {
+    datos_analisis <- datos
+  }
+  
+  scores_por_proyecto <- data.frame(
+    Proyecto = datos_analisis$Proyecto,
+    Segmento = datos_analisis$Segmento,
+    stringsAsFactors = FALSE
+  )
+  
+  # Calcular score para cada dimensión
+  for(dimension_nombre in names(dimensiones)) {
+    dimension <- dimensiones[[dimension_nombre]]
+    variables_disponibles <- intersect(dimension$variables, names(datos_analisis))
+    
+    if(length(variables_disponibles) > 0) {
+      # Calcular percentiles para cada variable de la dimensión
+      percentiles_dimension <- matrix(nrow = nrow(datos_analisis), 
+                                      ncol = length(variables_disponibles))
+      
+      for(i in seq_along(variables_disponibles)) {
+        var <- variables_disponibles[i]
+        valores <- datos_analisis[[var]]
+        
+        if(!all(is.na(valores))) {
+          # Calcular percentil (manejar empates)
+          percentiles_dimension[, i] <- dplyr::percent_rank(valores) * 100
+        } else {
+          percentiles_dimension[, i] <- 50  # Valor neutro para datos faltantes
+        }
+      }
+      
+      # Score promedio de la dimensión
+      score_dimension <- rowMeans(percentiles_dimension, na.rm = TRUE)
+      scores_por_proyecto[[paste0("score_", dimension_nombre)]] <- round(score_dimension, 1)
+      
+      # Categorizar fortaleza de la dimensión
+      categoria_dimension <- cut(score_dimension,
+                                 breaks = c(0, 25, 40, 60, 75, 100),
+                                 labels = c("Crítico", "Débil", "Promedio", "Fuerte", "Excepcional"),
+                                 include.lowest = TRUE)
+      scores_por_proyecto[[paste0("categoria_", dimension_nombre)]] <- categoria_dimension
+    }
+  }
+  
+  return(scores_por_proyecto)
+}
+
+analizar_fortalezas_dimensiones <- function(datos, dimensiones, indice_proyecto) {
+  
+  proyecto <- datos[indice_proyecto, ]
+  
+  # Calcular scores para el segmento del proyecto
+  scores_segmento <- calcular_scores_dimensiones(datos, dimensiones, proyecto$Segmento)
+  scores_proyecto <- scores_segmento[scores_segmento$Proyecto == proyecto$Proyecto, ]
+  
+  cat("\n", rep("🎯", 25), "\n")
+  cat("ANÁLISIS DE FORTALEZAS POR DIMENSIONES DE NEGOCIO\n")
+  cat(rep("🎯", 25), "\n")
+  
+  cat("\n📊 PROYECTO:", proyecto$Proyecto, "\n")
+  cat("🏠 SEGMENTO:", proyecto$Segmento, "| NSE:", proyecto$nse, "\n")
+  cat("🏢 DESARROLLADOR:", proyecto$Desarrollador, "\n")
+  
+  # Analizar cada dimensión
+  fortalezas <- list()
+  debilidades <- list()
+  neutras <- list()
+  
+  for(dimension_nombre in names(dimensiones)) {
+    score_col <- paste0("score_", dimension_nombre)
+    categoria_col <- paste0("categoria_", dimension_nombre)
+    
+    if(score_col %in% names(scores_proyecto)) {
+      score <- scores_proyecto[[score_col]]
+      categoria <- as.character(scores_proyecto[[categoria_col]])
+      dimension_info <- dimensiones[[dimension_nombre]]
+      
+      # Clasificar según score
+      if(score >= 75) {
+        fortalezas[[dimension_nombre]] <- list(score = score, categoria = categoria, info = dimension_info)
+      } else if(score <= 40) {
+        debilidades[[dimension_nombre]] <- list(score = score, categoria = categoria, info = dimension_info)
+      } else {
+        neutras[[dimension_nombre]] <- list(score = score, categoria = categoria, info = dimension_info)
+      }
+    }
+  }
+  
+  # Mostrar fortalezas
+  if(length(fortalezas) > 0) {
+    cat("\n🌟 FORTALEZAS COMPETITIVAS:\n")
+    for(nombre in names(fortalezas)) {
+      f <- fortalezas[[nombre]]
+      cat("✅", toupper(gsub("_", " ", nombre)), "(", f$categoria, "- Percentil", f$score, "%)\n")
+      cat("   💡", f$info$descripcion, "\n\n")
+    }
+  }
+  
+  # Mostrar debilidades
+  if(length(debilidades) > 0) {
+    cat("🔧 ÁREAS DE OPORTUNIDAD:\n")
+    for(nombre in names(debilidades)) {
+      d <- debilidades[[nombre]]
+      cat("⚠️ ", toupper(gsub("_", " ", nombre)), "(", d$categoria, "- Percentil", d$score, "%)\n")
+      cat("   💡", d$info$descripcion, "\n\n")
+    }
+  }
+  
+  # Mostrar dimensiones neutras
+  if(length(neutras) > 0) {
+    cat("📊 DIMENSIONES PROMEDIO:\n")
+    for(nombre in names(neutras)) {
+      n <- neutras[[nombre]]
+      cat("➖", toupper(gsub("_", " ", nombre)), "(", n$categoria, "- Percentil", n$score, "%)\n")
+    }
+  }
+  
+  cat("\n", rep("🎯", 25), "\n")
+  
+  return(list(
+    fortalezas = fortalezas,
+    debilidades = debilidades,
+    neutras = neutras,
+    scores_completos = scores_proyecto
+  ))
+}
+
+crear_radar_dimensiones <- function(datos, dimensiones, indice_proyecto) {
+  
+  proyecto <- datos[indice_proyecto, ]
+  scores_segmento <- calcular_scores_dimensiones(datos, dimensiones, proyecto$Segmento)
+  scores_proyecto <- scores_segmento[scores_segmento$Proyecto == proyecto$Proyecto, ]
+  
+  # Preparar datos para radar
+  dimensiones_nombres <- names(dimensiones)
+  scores_valores <- numeric(length(dimensiones_nombres))
+  
+  for(i in seq_along(dimensiones_nombres)) {
+    score_col <- paste0("score_", dimensiones_nombres[i])
+    if(score_col %in% names(scores_proyecto)) {
+      scores_valores[i] <- scores_proyecto[[score_col]]
+    } else {
+      scores_valores[i] <- 50  # Valor por defecto
+    }
+  }
+  
+  # Crear etiquetas más amigables
+  etiquetas_amigables <- c(
+    "performance_comercial" = "Performance\nComercial",
+    "ubicacion_accesibilidad" = "Ubicación &\nAccesibilidad", 
+    "entorno_demografico" = "Entorno\nDemográfico",
+    "ecosistema_servicios" = "Ecosistema\nServicios",
+    "competitividad_producto" = "Competitividad\nProducto",
+    "credibilidad_desarrollador" = "Credibilidad\nDesarrollador"
+  )
+  
+  etiquetas <- sapply(dimensiones_nombres, function(x) etiquetas_amigables[x])
+  
+  # Preparar datos para ggplot (agregar primer punto al final para cerrar polígono)
+  radar_data <- data.frame(
+    Dimension = factor(c(etiquetas, etiquetas[1]), levels = etiquetas),
+    Score = c(scores_valores, scores_valores[1])
+  )
+  
+  # Crear gráfico radar
+  p <- ggplot(radar_data, aes(x = Dimension, y = Score)) +
+    geom_polygon(fill = "#68D192", alpha = 0.3, color = "#2C6C66", linewidth = 1.5) +
+    geom_point(color = "#2C6C66", size = 4) +
+    
+    # Líneas de referencia
+    geom_hline(yintercept = c(25, 50, 75), linetype = "dashed", alpha = 0.3) +
+    
+    coord_polar() +
+    ylim(0, 100) +
+    
+    labs(title = paste("🎯 Perfil de Fortalezas por Dimensiones"),
+         subtitle = paste(proyecto$Proyecto, "-", proyecto$Segmento)) +
+    
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14, color = "#2C6C66", hjust = 0.5),
+      plot.subtitle = element_text(size = 12, color = "#2C6C66", hjust = 0.5),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      panel.grid.major.y = element_line(color = "gray90", linewidth = 0.5),
+      axis.text.x = element_text(size = 10, face = "bold", color = "#2C6C66")
+    ) +
+    
+    # Anotar percentiles
+    annotate("text", x = 1, y = 25, label = "25%", size = 3, alpha = 0.7) +
+    annotate("text", x = 1, y = 50, label = "50%", size = 3, alpha = 0.7) +
+    annotate("text", x = 1, y = 75, label = "75%", size = 3, alpha = 0.7)
+  
+  return(p)
+}
+
+# ---- FUNCIONES DE CARACTERÍSTICAS DISTINTIVAS ----
+
+analizar_caracteristicas_distintivas <- function(datos, caracteristicas, indice_proyecto) {
+  
+  proyecto <- datos[indice_proyecto, ]
+  datos_segmento <- datos %>% filter(Segmento == proyecto$Segmento)
+  
+  cat("\n", rep("🌟", 25), "\n")
+  cat("ANÁLISIS DE CARACTERÍSTICAS DISTINTIVAS\n")
+  cat(rep("🌟", 25), "\n")
+  
+  cat("\n📊 PROYECTO:", proyecto$Proyecto, "\n")
+  cat("🏠 SEGMENTO:", proyecto$Segmento, "| NSE:", proyecto$nse, "\n")
+  
+  caracteristicas_unicas <- list()
+  caracteristicas_comunes <- list()
+  
+  for(categoria_nombre in names(caracteristicas)) {
+    categoria <- caracteristicas[[categoria_nombre]]
+    variables_disponibles <- intersect(categoria$variables, names(datos_segmento))
+    
+    if(length(variables_disponibles) > 0) {
+      
+      # Analizar cada característica en la categoría
+      caracteristicas_categoria <- list()
+      
+      for(var in variables_disponibles) {
+        valor_proyecto <- proyecto[[var]]
+        
+        if(!is.na(valor_proyecto) && valor_proyecto == 1) {
+          # El proyecto tiene esta característica
+          
+          # Calcular qué % del segmento tiene esta característica
+          porcentaje_segmento <- mean(datos_segmento[[var]], na.rm = TRUE) * 100
+          
+          # Clasificar por rareza/exclusividad
+          if(porcentaje_segmento <= 15) {
+            exclusividad <- "EXCLUSIVA"
+            icono <- "💎"
+          } else if(porcentaje_segmento <= 30) {
+            exclusividad <- "POCO COMÚN"
+            icono <- "⭐"
+          } else if(porcentaje_segmento <= 60) {
+            exclusividad <- "COMÚN"
+            icono <- "✓"
+          } else {
+            exclusividad <- "MUY COMÚN"
+            icono <- "○"
+          }
+          
+          caracteristicas_categoria[[var]] <- list(
+            exclusividad = exclusividad,
+            porcentaje_segmento = round(porcentaje_segmento, 1),
+            icono = icono
+          )
+        }
+      }
+      
+      if(length(caracteristicas_categoria) > 0) {
+        
+        # Clasificar la categoría completa
+        exclusividad_promedio <- mean(sapply(caracteristicas_categoria, function(x) x$porcentaje_segmento))
+        
+        if(exclusividad_promedio <= 20) {
+          caracteristicas_unicas[[categoria_nombre]] <- list(
+            caracteristicas = caracteristicas_categoria,
+            info = categoria,
+            exclusividad_promedio = exclusividad_promedio
+          )
+        } else {
+          caracteristicas_comunes[[categoria_nombre]] <- list(
+            caracteristicas = caracteristicas_categoria,
+            info = categoria,
+            exclusividad_promedio = exclusividad_promedio
+          )
+        }
+      }
+    }
+  }
+  
+  # Mostrar características únicas (diferenciadoras)
+  if(length(caracteristicas_unicas) > 0) {
+    cat("\n💎 CARACTERÍSTICAS DISTINTIVAS ÚNICAS:\n")
+    for(categoria in names(caracteristicas_unicas)) {
+      cat_info <- caracteristicas_unicas[[categoria]]
+      cat("\n🎯", toupper(gsub("_", " ", categoria)), "\n")
+      cat("   💡", cat_info$info$descripcion, "\n")
+      
+      for(var in names(cat_info$caracteristicas)) {
+        char_info <- cat_info$caracteristicas[[var]]
+        var_limpio <- gsub("_", " ", stringr::str_to_title(var))
+        cat("   ", char_info$icono, var_limpio, 
+            "(", char_info$exclusividad, "-", char_info$porcentaje_segmento, "% del segmento)\n")
+      }
+    }
+  }
+  
+  # Mostrar características comunes
+  if(length(caracteristicas_comunes) > 0) {
+    cat("\n✅ CARACTERÍSTICAS ESTÁNDAR DEL SEGMENTO:\n")
+    for(categoria in names(caracteristicas_comunes)) {
+      cat_info <- caracteristicas_comunes[[categoria]]
+      cat("\n📋", toupper(gsub("_", " ", categoria)), "\n")
+      
+      for(var in names(cat_info$caracteristicas)) {
+        char_info <- cat_info$caracteristicas[[var]]
+        var_limpio <- gsub("_", " ", stringr::str_to_title(var))
+        cat("   ", char_info$icono, var_limpio, 
+            "(", char_info$porcentaje_segmento, "% del segmento)\n")
+      }
+    }
+  }
+  
+  cat("\n", rep("🌟", 25), "\n")
+  
+  return(list(
+    caracteristicas_unicas = caracteristicas_unicas,
+    caracteristicas_comunes = caracteristicas_comunes
+  ))
+}
+
+# ---- FUNCIONES DE CORRELACIÓN CON ÉXITO ----
+
+calcular_correlaciones_exito_corregido <- function(datos, segmento_filtro = NULL) {
+  
+  if(!is.null(segmento_filtro)) {
+    datos_analisis <- datos %>% filter(Segmento == segmento_filtro)
+    titulo_segmento <- paste("Segmento:", segmento_filtro)
+  } else {
+    datos_analisis <- datos
+    titulo_segmento <- "Todos los segmentos"
+  }
+  
+  # Verificar que hay suficientes datos
+  if(nrow(datos_analisis) < 10) {
+    cat("⚠️  Advertencia: Segmento con pocos datos (", nrow(datos_analisis), " proyectos).\n")
+  }
+  
+  # Definir variables a analizar (excluir dicotómicas problemáticas)
+  variables_analisis <- c(
+    # Performance y competitividad
+    "absorcion", "ratio_ventas", "velocidad_ventas", "eficiencia_comercial",
+    "competitividad_precio", "propuesta_valor_v2",
+    
+    # Ubicación y accesibilidad
+    "indice_accesibilidad", "accesibilidad_vial", "indice_conveniencia", 
+    
+    # Entorno demográfico (continuas)
+    "pob2020_1km", "hogares2020_1km", "pob_ocupada_2020_1km",
+    
+    # Servicios (cantidades, no binarias)
+    "cantidad_hospital_1km", "cantidad_esc_priv_1km", "cantidad_super_1km",
+    "cantidad_restau_1km", "cantidad_oficina_1km",
+    
+    # Características del proyecto
+    "score_amenidades_total", "m2_inv",
+    
+    # Desarrollador
+    "proyectos_total", "absorcion_promedio_dev", "consistencia_absorcion",
+    
+    # Precios y competitividad
+    "p_m2"
+  )
+  
+  # Filtrar solo variables que existen en los datos
+  variables_disponibles <- intersect(variables_analisis, names(datos_analisis))
+  
+  # Función auxiliar para verificar variación suficiente
+  tiene_variacion_suficiente <- function(x) {
+    x_clean <- x[!is.na(x)]
+    if(length(x_clean) < 3) return(FALSE)  # Muy pocos datos
+    if(var(x_clean) == 0) return(FALSE)    # Sin variación
+    if(length(unique(x_clean)) < 3) return(FALSE)  # Muy pocos valores únicos
+    return(TRUE)
+  }
+  
+  # Crear scores de éxito con validación
+  datos_analisis <- datos_analisis %>%
+    mutate(
+      score_exito_total = ifelse(!is.na(ivu_segmentado) & !is.na(ivp_segmentado),
+                                 (ivu_segmentado * 0.6) + (ivp_segmentado * 0.4),
+                                 NA)
+    )
+  
+  # Verificar que el score total tiene variación
+  if(!tiene_variacion_suficiente(datos_analisis$score_exito_total)) {
+    return(list(
+      correlaciones = data.frame(),
+      datos_analisis = datos_analisis,
+      titulo_segmento = titulo_segmento,
+      mensaje = "Insuficiente variación para análisis"
+    ))
+  }
+  
+  # Calcular correlaciones
+  correlaciones_exito <- data.frame(
+    Variable = character(0),
+    Correlacion_Total = numeric(0),
+    P_valor = numeric(0),
+    Significancia = character(0),
+    N_observaciones = integer(0),
+    stringsAsFactors = FALSE
+  )
+  
+  for(var in variables_disponibles) {
+    
+    valores_var <- datos_analisis[[var]]
+    
+    # Verificar que la variable tiene suficiente variación y datos
+    if(tiene_variacion_suficiente(valores_var) && sum(!is.na(valores_var)) >= 5) {
+      
+      # Intentar calcular correlaciones con manejo de errores
+      tryCatch({
+        
+        cor_total <- cor(valores_var, datos_analisis$score_exito_total, use = "complete.obs")
+        
+        # Verificar que las correlaciones son válidas
+        if(!is.na(cor_total)) {
+          
+          # Test de significancia con manejo de errores
+          test_result <- tryCatch({
+            cor.test(valores_var, datos_analisis$score_exito_total)
+          }, error = function(e) {
+            list(p.value = NA)
+          })
+          
+          p_valor <- test_result$p.value
+          
+          # Clasificar significancia (manejar NA)
+          if(is.na(p_valor)) {
+            significancia <- ""
+          } else if(p_valor < 0.01) {
+            significancia <- "***"
+          } else if(p_valor < 0.05) {
+            significancia <- "**"
+          } else if(p_valor < 0.1) {
+            significancia <- "*"
+          } else {
+            significancia <- ""
+          }
+          
+          # Contar observaciones válidas
+          n_obs <- sum(!is.na(valores_var) & !is.na(datos_analisis$score_exito_total))
+          
+          # Agregar a resultados
+          correlaciones_exito <- rbind(correlaciones_exito, data.frame(
+            Variable = var,
+            Correlacion_Total = round(cor_total, 3),
+            P_valor = ifelse(is.na(p_valor), NA, round(p_valor, 4)),
+            Significancia = significancia,
+            N_observaciones = n_obs,
+            stringsAsFactors = FALSE
+          ))
+        }
+        
+      }, error = function(e) {
+        # Si hay error, simplemente omitir esta variable
+      })
+    }
+  }
+  
+  # Ordenar por correlación total (valor absoluto)
+  if(nrow(correlaciones_exito) > 0) {
+    correlaciones_exito <- correlaciones_exito %>%
+      arrange(desc(abs(Correlacion_Total)))
+  }
+  
+  return(list(
+    correlaciones = correlaciones_exito,
+    datos_analisis = datos_analisis,
+    titulo_segmento = titulo_segmento,
+    n_proyectos = nrow(datos_analisis),
+    n_variables_analizadas = nrow(correlaciones_exito)
+  ))
+}
+
+# ---- FUNCIONES DE VISUALIZACIÓN ADICIONALES ----
+
+crear_grafico_barras_dimensiones <- function(datos, dimensiones, indice_proyecto) {
+  
+  proyecto <- datos[indice_proyecto, ]
+  scores_segmento <- calcular_scores_dimensiones(datos, dimensiones, proyecto$Segmento)
+  scores_proyecto <- scores_segmento[scores_segmento$Proyecto == proyecto$Proyecto, ]
+  
+  # Preparar datos para barras
+  dimensiones_nombres <- names(dimensiones)
+  scores_para_barras <- data.frame(
+    Dimension = character(0),
+    Score = numeric(0),
+    Categoria = character(0),
+    stringsAsFactors = FALSE
+  )
+  
+  for(dim in dimensiones_nombres) {
+    score_col <- paste0("score_", dim)
+    categoria_col <- paste0("categoria_", dim)
+    
+    if(score_col %in% names(scores_proyecto)) {
+      etiqueta_amigable <- gsub("_", " ", stringr::str_to_title(dim))
+      scores_para_barras <- rbind(scores_para_barras, data.frame(
+        Dimension = etiqueta_amigable,
+        Score = scores_proyecto[[score_col]],
+        Categoria = as.character(scores_proyecto[[categoria_col]]),
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  # Colores por categoría
+  colores_categoria <- c(
+    "Crítico" = "#EF6558",
+    "Débil" = "#F8C579", 
+    "Promedio" = "#F4E785",
+    "Fuerte" = "#68D192",
+    "Excepcional" = "#2C6C66"
+  )
+  
+  p <- ggplot(scores_para_barras, aes(x = reorder(Dimension, Score), y = Score, fill = Categoria)) +
+    geom_bar(stat = "identity", alpha = 0.8) +
+    geom_text(aes(label = paste0(round(Score, 0), "%")), hjust = -0.1, size = 3.5, fontface = "bold") +
+    scale_fill_manual(values = colores_categoria, name = "Nivel") +
+    coord_flip() +
+    ylim(0, 105) +
+    labs(title = paste("📊 Scores por Dimensión -", proyecto$Proyecto),
+         subtitle = paste("Percentiles vs", proyecto$Segmento),
+         x = "Dimensión", y = "Percentil (%)") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 12, color = "#2C6C66"),
+      plot.subtitle = element_text(size = 10, color = "#2C6C66"),
+      legend.position = "bottom"
+    )
+  
+  return(p)
+}
+
+crear_mapa_caracteristicas <- function(datos, caracteristicas, indice_proyecto) {
+  
+  proyecto <- datos[indice_proyecto, ]
+  datos_segmento <- datos %>% filter(Segmento == proyecto$Segmento)
+  
+  # Calcular scores de características por categoría
+  categoria_scores <- data.frame(
+    Categoria = character(0),
+    Score_Exclusividad = numeric(0),
+    Cantidad_Features = numeric(0),
+    stringsAsFactors = FALSE
+  )
+  
+  for(categoria_nombre in names(caracteristicas)) {
+    categoria <- caracteristicas[[categoria_nombre]]
+    variables_disponibles <- intersect(categoria$variables, names(datos_segmento))
+    
+    if(length(variables_disponibles) > 0) {
+      
+      # Contar features que tiene el proyecto
+      features_proyecto <- 0
+      suma_exclusividad <- 0
+      
+      for(var in variables_disponibles) {
+        valor_proyecto <- proyecto[[var]]
+        
+        if(!is.na(valor_proyecto) && valor_proyecto == 1) {
+          features_proyecto <- features_proyecto + 1
+          
+          # Calcular exclusividad (inversa del % que lo tiene)
+          porcentaje_segmento <- mean(datos_segmento[[var]], na.rm = TRUE) * 100
+          exclusividad <- 100 - porcentaje_segmento
+          suma_exclusividad <- suma_exclusividad + exclusividad
+        }
+      }
+      
+      score_exclusividad <- if(features_proyecto > 0) suma_exclusividad / features_proyecto else 0
+      
+      categoria_scores <- rbind(categoria_scores, data.frame(
+        Categoria = gsub("_", " ", stringr::str_to_title(categoria_nombre)),
+        Score_Exclusividad = round(score_exclusividad, 1),
+        Cantidad_Features = features_proyecto,
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  # Crear gráfico de burbujas si hay datos
+  if(nrow(categoria_scores) > 0) {
+    
+    # Preparar colores por nivel de exclusividad
+    categoria_scores$Color_Nivel <- cut(categoria_scores$Score_Exclusividad,
+                                        breaks = c(0, 30, 60, 80, 100),
+                                        labels = c("Común", "Moderado", "Exclusivo", "Ultra Exclusivo"),
+                                        include.lowest = TRUE)
+    
+    colores_exclusividad <- c(
+      "Común" = "#F8C579",
+      "Moderado" = "#F4E785", 
+      "Exclusivo" = "#68D192",
+      "Ultra Exclusivo" = "#2C6C66"
+    )
+    
+    p <- ggplot(categoria_scores, aes(x = Cantidad_Features, y = Score_Exclusividad)) +
+      geom_point(aes(size = Cantidad_Features, color = Color_Nivel), alpha = 0.7) +
+      geom_text(aes(label = Categoria), hjust = 0.5, vjust = -1.5, size = 3, fontface = "bold") +
+      
+      scale_color_manual(values = colores_exclusividad, name = "Nivel de\nExclusividad") +
+      scale_size_continuous(range = c(3, 12), name = "Cantidad de\nCaracterísticas") +
+      
+      labs(title = paste("🌟 Mapa de Características -", proyecto$Proyecto),
+           subtitle = paste("Exclusividad vs Cantidad -", proyecto$Segmento),
+           x = "Cantidad de Características",
+           y = "Score de Exclusividad") +
+      
+      theme_minimal() +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, color = "#2C6C66", hjust = 0.5),
+        plot.subtitle = element_text(size = 12, color = "#2C6C66", hjust = 0.5),
+        legend.position = "right"
+      ) +
+      
+      xlim(0, max(categoria_scores$Cantidad_Features) + 1) +
+      ylim(0, 100)
+    
+    return(p)
+  }
+  
+  return(NULL)
+}
+
+crear_grafico_factores_exito <- function(datos, segmento_filtro) {
+  
+  resultado_correlaciones <- calcular_correlaciones_exito_corregido(datos, segmento_filtro)
+  
+  if(nrow(resultado_correlaciones$correlaciones) == 0) {
+    # Crear gráfico placeholder
+    p <- ggplot() +
+      geom_text(aes(x = 0.5, y = 0.5, 
+                    label = paste("Datos insuficientes para\nanalizar correlaciones\nen", segmento_filtro,
+                                  "\n(", resultado_correlaciones$n_proyectos, "proyectos)")), 
+                size = 6, color = "#2C6C66", hjust = 0.5, vjust = 0.5) +
+      labs(title = paste("🚀 Factores de Éxito -", segmento_filtro),
+           subtitle = "Se requieren más datos para análisis estadístico válido") +
+      theme_void() +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, color = "#2C6C66", hjust = 0.5),
+        plot.subtitle = element_text(size = 12, color = "#EF6558", hjust = 0.5)
+      ) +
+      xlim(0, 1) + ylim(0, 1)
+    
+    return(p)
+  }
+  
+  correlaciones <- resultado_correlaciones$correlaciones
+  
+  # Top factores con criterio más flexible para segmentos pequeños
+  top_factores <- correlaciones %>%
+    filter(abs(Correlacion_Total) >= 0.2) %>%  # Criterio más flexible
+    head(min(10, nrow(correlaciones)))  # Máximo 10 o todos si hay menos
+  
+  if(nrow(top_factores) > 0) {
+    
+    # Limpiar nombres de variables
+    top_factores$Variable_Limpia <- sapply(top_factores$Variable, function(x) {
+      x_limpio <- gsub("_", " ", x)
+      x_limpio <- stringr::str_to_title(x_limpio)
+      if(nchar(x_limpio) > 20) {
+        x_limpio <- paste0(substr(x_limpio, 1, 17), "...")
+      }
+      return(x_limpio)
+    })
+    
+    # Crear gráfico de barras
+    p <- ggplot(top_factores, aes(x = reorder(Variable_Limpia, Correlacion_Total), y = Correlacion_Total)) +
+      geom_bar(stat = "identity", aes(fill = ifelse(Correlacion_Total > 0, "Positiva", "Negativa")), alpha = 0.8) +
+      geom_text(aes(label = paste0(round(Correlacion_Total, 2), Significancia)), 
+                hjust = ifelse(top_factores$Correlacion_Total > 0, -0.1, 1.1), 
+                size = 3, fontface = "bold") +
+      
+      scale_fill_manual(values = c("Positiva" = "#68D192", "Negativa" = "#EF6558"),
+                        name = "Tipo de\nCorrelación") +
+      
+      coord_flip() +
+      
+      labs(title = paste("🚀 Factores de Éxito -", segmento_filtro),
+           subtitle = paste("Basado en", resultado_correlaciones$n_proyectos, "proyectos |", 
+                            "*** p<0.01, ** p<0.05, * p<0.1"),
+           x = "Factor", y = "Correlación con Éxito Total") +
+      
+      theme_minimal() +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, color = "#2C6C66"),
+        plot.subtitle = element_text(size = 10, color = "#2C6C66"),
+        axis.text.y = element_text(size = 9),
+        legend.position = "bottom"
+      ) +
+      
+      geom_hline(yintercept = 0, linetype = "solid", color = "black", linewidth = 0.5)
+    
+    # Agregar nota sobre limitaciones si el segmento es pequeño
+    if(resultado_correlaciones$n_proyectos < 15) {
+      p <- p + labs(caption = paste("Nota: Muestra pequeña (", resultado_correlaciones$n_proyectos, 
+                                    " proyectos). Interpretar con cautela."))
+    }
+    
+    return(p)
+  }
+  
+  return(NULL)
+}
+
+crear_grafico_fortalezas_variables <- function(datos, indice_proyecto) {
+  
+  proyecto <- datos[indice_proyecto, ]
+  datos_segmento <- datos %>% filter(Segmento == proyecto$Segmento)
+  
+  # Variables clave para análisis
+  variables_analisis <- c(
+    "absorcion", "ratio_ventas", "eficiencia_comercial", "velocidad_ventas",
+    "score_amenidades_total", "num_amenidades", "m2_inv",
+    "indice_accesibilidad", "accesibilidad_vial", "indice_conveniencia",
+    "cantidad_hospital_1km", "cantidad_esc_priv_1km", "cantidad_super_1km",
+    "proyectos_total", "absorcion_promedio_dev", "consistencia_absorcion",
+    "competitividad_precio", "propuesta_valor_v2"
+  )
+  
+  variables_disponibles <- intersect(variables_analisis, names(datos_segmento))
+  
+  # Calcular percentiles
+  percentiles_proyecto <- data.frame(
+    Variable = character(0),
+    Percentil = numeric(0),
+    Categoria = character(0),
+    stringsAsFactors = FALSE
+  )
+  
+  for(var in variables_disponibles) {
+    valor_proyecto <- proyecto[[var]]
+    
+    if(!is.na(valor_proyecto)) {
+      valores_segmento <- datos_segmento[[var]]
+      valores_validos <- valores_segmento[!is.na(valores_segmento)]
+      
+      if(length(valores_validos) >= 3 && var(valores_validos) > 0) {
+        percentil <- mean(valores_validos <= valor_proyecto, na.rm = TRUE) * 100
+        
+        # Para distancias, invertir percentil
+        if(grepl("^dist_", var)) {
+          percentil <- 100 - percentil
+        }
+        
+        categoria <- case_when(
+          percentil >= 90 ~ "Excepcional",
+          percentil >= 75 ~ "Muy Fuerte", 
+          percentil >= 60 ~ "Fuerte",
+          percentil >= 40 ~ "Promedio",
+          TRUE ~ "Área de Mejora"
+        )
+        
+        percentiles_proyecto <- rbind(percentiles_proyecto, data.frame(
+          Variable = var,
+          Percentil = percentil,
+          Categoria = categoria,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+  
+  if(nrow(percentiles_proyecto) > 0) {
+    # Tomar top 12 para visualización
+    top_variables <- head(percentiles_proyecto[order(-percentiles_proyecto$Percentil), ], 12)
+    
+    # Crear etiquetas amigables
+    top_variables$Etiqueta <- sapply(top_variables$Variable, function(x) {
+      x_limpio <- gsub("_", " ", stringr::str_to_title(x))
+      if(nchar(x_limpio) > 25) {
+        x_limpio <- paste0(substr(x_limpio, 1, 22), "...")
+      }
+      return(x_limpio)
+    })
+    
+    # Colores por categoría
+    colores_fortaleza <- c(
+      "Excepcional" = "#2C6C66",
+      "Muy Fuerte" = "#68D192", 
+      "Fuerte" = "#F4E785",
+      "Promedio" = "#F8C579",
+      "Área de Mejora" = "#EF6558"
+    )
+    
+    p <- ggplot(top_variables, aes(x = reorder(Etiqueta, Percentil), y = Percentil, fill = Categoria)) +
+      geom_bar(stat = "identity", alpha = 0.8) +
+      geom_text(aes(label = paste0(round(Percentil, 0), "%")), 
+                hjust = -0.1, size = 3, fontface = "bold") +
+      scale_fill_manual(values = colores_fortaleza, name = "Nivel") +
+      coord_flip() +
+      labs(title = paste("🏆 Principales Fortalezas -", proyecto$Proyecto),
+           subtitle = paste("Top variables vs", proyecto$Segmento),
+           x = "Variable", y = "Percentil (%)") +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, color = "#2C6C66"),
+        plot.subtitle = element_text(size = 11, color = "#2C6C66"),
+        axis.text.y = element_text(size = 9),
+        legend.position = "bottom"
+      ) +
+      scale_y_continuous(limits = c(0, 105), breaks = seq(0, 100, 25))
+    
+    return(p)
+  }
+  
+  return(NULL)
+}
+
+# ---- FUNCIONES COMPARATIVAS ----
+
+comparar_proyectos_integral <- function(datos, proyecto1_idx, proyecto2_idx, proyecto3_idx) {
+  
+  proyectos <- list(
+    datos[proyecto1_idx, ],
+    datos[proyecto2_idx, ],
+    datos[proyecto3_idx, ]
+  )
+  
+  cat("\n", rep("⚖️", 30), "\n")
+  cat("COMPARACIÓN INTEGRAL DE PROYECTOS\n")
+  cat(rep("⚖️", 30), "\n")
+  
+  for(i in 1:3) {
+    p <- proyectos[[i]]
+    cat("\n📊 PROYECTO", i, ":", p$Proyecto, "\n")
+    cat("   🏢 Desarrollador:", p$Desarrollador, "\n")
+    cat("   🏠 Segmento:", p$Segmento, "| NSE:", p$nse, "\n")
+    cat("   🎯 Categoría 4S:", if("categoria_4s" %in% names(p)) p$categoria_4s else "N/A", "\n")
+    cat("   💰 Precio/m²: $", format(p$p_m2, big.mark = ","), "\n")
+    cat("   📊 IVU Segmentado:", round(p$ivu_segmentado, 3), "| IVP Segmentado:", round(p$ivp_segmentado, 3), "\n")
+  }
+  
+  # Comparar dimensiones
+  cat("\n🎯 COMPARACIÓN POR DIMENSIONES:\n")
+  comparacion_dimensiones <- data.frame()
+  
+  for(i in 1:3) {
+    p <- proyectos[[i]]
+    scores_seg <- calcular_scores_dimensiones(datos, dimensiones_negocio, p$Segmento)
+    scores_p <- scores_seg[scores_seg$Proyecto == p$Proyecto, ]
+    
+    fila_comparacion <- data.frame(
+      Proyecto = p$Proyecto,
+      Segmento = p$Segmento
+    )
+    
+    for(dim in names(dimensiones_negocio)) {
+      score_col <- paste0("score_", dim)
+      if(score_col %in% names(scores_p)) {
+        fila_comparacion[[stringr::str_to_title(gsub("_", " ", dim))]] <- scores_p[[score_col]]
+      }
+    }
+    
+    comparacion_dimensiones <- rbind(comparacion_dimensiones, fila_comparacion)
+  }
+  
+  # Mostrar tabla comparativa
+  if(nrow(comparacion_dimensiones) > 0) {
+    print(knitr::kable(comparacion_dimensiones, digits = 1))
+  }
+  
+  cat("\n", rep("⚖️", 30), "\n")
+  
+  return(comparacion_dimensiones)
+}
+
+crear_grafico_comparativo_dimensiones <- function(datos, proyecto1_idx, proyecto2_idx, proyecto3_idx) {
+  
+  proyectos_info <- datos[c(proyecto1_idx, proyecto2_idx, proyecto3_idx), ]
+  
+  # Obtener scores para los 3 proyectos
+  datos_comparacion <- data.frame()
+  
+  for(i in 1:3) {
+    p <- proyectos_info[i, ]
+    scores_seg <- calcular_scores_dimensiones(datos, dimensiones_negocio, p$Segmento)
+    scores_p <- scores_seg[scores_seg$Proyecto == p$Proyecto, ]
+    
+    # Preparar datos para el gráfico
+    for(dim in names(dimensiones_negocio)) {
+      score_col <- paste0("score_", dim)
+      if(score_col %in% names(scores_p)) {
+        datos_comparacion <- rbind(datos_comparacion, data.frame(
+          Proyecto = p$Proyecto,
+          Dimension = stringr::str_to_title(gsub("_", " ", dim)),
+          Score = scores_p[[score_col]],
+          Tipo = c("Principal", "Comparación 1", "Comparación 2")[i]
+        ))
+      }
+    }
+  }
+  
+  if(nrow(datos_comparacion) > 0) {
+    p <- ggplot(datos_comparacion, aes(x = Dimension, y = Score, fill = Proyecto)) +
+      geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+      geom_text(aes(label = round(Score, 0)), 
+                position = position_dodge(width = 0.9), 
+                vjust = -0.3, size = 3) +
+      
+      scale_fill_manual(values = c("#2C6C66", "#68D192", "#F4E785")) +
+      
+      labs(title = "📊 Comparación de Dimensiones",
+           subtitle = "Percentiles por proyecto y dimensión",
+           x = "Dimensión", y = "Percentil (%)", fill = "Proyecto") +
+      
+      theme_minimal() +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, color = "#2C6C66"),
+        plot.subtitle = element_text(size = 12, color = "#2C6C66"),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+        legend.position = "bottom"
+      ) +
+      
+      ylim(0, 100)
+    
+    return(p)
+  }
+  
+  return(NULL)
+}
+
+# ---- FUNCIONES DE EXPORTACIÓN PARA KEYNOTE ----
+
+exportar_resultados_keynote <- function(datos, proyecto1_idx, proyecto2_idx, proyecto3_idx, archivo_base = "analisis_proyectos") {
+  
+  cat("\n📊 EXPORTANDO RESULTADOS PARA KEYNOTE...\n")
+  
+  proyectos_indices <- c(proyecto1_idx, proyecto2_idx, proyecto3_idx)
+  proyectos_info <- datos[proyectos_indices, ]
+  
+  # 1. TABLA RESUMEN EJECUTIVO
+  resumen_ejecutivo <- data.frame(
+    Orden = c("Principal", "Comparación 1", "Comparación 2"),
+    Proyecto = proyectos_info$Proyecto,
+    Desarrollador = proyectos_info$Desarrollador,
+    Municipio = proyectos_info$Municipio,
+    Segmento = proyectos_info$Segmento,
+    NSE = proyectos_info$nse,
+    Precio_m2 = proyectos_info$p_m2,
+    IVU_Segmentado = round(proyectos_info$ivu_segmentado, 3),
+    IVP_Segmentado = round(proyectos_info$ivp_segmentado, 3),
+    Categoria_4S = ifelse("categoria_4s" %in% names(proyectos_info), proyectos_info$categoria_4s, "N/A")
+  )
+  
+  # 2. SCORES POR DIMENSIONES (formato amplio para Keynote)
+  dimensiones_comparacion <- data.frame()
+  
+  for(i in 1:3) {
+    p <- proyectos_info[i, ]
+    scores_seg <- calcular_scores_dimensiones(datos, dimensiones_negocio, p$Segmento)
+    scores_p <- scores_seg[scores_seg$Proyecto == p$Proyecto, ]
+    
+    fila_dimensiones <- data.frame(
+      Proyecto = p$Proyecto,
+      Orden = c("Principal", "Comparación 1", "Comparación 2")[i]
+    )
+    
+    for(dim in names(dimensiones_negocio)) {
+      score_col <- paste0("score_", dim)
+      if(score_col %in% names(scores_p)) {
+        nombre_dimension <- stringr::str_to_title(gsub("_", " ", dim))
+        fila_dimensiones[[paste0("Score_", gsub(" ", "_", nombre_dimension))]] <- round(scores_p[[score_col]], 1)
+      }
+    }
+    
+    dimensiones_comparacion <- rbind(dimensiones_comparacion, fila_dimensiones)
+  }
+  
+  # 3. CARACTERÍSTICAS DISTINTIVAS POR PROYECTO
+  caracteristicas_comparacion <- data.frame()
+  
+  for(i in 1:3) {
+    p <- proyectos_info[i, ]
+    
+    # Contar características por categoría
+    fila_caracteristicas <- data.frame(
+      Proyecto = p$Proyecto,
+      Orden = c("Principal", "Comparación 1", "Comparación 2")[i]
+    )
+    
+    for(cat_nombre in names(caracteristicas_distintivas)) {
+      cat_info <- caracteristicas_distintivas[[cat_nombre]]
+      variables_cat <- intersect(cat_info$variables, names(p))
+      
+      count_categoria <- sum(sapply(variables_cat, function(var) {
+        !is.na(p[[var]]) && p[[var]] == 1
+      }), na.rm = TRUE)
+      
+      nombre_categoria <- stringr::str_to_title(gsub("_", " ", cat_nombre))
+      fila_caracteristicas[[paste0("Count_", gsub(" ", "_", nombre_categoria))]] <- count_categoria
+    }
+    
+    caracteristicas_comparacion <- rbind(caracteristicas_comparacion, fila_caracteristicas)
+  }
+  
+  # 4. DATOS PARA GRÁFICOS RADAR (formato largo)
+  datos_radar <- data.frame()
+  
+  for(i in 1:3) {
+    p <- proyectos_info[i, ]
+    scores_seg <- calcular_scores_dimensiones(datos, dimensiones_negocio, p$Segmento)
+    scores_p <- scores_seg[scores_seg$Proyecto == p$Proyecto, ]
+    
+    for(dim in names(dimensiones_negocio)) {
+      score_col <- paste0("score_", dim)
+      if(score_col %in% names(scores_p)) {
+        datos_radar <- rbind(datos_radar, data.frame(
+          Proyecto = p$Proyecto,
+          Orden = c("Principal", "Comparación 1", "Comparación 2")[i],
+          Dimension = stringr::str_to_title(gsub("_", " ", dim)),
+          Score = round(scores_p[[score_col]], 1),
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+  
+  # 5. TOP FORTALEZAS POR PROYECTO
+  fortalezas_comparacion <- data.frame()
+  
+  for(i in 1:3) {
+    p_idx <- proyectos_indices[i]
+    p <- proyectos_info[i, ]
+    
+    # Variables clave para análisis
+    variables_fortalezas <- c(
+      "absorcion", "ratio_ventas", "eficiencia_comercial", "score_amenidades_total",
+      "indice_accesibilidad", "accesibilidad_vial", "indice_conveniencia",
+      "proyectos_total", "absorcion_promedio_dev", "competitividad_precio"
+    )
+    
+    datos_segmento <- datos %>% filter(Segmento == p$Segmento)
+    variables_disponibles <- intersect(variables_fortalezas, names(datos_segmento))
+    
+    for(var in variables_disponibles) {
+      valor_proyecto <- p[[var]]
+      
+      if(!is.na(valor_proyecto)) {
+        valores_segmento <- datos_segmento[[var]]
+        valores_validos <- valores_segmento[!is.na(valores_segmento)]
+        
+        if(length(valores_validos) >= 3 && var(valores_validos) > 0) {
+          percentil <- mean(valores_validos <= valor_proyecto, na.rm = TRUE) * 100
+          
+          fortalezas_comparacion <- rbind(fortalezas_comparacion, data.frame(
+            Proyecto = p$Proyecto,
+            Orden = c("Principal", "Comparación 1", "Comparación 2")[i],
+            Variable = stringr::str_to_title(gsub("_", " ", var)),
+            Percentil = round(percentil, 1),
+            Valor = round(valor_proyecto, 2),
+            stringsAsFactors = FALSE
+          ))
+        }
+      }
+    }
+  }
+  
+  # EXPORTAR A ARCHIVOS
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M")
+  
+  # Crear archivo Excel con múltiples hojas
+  archivo_excel <- paste0(archivo_base, "_", timestamp, ".xlsx")
+  
+  tryCatch({
+    # Verificar si openxlsx está disponible
+    if(requireNamespace("openxlsx", quietly = TRUE)) {
+      wb <- openxlsx::createWorkbook()
+      
+      openxlsx::addWorksheet(wb, "Resumen_Ejecutivo")
+      openxlsx::writeData(wb, "Resumen_Ejecutivo", resumen_ejecutivo)
+      
+      openxlsx::addWorksheet(wb, "Scores_Dimensiones")
+      openxlsx::writeData(wb, "Scores_Dimensiones", dimensiones_comparacion)
+      
+      openxlsx::addWorksheet(wb, "Caracteristicas")
+      openxlsx::writeData(wb, "Caracteristicas", caracteristicas_comparacion)
+      
+      openxlsx::addWorksheet(wb, "Datos_Radar")
+      openxlsx::writeData(wb, "Datos_Radar", datos_radar)
+      
+      openxlsx::addWorksheet(wb, "Top_Fortalezas")
+      openxlsx::writeData(wb, "Top_Fortalezas", fortalezas_comparacion)
+      
+      openxlsx::saveWorkbook(wb, archivo_excel, overwrite = TRUE)
+      cat("✅ Archivo Excel creado:", archivo_excel, "\n")
+    } else {
+      cat("⚠️  openxlsx no disponible, exportando solo CSVs\n")
+    }
+  }, error = function(e) {
+    cat("⚠️  Error creando Excel:", e$message, "\n")
+  })
+  
+  # Exportar CSVs individuales como backup
+  write.csv(resumen_ejecutivo, paste0(archivo_base, "_resumen_", timestamp, ".csv"), row.names = FALSE)
+  write.csv(dimensiones_comparacion, paste0(archivo_base, "_dimensiones_", timestamp, ".csv"), row.names = FALSE)
+  write.csv(caracteristicas_comparacion, paste0(archivo_base, "_caracteristicas_", timestamp, ".csv"), row.names = FALSE)
+  write.csv(datos_radar, paste0(archivo_base, "_radar_", timestamp, ".csv"), row.names = FALSE)
+  write.csv(fortalezas_comparacion, paste0(archivo_base, "_fortalezas_", timestamp, ".csv"), row.names = FALSE)
+  
+  cat("✅ Archivos CSV creados con timestamp:", timestamp, "\n")
+  
+  # Crear archivo de instrucciones para Keynote
+  instrucciones <- paste0(
+    "INSTRUCCIONES PARA KEYNOTE\n",
+    "========================\n\n",
+    "Archivos generados:\n",
+    "1. ", archivo_excel, " - Archivo Excel completo\n",
+    "2. *_resumen_*.csv - Tabla resumen ejecutivo\n",
+    "3. *_dimensiones_*.csv - Scores por dimensiones (gráfico de barras)\n",
+    "4. *_caracteristicas_*.csv - Conteo de características\n",
+    "5. *_radar_*.csv - Datos para gráfico radar\n",
+    "6. *_fortalezas_*.csv - Top variables por percentil\n\n",
+    "CÓMO USAR EN KEYNOTE:\n",
+    "- Importar CSVs como tabla\n",
+    "- Crear gráficos desde datos importados\n",
+    "- Usar formato largo para gráficos radar\n",
+    "- Usar formato amplio para tablas comparativas\n"
+  )
+  
+  writeLines(instrucciones, paste0(archivo_base, "_instrucciones_", timestamp, ".txt"))
+  
+  cat("📖 Archivo de instrucciones creado\n")
+  cat("🎯 EXPORTACIÓN COMPLETADA\n\n")
+  
+  return(list(
+    resumen = resumen_ejecutivo,
+    dimensiones = dimensiones_comparacion,
+    caracteristicas = caracteristicas_comparacion,
+    radar = datos_radar,
+    fortalezas = fortalezas_comparacion
+  ))
+}
+
+# ---- ANÁLISIS PRINCIPAL INTEGRAL ----
+
+ejecutar_analisis_integral <- function(indice_proyecto) {
+  
+  proyecto <- datos_segmentados[indice_proyecto, ]
+  
+  cat("\n", rep("📊", 30), "\n")
+  cat("ANÁLISIS INTEGRAL DEL PROYECTO\n")
+  cat(rep("📊", 30), "\n")
+  
+  cat("\n🏢 PROYECTO:", proyecto$Proyecto, "\n")
+  cat("🏗️  DESARROLLADOR:", proyecto$Desarrollador, "\n")
+  cat("📍 MUNICIPIO:", proyecto$Municipio, "\n")
+  cat("🏠 SEGMENTO:", proyecto$Segmento, "| NSE:", proyecto$nse, "\n")
+  cat("💰 PRECIO/M²: $", format(proyecto$p_m2, big.mark = ","), "\n")
+  
+  # 1. Análisis por dimensiones
+  cat("\n1️⃣ ANÁLISIS POR DIMENSIONES DE NEGOCIO:\n")
+  analisis_dim <- analizar_fortalezas_dimensiones(datos_segmentados, dimensiones_negocio, indice_proyecto)
+  
+  # 2. Características distintivas
+  cat("\n2️⃣ CARACTERÍSTICAS DISTINTIVAS:\n")
+  caracteristicas <- analizar_caracteristicas_distintivas(datos_segmentados, caracteristicas_distintivas, indice_proyecto)
+  
+  # 3. Correlaciones con éxito
+  cat("\n3️⃣ FACTORES DE ÉXITO:\n")
+  resultado_correlaciones <- calcular_correlaciones_exito_corregido(datos_segmentados, proyecto$Segmento)
+  
+  if(nrow(resultado_correlaciones$correlaciones) > 0) {
+    correlaciones <- head(resultado_correlaciones$correlaciones, 5)
+    cat("Top 5 factores correlacionados con éxito en", proyecto$Segmento, ":\n")
+    for(i in 1:nrow(correlaciones)) {
+      cat("   ", i, ".", correlaciones$Variable[i], "- r =", correlaciones$Correlacion_Total[i], 
+          correlaciones$Significancia[i], "\n")
+    }
+  } else {
+    cat("⚠️  Muestra insuficiente para análisis de correlaciones confiables\n")
+  }
+  
+  # 4. VISUALIZACIONES COMPLETAS
+  cat("\n4️⃣ GENERANDO VISUALIZACIONES:\n")
+  
+  # Radar de dimensiones
+  cat("   📊 Gráfico radar de dimensiones...\n")
+  radar <- crear_radar_dimensiones(datos_segmentados, dimensiones_negocio, indice_proyecto)
+  print(radar)
+  
+  # Barras de dimensiones
+  cat("\n   📊 Gráfico de barras de dimensiones...\n")
+  barras_dim <- crear_grafico_barras_dimensiones(datos_segmentados, dimensiones_negocio, indice_proyecto)
+  print(barras_dim)
+  
+  # Fortalezas variables individuales
+  cat("\n   🏆 Gráfico de fortalezas por variables...\n")
+  fortalezas_vars <- crear_grafico_fortalezas_variables(datos_segmentados, indice_proyecto)
+  if(!is.null(fortalezas_vars)) {
+    print(fortalezas_vars)
+  } else {
+    cat("   ⚠️  No hay suficientes datos para gráfico de fortalezas\n")
+  }
+  
+  # Mapa de características
+  cat("\n   🌟 Mapa de características distintivas...\n")
+  mapa_carac <- crear_mapa_caracteristicas(datos_segmentados, caracteristicas_distintivas, indice_proyecto)
+  if(!is.null(mapa_carac)) {
+    print(mapa_carac)
+  } else {
+    cat("   ⚠️  No hay características distintivas para mapear\n")
+  }
+  
+  # Factores de éxito
+  cat("\n   🚀 Gráfico de factores de éxito...\n")
+  factores_exito <- crear_grafico_factores_exito(datos_segmentados, proyecto$Segmento)
+  if(!is.null(factores_exito)) {
+    print(factores_exito)
+  } else {
+    cat("   ⚠️  No hay suficientes datos para gráfico de factores de éxito\n")
+  }
+  
+  cat("\n", rep("📊", 30), "\n")
+  
+  return(list(
+    analisis_dimensiones = analisis_dim,
+    caracteristicas = caracteristicas,
+    correlaciones = resultado_correlaciones,
+    visualizaciones = list(
+      radar = radar,
+      barras_dimensiones = barras_dim,
+      fortalezas_variables = fortalezas_vars,
+      mapa_caracteristicas = mapa_carac,
+      factores_exito = factores_exito
+    )
+  ))
+}
+
+# ---- EJECUCIÓN PRINCIPAL ----
+
+cat("🎯 INICIANDO ANÁLISIS INTEGRAL\n")
+cat("==============================\n\n")
+
+# Verificar que los índices son válidos
+indices_validos <- c(PROYECTO_PRINCIPAL, PROYECTO_COMPARACION_1, PROYECTO_COMPARACION_2)
+if(any(indices_validos > nrow(datos_segmentados) | indices_validos < 1)) {
+  stop("❌ Uno o más índices de proyecto están fuera de rango (1-", nrow(datos_segmentados), ")")
+}
+
+# Obtener información básica de los proyectos
+proyectos_info <- datos_segmentados[indices_validos, c("Proyecto", "Desarrollador", "Segmento", "nse")]
+cat("📋 PROYECTOS A ANALIZAR:\n")
+for(i in 1:3) {
+  tipo <- c("PRINCIPAL", "COMPARACIÓN 1", "COMPARACIÓN 2")[i]
+  cat("   ", tipo, ":", proyectos_info$Proyecto[i], "(", proyectos_info$Segmento[i], ")\n")
+}
+
+# 1. ANÁLISIS DETALLADO DEL PROYECTO PRINCIPAL
+cat("\n" , rep("🎯", 50), "\n")
+cat("ANÁLISIS DETALLADO DEL PROYECTO PRINCIPAL\n")
+cat(rep("🎯", 50), "\n")
+
+resultado_principal <- ejecutar_analisis_integral(PROYECTO_PRINCIPAL)
+
+# 2. ANÁLISIS DE PROYECTOS DE COMPARACIÓN
+cat("\n" , rep("📊", 50), "\n")
+cat("ANÁLISIS DE PROYECTOS DE COMPARACIÓN\n")
+cat(rep("📊", 50), "\n")
+
+cat("\n--- PROYECTO DE COMPARACIÓN 1 ---\n")
+resultado_comp1 <- ejecutar_analisis_integral(PROYECTO_COMPARACION_1)
+
+cat("\n--- PROYECTO DE COMPARACIÓN 2 ---\n")
+resultado_comp2 <- ejecutar_analisis_integral(PROYECTO_COMPARACION_2)
+
+# 3. COMPARACIÓN INTEGRAL
+cat("\n" , rep("⚖️", 50), "\n")
+cat("COMPARACIÓN INTEGRAL DE LOS TRES PROYECTOS\n")
+cat(rep("⚖️", 50), "\n")
+
+comparacion_tabla <- comparar_proyectos_integral(datos_segmentados, PROYECTO_PRINCIPAL, PROYECTO_COMPARACION_1, PROYECTO_COMPARACION_2)
+
+# 4. VISUALIZACIONES COMPARATIVAS
+cat("\n" , rep("📊", 50), "\n")
+cat("VISUALIZACIONES COMPARATIVAS\n")
+cat(rep("📊", 50), "\n")
+
+# Gráfico comparativo de dimensiones
+cat("\n📊 Generando gráfico comparativo de dimensiones...\n")
+grafico_comparativo <- crear_grafico_comparativo_dimensiones(datos_segmentados, PROYECTO_PRINCIPAL, PROYECTO_COMPARACION_1, PROYECTO_COMPARACION_2)
+if(!is.null(grafico_comparativo)) {
+  print(grafico_comparativo)
+} else {
+  cat("⚠️  No se pudo generar gráfico comparativo\n")
+}
+
+# 5. EXPORTACIÓN PARA KEYNOTE
+cat("\n" , rep("📤", 50), "\n")
+cat("EXPORTACIÓN DE RESULTADOS PARA KEYNOTE\n")
+cat(rep("📤", 50), "\n")
+
+# Exportar todos los resultados
+datos_exportados <- exportar_resultados_keynote(
+  datos_segmentados, 
+  PROYECTO_PRINCIPAL, 
+  PROYECTO_COMPARACION_1, 
+  PROYECTO_COMPARACION_2,
+  archivo_base = "analisis_integral_4s"
+)
+
+# 6. RESUMEN EJECUTIVO
+cat("\n" , rep("🏆", 50), "\n")
+cat("RESUMEN EJECUTIVO DEL ANÁLISIS INTEGRAL\n")
+cat(rep("🏆", 50), "\n")
+
+cat("\n📊 ANÁLISIS COMPLETADO EXITOSAMENTE\n")
+cat("• Proyecto Principal:", proyectos_info$Proyecto[1], "\n")
+cat("• Proyectos de Comparación:", paste(proyectos_info$Proyecto[2:3], collapse = ", "), "\n")
+cat("• Dimensiones analizadas:", length(dimensiones_negocio), "\n")
+cat("• Características distintivas evaluadas:", length(caracteristicas_distintivas), "\n")
+
+# Mostrar hallazgos principales
+cat("\n🎯 HALLAZGOS PRINCIPALES DEL PROYECTO PRINCIPAL:\n")
+proyecto_principal_info <- datos_segmentados[PROYECTO_PRINCIPAL, ]
+
+cat("• Categoría 4S:", ifelse("categoria_4s" %in% names(proyecto_principal_info), 
+                              proyecto_principal_info$categoria_4s, "N/A"), "\n")
+cat("• IVU Segmentado:", round(proyecto_principal_info$ivu_segmentado, 3), 
+    " | IVP Segmentado:", round(proyecto_principal_info$ivp_segmentado, 3), "\n")
+
+# Resumir fortalezas principales
+if(length(resultado_principal$analisis_dimensiones$fortalezas) > 0) {
+  cat("• Fortalezas dimensionales:", length(resultado_principal$analisis_dimensiones$fortalezas), 
+      " (", paste(names(resultado_principal$analisis_dimensiones$fortalezas), collapse = ", "), ")\n")
+}
+
+if(length(resultado_principal$caracteristicas$caracteristicas_unicas) > 0) {
+  cat("• Características distintivas:", length(resultado_principal$caracteristicas$caracteristicas_unicas), 
+      " categorías únicas\n")
+}
+
+# Información de archivos exportados
+cat("\n📤 ARCHIVOS EXPORTADOS:\n")
+timestamp <- format(Sys.time(), "%Y%m%d_%H%M")
+cat("• analisis_integral_4s_", timestamp, ".xlsx (Excel completo)\n", sep = "")
+cat("• analisis_integral_4s_*_", timestamp, ".csv (CSVs individuales)\n", sep = "")
+cat("• analisis_integral_4s_instrucciones_", timestamp, ".txt (guía para Keynote)\n", sep = "")
+
+cat("\n🎯 PARA CAMBIAR LOS PROYECTOS A ANALIZAR:\n")
+cat("Modificar las variables al inicio del script:\n")
+cat("• PROYECTO_PRINCIPAL <- [número]\n")
+cat("• PROYECTO_COMPARACION_1 <- [número]\n") 
+cat("• PROYECTO_COMPARACION_2 <- [número]\n")
+
+cat("\n📊 VISUALIZACIONES GENERADAS:\n")
+cat("• Gráficos radar por dimensiones (3 proyectos)\n")
+cat("• Gráficos de barras por dimensiones (3 proyectos)\n")
+cat("• Gráficos de fortalezas por variables (3 proyectos)\n")
+cat("• Mapas de características distintivas (3 proyectos)\n")
+cat("• Gráficos de factores de éxito por segmento\n")
+cat("• Gráfico comparativo final de dimensiones\n")
+
+cat("\n🎨 TIPS PARA KEYNOTE:\n")
+cat("• Usar archivos CSV para crear gráficos personalizados\n")
+cat("• El archivo radar.csv está en formato largo para gráficos radar\n")
+cat("• El archivo dimensiones.csv está en formato amplio para tablas\n")
+cat("• Usar colores 4S: #2C6C66 (verde), #68D192 (verde claro), #F4E785 (amarillo)\n")
+
+cat("\n✅ ANÁLISIS INTEGRAL COMPLETADO\n")
+cat(rep("🏆", 50), "\n")
+
+# Retornar resultados completos
+resultados_completos <- list(
+  proyecto_principal = resultado_principal,
+  proyecto_comparacion_1 = resultado_comp1,
+  proyecto_comparacion_2 = resultado_comp2,
+  comparacion_tabla = comparacion_tabla,
+  grafico_comparativo = grafico_comparativo,
+  datos_exportados = datos_exportados,
+  configuracion = list(
+    indices = indices_validos,
+    proyectos = proyectos_info,
+    timestamp = timestamp
+  )
+)
+
+# Mostrar estructura de resultados disponibles
+cat("\n📋 ESTRUCTURA DE RESULTADOS DISPONIBLES:\n")
+cat("• resultados_completos$proyecto_principal$analisis_dimensiones\n")
+cat("• resultados_completos$proyecto_principal$caracteristicas\n")
+cat("• resultados_completos$proyecto_principal$visualizaciones\n")
+cat("• resultados_completos$comparacion_tabla\n")
+cat("• resultados_completos$datos_exportados\n")
+
+cat("\n🎯 USO DE RESULTADOS:\n")
+cat("# Ver tabla comparativa:\n")
+cat("View(resultados_completos$comparacion_tabla)\n\n")
+cat("# Ver datos exportados:\n")
+cat("View(resultados_completos$datos_exportados$resumen)\n\n")
+cat("# Acceder a gráficos individuales:\n")
+cat("print(resultados_completos$proyecto_principal$visualizaciones$radar)\n\n")
