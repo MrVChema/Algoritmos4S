@@ -1,0 +1,852 @@
+# ===============================================================================
+# SCRIPT 00: FUNCIONES COMUNES - LIBRERÍA CENTRAL IVU-IVP
+# ===============================================================================
+# Autor: 4S Real Estate
+# Fecha: 2025
+# Descripción: Librería centralizada de funciones reutilizables para el algoritmo IVU-IVP
+# 
+# CONTENIDO:
+# 1. Configuración y constantes
+# 2. Funciones de normalización y transformación
+# 3. Funciones de correlación y análisis estadístico  
+# 4. Funciones de visualización y mapas
+# 5. Funciones de procesamiento de datos
+# 6. Funciones de validación y utilidad
+# 7. Funciones específicas del dominio inmobiliario
+# ===============================================================================
+
+# ---- 1. CONFIGURACIÓN Y CONSTANTES ----
+
+#' Configuración global del proyecto 4S
+configurar_4s <- function() {
+  # Establecer configuraciones globales
+  options(stringsAsFactors = FALSE)
+  Sys.setlocale("LC_CTYPE", "UTF-8")
+  
+  # Suprimir warnings de s2 (geometrías espaciales)
+  if(requireNamespace("sf", quietly = TRUE)) {
+    sf::sf_use_s2(FALSE)
+  }
+  
+  cat("✅ Configuración 4S inicializada\n")
+}
+
+#' Cargar librerías necesarias con manejo de errores
+cargar_librerias_4s <- function() {
+  librerias_requeridas <- c(
+    "dplyr", "ggplot2", "sf", "leaflet", "plotly", "corrplot", 
+    "knitr", "tidyr", "readr", "readxl", "stringr", "scales",
+    "viridis", "RColorBrewer", "htmltools", "DT"
+  )
+  
+  librerias_faltantes <- librerias_requeridas[!sapply(librerias_requeridas, requireNamespace, quietly = TRUE)]
+  
+  if(length(librerias_faltantes) > 0) {
+    cat("⚠️  Librerías faltantes:", paste(librerias_faltantes, collapse = ", "), "\n")
+    cat("Instalando librerías faltantes...\n")
+    install.packages(librerias_faltantes)
+  }
+  
+  # Cargar librerías
+  invisible(lapply(librerias_requeridas, library, character.only = TRUE))
+  cat("✅ Librerías cargadas exitosamente\n")
+}
+
+#' Paletas de colores oficiales 4S
+PALETAS_4S <- list(
+  # Paleta principal de categorías
+  categorias_ivu = c(
+    "Muy bajo" = "#EF6558",   # Rojo
+    "Bajo" = "#F8C579",       # Naranja  
+    "Medio" = "#F4E785",      # Amarillo
+    "Alto" = "#68D192",       # Verde claro
+    "Muy alto" = "#2C6C66"    # Verde oscuro
+  ),
+  
+  # Paleta para IVP
+  categorias_ivp = c(
+    "Deficiente" = "#EF6558", 
+    "Regular" = "#F8C579",    
+    "Bueno" = "#F4E785",      
+    "Excelente" = "#68D192",  
+    "Excepcional" = "#2C6C66" 
+  ),
+  
+  # Paleta para matriz 4S
+  matriz_4s = c(
+    "SUPERIOR" = "#68D192",      # Verde - Lo mejor
+    "SÓLIDO" = "#9B87F4",        # Morado - Potencial
+    "SUSTENTABLE" = "#F4E785",   # Amarillo - Estable
+    "SINGULAR" = "#F8C579"       # Naranja - Básico
+  ),
+  
+  # Paleta por segmentos
+  segmentos = c(
+    "Premium Plus" = "#68D192",   
+    "Premium" = "#F4E785",        
+    "Residencial Plus" = "#54C1C4", 
+    "Residencial" = "#F8C579",    
+    "Medio" = "#EF6558"           
+  ),
+  
+  # Grises corporativos
+  grises = c("#212121", "#424242", "#797979", "#a9a9a9", "#c0c0c0", "#ebebeb"),
+  
+  # Azules corporativos
+  azules = c("#2C6C66", "#3A8E95", "#45A3A1", "#50BAAD", "#54C1C4", "#7ACEC8"),
+  
+  # Colores varios
+  varios = c("#EF6558", "#F8C579", "#68D192", "#9B87F4")
+)
+
+#' Constantes del proyecto
+CONSTANTES_4S <- list(
+  # Coordenadas centro de Monterrey
+  centro_mty = list(lat = 25.6866, lng = -100.3161),
+  
+  # Umbrales de distancia
+  umbrales_distancia = list(
+    cercania_general = 1000,    # metros
+    cercania_avenida = 200,     # metros
+    cercania_parque = 500,      # metros
+    distancia_maxima = 3000     # metros
+  ),
+  
+  # Segmentos válidos
+  segmentos_validos = c("Premium Plus", "Premium", "Residencial Plus", "Residencial", "Medio"),
+  
+  # NSE válidos
+  nse_validos = c("A+", "A", "B", "C+", "C", "D+", "D", "E")
+)
+
+# ---- 2. FUNCIONES DE NORMALIZACIÓN Y TRANSFORMACIÓN ----
+
+#' Normalización robusta con manejo de outliers
+#' @param x vector numérico a normalizar
+#' @param metodo método de normalización: "iqr", "minmax", "percentil"
+#' @param limite_outliers si aplicar límites para outliers
+#' @param percentiles percentiles para método "percentil" c(min, max)
+#' @return vector normalizado entre 0 y 1
+normalizar_robusto <- function(x, metodo = "iqr", limite_outliers = TRUE, percentiles = c(0.05, 0.95)) {
+  # Validar entrada
+  if(all(is.na(x))) return(rep(0.5, length(x)))
+  
+  x_clean <- x[!is.na(x)]
+  if(length(x_clean) == 0) return(rep(0.5, length(x)))
+  if(length(unique(x_clean)) == 1) return(rep(0.5, length(x)))
+  
+  # Aplicar método de normalización
+  if(metodo == "iqr") {
+    q25 <- quantile(x_clean, 0.25, na.rm = TRUE)
+    q75 <- quantile(x_clean, 0.75, na.rm = TRUE)
+    if(limite_outliers) {
+      x_clip <- pmax(q25, pmin(q75, x))
+    } else {
+      x_clip <- x
+    }
+    min_val <- min(x_clip, na.rm = TRUE)
+    max_val <- max(x_clip, na.rm = TRUE)
+  } else if(metodo == "percentil") {
+    min_val <- quantile(x_clean, percentiles[1], na.rm = TRUE)
+    max_val <- quantile(x_clean, percentiles[2], na.rm = TRUE)
+  } else {
+    # Método min-max tradicional
+    min_val <- min(x_clean, na.rm = TRUE)
+    max_val <- max(x_clean, na.rm = TRUE)
+  }
+  
+  if(max_val == min_val) return(rep(0.5, length(x)))
+  
+  resultado <- (x - min_val) / (max_val - min_val)
+  return(pmax(0, pmin(1, resultado)))
+}
+
+#' Cálculo de percentiles por grupo
+#' @param datos dataframe con los datos
+#' @param variable nombre de la variable a calcular percentiles
+#' @param grupo variable de agrupación
+#' @return vector con percentiles por grupo
+calcular_percentiles_grupo <- function(datos, variable, grupo) {
+  datos %>%
+    group_by(!!sym(grupo)) %>%
+    mutate(percentil = percent_rank(!!sym(variable)) * 100) %>%
+    pull(percentil)
+}
+
+#' Transformación DMS a decimal (mejorada)
+#' @param coord_str coordenada en formato DMS como string
+#' @return coordenada en formato decimal
+convertir_dms_decimal <- function(coord_str) {
+  if(is.numeric(coord_str)) return(coord_str)
+  if(grepl("^-?[0-9]+\\.[0-9]+$", coord_str)) return(as.numeric(coord_str))
+  
+  # Detectar dirección
+  direccion <- NA
+  if(grepl("[NSEW]", coord_str, ignore.case = TRUE)) {
+    direccion <- toupper(regmatches(coord_str, regexpr("[NSEW]", coord_str, ignore.case = TRUE)))
+  }
+  
+  # Extraer componentes
+  if(grepl("°|'|\"", coord_str)) {
+    grados <- as.numeric(regmatches(coord_str, regexpr("^-?[0-9]+(?=°)", coord_str, perl = TRUE)))
+    minutos <- as.numeric(regmatches(coord_str, regexpr("(?<=°)[0-9]+(?=')", coord_str, perl = TRUE)))
+    segundos_match <- regexpr("(?<=')[0-9]+(\\.[0-9]+)?(?=\")", coord_str, perl = TRUE)
+    segundos <- if(segundos_match > 0) as.numeric(regmatches(coord_str, segundos_match)) else 0
+  } else {
+    return(as.numeric(gsub("[^0-9\\.-]", "", coord_str)))
+  }
+  
+  if(is.na(grados)) return(NA)
+  if(is.na(minutos)) minutos <- 0
+  if(is.na(segundos)) segundos <- 0
+  
+  # Calcular decimal
+  decimal <- grados + minutos/60 + segundos/3600
+  
+  # Ajustar signo según dirección
+  if(!is.na(direccion) && direccion %in% c("S", "W")) decimal <- -decimal
+  if(abs(decimal) > 90 && decimal > 0) decimal <- -decimal
+  
+  return(decimal)
+}
+
+# ---- 3. FUNCIONES DE CORRELACIÓN Y ANÁLISIS ESTADÍSTICO ----
+
+#' Cálculo robusto de correlaciones con validación
+#' @param x vector numérico
+#' @param y vector numérico  
+#' @param metodo método de correlación ("pearson", "spearman")
+#' @param min_observaciones mínimo número de observaciones válidas
+#' @return lista con correlación, p-valor y validez
+calcular_correlacion_robusta <- function(x, y, metodo = "pearson", min_observaciones = 5) {
+  # Validar datos
+  datos_validos <- !is.na(x) & !is.na(y)
+  n_validos <- sum(datos_validos)
+  
+  if(n_validos < min_observaciones) {
+    return(list(correlacion = NA, p_valor = NA, n_observaciones = n_validos, valido = FALSE))
+  }
+  
+  x_clean <- x[datos_validos]
+  y_clean <- y[datos_validos]
+  
+  # Verificar variación suficiente
+  if(var(x_clean) == 0 || var(y_clean) == 0) {
+    return(list(correlacion = NA, p_valor = NA, n_observaciones = n_validos, valido = FALSE))
+  }
+  
+  # Calcular correlación
+  tryCatch({
+    test_result <- cor.test(x_clean, y_clean, method = metodo)
+    return(list(
+      correlacion = test_result$estimate,
+      p_valor = test_result$p.value,
+      n_observaciones = n_validos,
+      valido = TRUE
+    ))
+  }, error = function(e) {
+    return(list(correlacion = NA, p_valor = NA, n_observaciones = n_validos, valido = FALSE))
+  })
+}
+
+#' Análisis de correlaciones por segmento
+#' @param datos dataframe con los datos
+#' @param variables vector de nombres de variables
+#' @param variable_objetivo nombre de la variable objetivo
+#' @param grupo variable de agrupación
+#' @return dataframe con correlaciones por grupo
+analizar_correlaciones_segmento <- function(datos, variables, variable_objetivo, grupo = "Segmento") {
+  resultados <- data.frame()
+  
+  segmentos <- unique(datos[[grupo]])
+  segmentos <- segmentos[!is.na(segmentos)]
+  
+  for(seg in segmentos) {
+    datos_seg <- datos[datos[[grupo]] == seg, ]
+    
+    if(nrow(datos_seg) < 5) next
+    
+    for(var in variables) {
+      if(!var %in% names(datos_seg)) next
+      
+      resultado <- calcular_correlacion_robusta(
+        datos_seg[[var]], 
+        datos_seg[[variable_objetivo]]
+      )
+      
+      if(resultado$valido) {
+        resultados <- rbind(resultados, data.frame(
+          Segmento = seg,
+          Variable = var,
+          Correlacion = round(resultado$correlacion, 4),
+          P_valor = round(resultado$p_valor, 4),
+          N_observaciones = resultado$n_observaciones,
+          Significativo = resultado$p_valor < 0.05
+        ))
+      }
+    }
+  }
+  
+  return(resultados)
+}
+
+#' Función para detectar y manejar outliers
+#' @param x vector numérico
+#' @param metodo método para detectar outliers ("iqr", "z_score")
+#' @param umbral umbral para considerar outlier
+#' @return lista con índices de outliers y valores limpios
+detectar_outliers <- function(x, metodo = "iqr", umbral = 1.5) {
+  if(metodo == "iqr") {
+    Q1 <- quantile(x, 0.25, na.rm = TRUE)
+    Q3 <- quantile(x, 0.75, na.rm = TRUE)
+    IQR <- Q3 - Q1
+    limite_inferior <- Q1 - umbral * IQR
+    limite_superior <- Q3 + umbral * IQR
+    outliers <- which(x < limite_inferior | x > limite_superior)
+  } else if(metodo == "z_score") {
+    z_scores <- abs(scale(x))
+    outliers <- which(z_scores > umbral)
+  }
+  
+  return(list(
+    indices_outliers = outliers,
+    valores_limpios = x[-outliers],
+    n_outliers = length(outliers),
+    porcentaje_outliers = length(outliers) / length(x) * 100
+  ))
+}
+
+# ---- 4. FUNCIONES DE VISUALIZACIÓN Y MAPAS ----
+
+#' Configurar tema ggplot 4S
+#' @param tamaño_base tamaño base de la fuente
+#' @return tema ggplot personalizado
+configurar_tema_4s <- function(tamaño_base = 12) {
+  theme_minimal(base_size = tamaño_base) +
+    theme(
+      plot.title = element_text(face = "bold", size = tamaño_base + 4, color = "#2C6C66", hjust = 0.5),
+      plot.subtitle = element_text(size = tamaño_base + 1, color = "#2C6C66", hjust = 0.5),
+      axis.title = element_text(face = "bold", size = tamaño_base + 1, color = "#2C6C66"),
+      legend.title = element_text(face = "bold", size = tamaño_base, color = "#2C6C66"),
+      legend.text = element_text(size = tamaño_base - 1),
+      panel.grid.major = element_line(color = "gray90", size = 0.5),
+      panel.grid.minor = element_line(color = "gray95", size = 0.25)
+    )
+}
+
+#' Crear paleta de colores 4S
+#' @param tipo tipo de paleta ("categorias_ivu", "categorias_ivp", "matriz_4s", "segmentos")
+#' @param domain dominio de valores para la paleta
+#' @return función de paleta de colores
+crear_paleta_4s <- function(tipo, domain = NULL) {
+  if(!tipo %in% names(PALETAS_4S)) {
+    stop("Tipo de paleta no válido. Opciones: ", paste(names(PALETAS_4S), collapse = ", "))
+  }
+  
+  colores <- PALETAS_4S[[tipo]]
+  
+  if(is.null(domain)) {
+    domain <- names(colores)
+  }
+  
+  if(requireNamespace("leaflet", quietly = TRUE)) {
+    return(leaflet::colorFactor(palette = colores, domain = domain, na.color = "#808080"))
+  } else {
+    return(function(x) colores[x])
+  }
+}
+
+#' Función unificada para crear mapas interactivos
+#' @param datos dataframe con los datos
+#' @param tipo tipo de mapa ("ivu", "ivp", "matriz_4s", "precio")
+#' @param variable_color variable para colorear los puntos
+#' @param segmento filtro por segmento (opcional)
+#' @param titulo título del mapa (opcional)
+#' @return mapa leaflet interactivo
+crear_mapa_4s <- function(datos, tipo = "ivu", variable_color = NULL, segmento = NULL, titulo = NULL) {
+  # Filtrar por segmento si se especifica
+  if(!is.null(segmento)) {
+    datos <- datos %>% filter(Segmento == segmento)
+  }
+  
+  # Filtrar datos válidos
+  datos_validos <- datos %>% 
+    filter(!is.na(latitud) & !is.na(longitud))
+  
+  if(nrow(datos_validos) == 0) {
+    stop("No hay datos válidos para crear el mapa")
+  }
+  
+  # Configurar variables según tipo de mapa
+  if(tipo == "ivu") {
+    variable_color <- "ivu_categoria"
+    titulo_leyenda <- "Categoría IVU"
+    paleta_tipo <- "categorias_ivu"
+  } else if(tipo == "ivp") {
+    variable_color <- "ivp_v2_categoria"
+    titulo_leyenda <- "Categoría IVP"
+    paleta_tipo <- "categorias_ivp"
+  } else if(tipo == "matriz_4s") {
+    variable_color <- "categoria_4s"
+    titulo_leyenda <- "Categoría 4S"
+    paleta_tipo <- "matriz_4s"
+  } else if(tipo == "precio") {
+    # Para mapas de precio, usar gradiente
+    pal <- colorNumeric(
+      palette = PALETAS_4S$varios,
+      domain = datos_validos$p_m2,
+      na.color = "#808080"
+    )
+  }
+  
+  # Crear paleta de colores
+  if(tipo != "precio") {
+    pal <- crear_paleta_4s(paleta_tipo, domain = unique(datos_validos[[variable_color]]))
+  }
+  
+  # Crear popups informativos
+  popups <- crear_popups_informativos(datos_validos, tipo)
+  
+  # Crear mapa base
+  mapa <- leaflet(datos_validos) %>%
+    addTiles() %>%
+    addCircleMarkers(
+      lng = ~longitud, 
+      lat = ~latitud,
+      radius = 8,
+      fillColor = if(tipo == "precio") ~pal(p_m2) else ~pal(get(variable_color)),
+      color = "white",
+      weight = 2,
+      opacity = 1,
+      fillOpacity = 0.8,
+      popup = popups
+    ) %>%
+    addLegend(
+      position = "bottomright",
+      pal = pal,
+      values = if(tipo == "precio") ~p_m2 else ~get(variable_color),
+      title = if(is.null(titulo)) titulo_leyenda else titulo,
+      opacity = 0.8
+    ) %>%
+    setView(
+      lng = mean(datos_validos$longitud, na.rm = TRUE), 
+      lat = mean(datos_validos$latitud, na.rm = TRUE), 
+      zoom = 10
+    )
+  
+  return(mapa)
+}
+
+#' Crear popups informativos para mapas
+#' @param datos dataframe con los datos
+#' @param tipo tipo de información a mostrar
+#' @return vector de strings HTML para popups
+crear_popups_informativos <- function(datos, tipo = "completo") {
+  paste0(
+    "<div style='font-family: Arial, sans-serif; font-size: 14px; max-width: 320px;'>",
+    "<h4 style='margin: 0 0 10px 0; color: #2C6C66;'><b>", datos$Proyecto, "</b></h4>",
+    "<hr style='margin: 5px 0;'>",
+    "<b>🏢 Desarrollador:</b> ", datos$Desarrollador, "<br>",
+    "<b>📍 Municipio:</b> ", datos$Municipio, "<br>",
+    "<b>🏠 Segmento:</b> ", datos$Segmento, 
+    if("nse" %in% names(datos)) paste(" | NSE:", datos$nse) else "", "<br>",
+    "<hr style='margin: 5px 0;'>",
+    if("ivu" %in% names(datos)) paste0("<b>📊 IVU:</b> ", round(datos$ivu, 3), "<br>") else "",
+    if("ivp_v2" %in% names(datos)) paste0("<b>⭐ IVP:</b> ", round(datos$ivp_v2, 3), "<br>") else "",
+    if("categoria_4s" %in% names(datos)) paste0("<b>🎯 Categoría 4S:</b> ", datos$categoria_4s, "<br>") else "",
+    "<b>💰 Precio/m²:</b> $", format(datos$p_m2, big.mark = ","), "<br>",
+    if("absorcion" %in% names(datos)) paste0("<b>📈 Absorción:</b> ", round(datos$absorcion, 1), "<br>") else "",
+    "</div>"
+  )
+}
+
+#' Crear gráfico de termómetro
+#' @param datos dataframe con los datos
+#' @param indice_proyecto índice del proyecto a analizar
+#' @param tipo tipo de termómetro ("ivu", "ivp")
+#' @param titulo título personalizado (opcional)
+#' @return gráfico ggplot
+crear_termometro <- function(datos, indice_proyecto, tipo = "ivu", titulo = NULL) {
+  proyecto <- datos[indice_proyecto, ]
+  
+  if(tipo == "ivu") {
+    valor <- proyecto$ivu
+    categoria <- proyecto$ivu_categoria
+    titulo_default <- "🎯 Termómetro IVU"
+    colores <- PALETAS_4S$categorias_ivu
+  } else {
+    valor <- proyecto$ivp_v2
+    categoria <- proyecto$ivp_v2_categoria
+    titulo_default <- "⭐ Termómetro IVP"
+    colores <- PALETAS_4S$categorias_ivp
+  }
+  
+  color <- colores[as.character(categoria)]
+  
+  escala <- data.frame(
+    y = seq(0, 1, 0.2),
+    labels = c("0.0", "0.2", "0.4", "0.6", "0.8", "1.0")
+  )
+  
+  ggplot() +
+    geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = 1), 
+              fill = "lightgrey", color = "black", linewidth = 1) +
+    geom_rect(aes(xmin = 0.4, xmax = 0.6, ymin = 0, ymax = valor), 
+              fill = color, alpha = 0.8) +
+    geom_segment(data = escala, aes(x = 0.38, y = y, xend = 0.62, yend = y), 
+                 color = "black", linewidth = 0.5) +
+    geom_text(data = escala, aes(x = 0.35, y = y, label = labels), 
+              hjust = 1, size = 4) +
+    geom_text(aes(x = 0.5, y = 1.15, 
+                  label = paste0(proyecto$Proyecto, "\n", 
+                                 toupper(tipo), ": ", round(valor, 3), "\n",
+                                 "Categoría: ", categoria)),
+              fontface = "bold", hjust = 0.5, size = 4) +
+    labs(title = if(is.null(titulo)) titulo_default else titulo) +
+    configurar_tema_4s() +
+    theme(axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          panel.grid = element_blank()) +
+    coord_cartesian(xlim = c(0, 1), ylim = c(-0.05, 1.3))
+}
+
+# ---- 5. FUNCIONES DE PROCESAMIENTO DE DATOS ----
+
+#' Filtrar datos válidos para análisis
+#' @param datos dataframe con los datos
+#' @param variables_requeridas vector de nombres de variables que deben ser válidas
+#' @param segmentos_validos vector de segmentos válidos
+#' @return dataframe filtrado
+filtrar_datos_validos <- function(datos, variables_requeridas = NULL, segmentos_validos = CONSTANTES_4S$segmentos_validos) {
+  # Filtrar por segmentos válidos
+  datos_filtrados <- datos %>%
+    filter(Segmento %in% segmentos_validos)
+  
+  # Filtrar por variables requeridas si se especifican
+  if(!is.null(variables_requeridas)) {
+    variables_existentes <- intersect(variables_requeridas, names(datos_filtrados))
+    
+    for(var in variables_existentes) {
+      datos_filtrados <- datos_filtrados %>%
+        filter(!is.na(!!sym(var)))
+    }
+  }
+  
+  # Validar coordenadas si existen
+  if(all(c("latitud", "longitud") %in% names(datos_filtrados))) {
+    datos_filtrados <- datos_filtrados %>%
+      filter(!is.na(latitud) & !is.na(longitud) & 
+               abs(latitud) <= 90 & abs(longitud) <= 180)
+  }
+  
+  return(datos_filtrados)
+}
+
+#' Calcular estadísticas descriptivas por segmento
+#' @param datos dataframe con los datos
+#' @param variables vector de variables a analizar
+#' @param grupo variable de agrupación (default: "Segmento")
+#' @return dataframe con estadísticas por grupo
+calcular_estadisticas_segmento <- function(datos, variables, grupo = "Segmento") {
+  variables_existentes <- intersect(variables, names(datos))
+  
+  if(length(variables_existentes) == 0) {
+    stop("Ninguna de las variables especificadas existe en los datos")
+  }
+  
+  datos %>%
+    group_by(!!sym(grupo)) %>%
+    summarise(
+      n = n(),
+      across(all_of(variables_existentes), 
+             list(media = ~mean(.x, na.rm = TRUE),
+                  mediana = ~median(.x, na.rm = TRUE),
+                  sd = ~sd(.x, na.rm = TRUE),
+                  min = ~min(.x, na.rm = TRUE),
+                  max = ~max(.x, na.rm = TRUE)),
+             .names = "{.col}_{.fn}"),
+      .groups = 'drop'
+    )
+}
+
+#' Calcular rankings por segmento
+#' @param datos dataframe con los datos
+#' @param variable variable para calcular ranking
+#' @param grupo variable de agrupación (default: "Segmento")
+#' @param descendente si el ranking es descendente (TRUE) o ascendente (FALSE)
+#' @return dataframe con rankings agregados
+calcular_ranking_segmento <- function(datos, variable, grupo = "Segmento", descendente = TRUE) {
+  datos %>%
+    group_by(!!sym(grupo)) %>%
+    mutate(
+      ranking = if(descendente) rank(-!!sym(variable), ties.method = "min") else rank(!!sym(variable), ties.method = "min"),
+      percentil = percent_rank(!!sym(variable)) * 100,
+      total_grupo = n()
+    ) %>%
+    ungroup()
+}
+
+# ---- 6. FUNCIONES DE VALIDACIÓN Y UTILIDAD ----
+
+#' Validar estructura de datos requerida
+#' @param datos dataframe a validar
+#' @param columnas_requeridas vector de nombres de columnas requeridas
+#' @param mostrar_resumen si mostrar resumen de validación
+#' @return lista con resultado de validación
+validar_estructura_datos <- function(datos, columnas_requeridas, mostrar_resumen = TRUE) {
+  columnas_existentes <- names(datos)
+  columnas_faltantes <- setdiff(columnas_requeridas, columnas_existentes)
+  columnas_extra <- setdiff(columnas_existentes, columnas_requeridas)
+  
+  validacion <- list(
+    valido = length(columnas_faltantes) == 0,
+    columnas_faltantes = columnas_faltantes,
+    columnas_extra = columnas_extra,
+    n_filas = nrow(datos),
+    n_columnas = ncol(datos)
+  )
+  
+  if(mostrar_resumen) {
+    cat("=== VALIDACIÓN DE ESTRUCTURA DE DATOS ===\n")
+    cat("✅ Filas:", validacion$n_filas, "| Columnas:", validacion$n_columnas, "\n")
+    
+    if(length(columnas_faltantes) > 0) {
+      cat("❌ Columnas faltantes:", paste(columnas_faltantes, collapse = ", "), "\n")
+    } else {
+      cat("✅ Todas las columnas requeridas están presentes\n")
+    }
+    
+    if(length(columnas_extra) > 0) {
+      cat("ℹ️ Columnas adicionales:", length(columnas_extra), "\n")
+    }
+  }
+  
+  return(validacion)
+}
+
+#' Función para log de progreso con timestamp
+#' @param mensaje mensaje a mostrar
+#' @param tipo tipo de mensaje ("INFO", "WARNING", "ERROR", "SUCCESS")
+log_progreso <- function(mensaje, tipo = "INFO") {
+  timestamp <- format(Sys.time(), "%H:%M:%S")
+  
+  icono <- switch(tipo,
+                  "INFO" = "ℹ️",
+                  "WARNING" = "⚠️",
+                  "ERROR" = "❌",
+                  "SUCCESS" = "✅",
+                  "📝")
+  
+  cat(icono, "[", timestamp, "]", mensaje, "\n")
+}
+
+#' Exportar resultados en múltiples formatos
+#' @param datos dataframe a exportar
+#' @param nombre_base nombre base del archivo
+#' @param formatos vector de formatos ("csv", "xlsx", "rds")
+#' @param directorio directorio de salida
+#' @return vector con rutas de archivos creados
+exportar_resultados <- function(datos, nombre_base, formatos = c("csv", "xlsx"), directorio = getwd()) {
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  archivos_creados <- character()
+  
+  for(formato in formatos) {
+    archivo <- file.path(directorio, paste0(nombre_base, "_", timestamp, ".", formato))
+    
+    tryCatch({
+      if(formato == "csv") {
+        write.csv(datos, archivo, row.names = FALSE, fileEncoding = "UTF-8")
+      } else if(formato == "xlsx") {
+        if(requireNamespace("openxlsx", quietly = TRUE)) {
+          openxlsx::write.xlsx(datos, archivo)
+        } else {
+          log_progreso("openxlsx no disponible, omitiendo Excel", "WARNING")
+          next
+        }
+      } else if(formato == "rds") {
+        saveRDS(datos, archivo)
+      }
+      
+      archivos_creados <- c(archivos_creados, archivo)
+      log_progreso(paste("Archivo creado:", basename(archivo)), "SUCCESS")
+      
+    }, error = function(e) {
+      log_progreso(paste("Error creando", formato, ":", e$message), "ERROR")
+    })
+  }
+  
+  return(archivos_creados)
+}
+
+# ---- 7. FUNCIONES ESPECÍFICAS DEL DOMINIO INMOBILIARIO ----
+
+#' Calcular distancias a equipamientos
+#' @param proyectos_sf objeto sf con proyectos
+#' @param equipamientos_df dataframe con equipamientos (lat, lng)
+#' @param nombre_equipamiento nombre del tipo de equipamiento
+#' @param umbral_cercania umbral en metros para considerar "cercano"
+#' @return objeto sf con nuevas columnas de distancia
+calcular_distancias_equipamientos <- function(proyectos_sf, equipamientos_df, nombre_equipamiento, umbral_cercania = 1000) {
+  if(!inherits(proyectos_sf, "sf")) {
+    stop("proyectos_sf debe ser un objeto sf")
+  }
+  
+  # Validar equipamientos
+  equipamientos_df <- equipamientos_df %>%
+    filter(!is.na(latitud) & !is.na(longitud))
+  
+  if(nrow(equipamientos_df) == 0) {
+    log_progreso(paste("No hay equipamientos válidos para", nombre_equipamiento), "WARNING")
+    return(proyectos_sf)
+  }
+  
+  # Convertir equipamientos a sf
+  equipamientos_sf <- st_as_sf(equipamientos_df, 
+                               coords = c("longitud", "latitud"), 
+                               crs = 4326)
+  
+  # Inicializar columnas
+  col_dist <- paste0("dist_", nombre_equipamiento)
+  col_cercania <- paste0("cercania_", nombre_equipamiento)
+  col_cantidad <- paste0("cantidad_", nombre_equipamiento, "_1km")
+  
+  proyectos_sf[[col_dist]] <- NA_real_
+  proyectos_sf[[col_cercania]] <- 0L
+  proyectos_sf[[col_cantidad]] <- 0L
+  
+  # Calcular distancias
+  for(i in 1:nrow(proyectos_sf)) {
+    punto_proyecto <- proyectos_sf[i, ]
+    distancias <- st_distance(punto_proyecto, equipamientos_sf)
+    distancias_m <- as.numeric(distancias)
+    
+    if(length(distancias_m) > 0) {
+      min_dist <- min(distancias_m, na.rm = TRUE)
+      proyectos_sf[[col_dist]][i] <- min_dist
+      proyectos_sf[[col_cercania]][i] <- as.integer(min_dist <= umbral_cercania)
+      proyectos_sf[[col_cantidad]][i] <- sum(distancias_m <= 1000, na.rm = TRUE)
+    }
+  }
+  
+  log_progreso(paste("Distancias calculadas para", nombre_equipamiento), "SUCCESS")
+  return(proyectos_sf)
+}
+
+#' Categorizar proyectos según metodología 4S
+#' @param datos dataframe con IVU e IVP calculados
+#' @param umbral_ivu umbral para considerar IVU "alto"
+#' @param umbral_ivp umbral para considerar IVP "alto"
+#' @return dataframe con categoría 4S agregada
+categorizar_4s <- function(datos, umbral_ivu = 0.5, umbral_ivp = 0.5) {
+  datos %>%
+    mutate(
+      ivu_alto = ivu >= umbral_ivu,
+      ivp_alto = ivp_v2 >= umbral_ivp,
+      categoria_4s = case_when(
+        ivu_alto & ivp_alto ~ "SUPERIOR",      # Alto IVU + Alto IVP
+        !ivu_alto & ivp_alto ~ "SÓLIDO",       # Bajo IVU + Alto IVP
+        ivu_alto & !ivp_alto ~ "SUSTENTABLE",  # Alto IVU + Bajo IVP
+        TRUE ~ "SINGULAR"                      # Bajo IVU + Bajo IVP
+      )
+    ) %>%
+    select(-ivu_alto, -ivp_alto)
+}
+
+#' Analizar competencia por zona
+#' @param datos dataframe con proyectos
+#' @param radio_km radio en kilómetros para considerar competencia
+#' @param segmento_filtro filtrar por segmento específico (opcional)
+#' @return dataframe con análisis de competencia agregado
+analizar_competencia_zona <- function(datos, radio_km = 2, segmento_filtro = NULL) {
+  if(!all(c("latitud", "longitud") %in% names(datos))) {
+    stop("Se requieren columnas latitud y longitud")
+  }
+  
+  if(!is.null(segmento_filtro)) {
+    datos <- datos %>% filter(Segmento == segmento_filtro)
+  }
+  
+  # Convertir a sf
+  datos_sf <- st_as_sf(datos, coords = c("longitud", "latitud"), crs = 4326)
+  
+  # Transformar a proyección métrica para cálculos de distancia
+  datos_utm <- st_transform(datos_sf, 32614)  # UTM 14N para México
+  
+  # Calcular competencia para cada proyecto
+  datos$competencia_cercana <- 0
+  datos$precio_promedio_zona <- NA_real_
+  datos$absorcion_promedio_zona <- NA_real_
+  
+  for(i in 1:nrow(datos_utm)) {
+    # Crear buffer
+    buffer <- st_buffer(datos_utm[i, ], radio_km * 1000)
+    
+    # Encontrar proyectos en el buffer
+    intersecciones <- st_intersects(buffer, datos_utm)
+    indices_cercanos <- intersecciones[[1]]
+    indices_cercanos <- indices_cercanos[indices_cercanos != i]  # Excluir el proyecto mismo
+    
+    # Actualizar métricas
+    datos$competencia_cercana[i] <- length(indices_cercanos)
+    
+    if(length(indices_cercanos) > 0) {
+      datos$precio_promedio_zona[i] <- mean(datos$p_m2[indices_cercanos], na.rm = TRUE)
+      datos$absorcion_promedio_zona[i] <- mean(datos$absorcion[indices_cercanos], na.rm = TRUE)
+    }
+  }
+  
+  log_progreso("Análisis de competencia completado", "SUCCESS")
+  return(datos)
+}
+
+# ---- 8. FUNCIÓN DE INICIALIZACIÓN ----
+
+#' Inicializar entorno 4S completo
+#' @param cargar_libs si cargar librerías automáticamente
+#' @param mostrar_info si mostrar información de inicialización
+inicializar_4s <- function(cargar_libs = TRUE, mostrar_info = TRUE) {
+  if(mostrar_info) {
+    cat("\n", rep("🏗️", 20), "\n")
+    cat("INICIALIZANDO ENTORNO 4S REAL ESTATE\n")
+    cat(rep("🏗️", 20), "\n\n")
+  }
+  
+  # Configurar entorno
+  configurar_4s()
+  
+  # Cargar librerías si se solicita
+  if(cargar_libs) {
+    cargar_librerias_4s()
+  }
+  
+  # Mostrar información de constantes
+  if(mostrar_info) {
+    cat("📊 CONSTANTES CARGADAS:\n")
+    cat("• Segmentos válidos:", paste(CONSTANTES_4S$segmentos_validos, collapse = ", "), "\n")
+    cat("• NSE válidos:", paste(CONSTANTES_4S$nse_validos, collapse = ", "), "\n")
+    cat("• Paletas disponibles:", paste(names(PALETAS_4S), collapse = ", "), "\n")
+    cat("• Centro MTY:", CONSTANTES_4S$centro_mty$lat, ",", CONSTANTES_4S$centro_mty$lng, "\n")
+    
+    cat("\n🎯 FUNCIONES PRINCIPALES DISPONIBLES:\n")
+    cat("• normalizar_robusto() - Normalización robusta de datos\n")
+    cat("• calcular_correlacion_robusta() - Correlaciones con validación\n")
+    cat("• crear_mapa_4s() - Mapas interactivos unificados\n")
+    cat("• crear_termometro() - Gráficos de termómetro\n")
+    cat("• filtrar_datos_validos() - Filtrado inteligente de datos\n")
+    cat("• categorizar_4s() - Categorización metodología 4S\n")
+    cat("• exportar_resultados() - Exportación multi-formato\n")
+    
+    cat("\n✅ ENTORNO 4S INICIALIZADO CORRECTAMENTE\n")
+    cat(rep("🏗️", 20), "\n\n")
+  }
+  
+  return(invisible(TRUE))
+}
+
+# ===============================================================================
+# FIN DEL SCRIPT - FUNCIONES COMUNES 4S
+# ===============================================================================
+
+# Mensaje de carga exitosa
+cat("📦 Librería de Funciones Comunes 4S cargada exitosamente\n")
+cat("💡 Ejecutar inicializar_4s() para configurar el entorno completo\n")
