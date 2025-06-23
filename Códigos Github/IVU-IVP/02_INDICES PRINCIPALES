@@ -612,6 +612,104 @@ cat("- Proyectos con IVU >0.6:", sum(datos$ivu > 0.6, na.rm = TRUE), "\n")
 cat("- Proyectos con IVP >0.5:", sum(datos$ivp > 0.5, na.rm = TRUE), "\n")
 cat("- Proyectos con alto potencial NSE:", sum(datos$prob_incremento_nse > 0.7, na.rm = TRUE), "\n")
 
+# CORRECCIÓN PARA SCRIPT 2: CATEGORIZACIÓN 4S
+# Agregar este código al final del Script 2, después de todas las otras categorizaciones
+
+# ---- CORRECCIÓN: FORZAR CATEGORIZACIÓN 4S CORRECTA ----
+cat("\n🔧 CORRIGIENDO CATEGORIZACIÓN 4S...\n")
+
+# 1. Verificar si existe una variable previa con nombres incorrectos
+if("categoria_4s" %in% names(datos)) {
+  valores_unicos <- unique(datos$categoria_4s)
+  cat("⚠️  Variable categoria_4s existente encontrada con valores:", paste(valores_unicos, collapse = ", "), "\n")
+  
+  # Si tiene nombres incorrectos, eliminar la variable
+  nombres_incorrectos <- c("En desarrollo", "Excelente", "Muy bueno", "Sólido", 
+                           "Deficiente", "Regular", "Bueno", "Excepcional")
+  
+  if(any(valores_unicos %in% nombres_incorrectos)) {
+    cat("🗑️  Eliminando categorización incorrecta existente...\n")
+    datos$categoria_4s <- NULL
+  }
+}
+
+# 2. Forzar recreación con metodología original correcta
+cat("⚙️  Creando categorización 4S con metodología original...\n")
+
+# 2.1 Verificar que tenemos las variables base necesarias
+if(!"ivu_segmentado" %in% names(datos) || !"ivp_segmentado" %in% names(datos)) {
+  cat("⚠️  Variables segmentadas faltantes, usando valores generales como fallback...\n")
+  
+  if(!"ivu_segmentado" %in% names(datos)) {
+    datos$ivu_segmentado <- datos$ivu
+  }
+  if(!"ivp_segmentado" %in% names(datos)) {
+    datos$ivp_segmentado <- datos$ivp_v2  # o datos$ivp si es el nombre correcto
+  }
+}
+
+# 2.2 Aplicar categorización 4S con metodología original EXACTA
+datos <- datos %>%
+  mutate(
+    # Categorización 4S con criterios exactos del método original
+    categoria_4s = case_when(
+      is.na(ivu_segmentado) | is.na(ivp_segmentado) ~ NA_character_,
+      ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "SUPERIOR",
+      ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "SÓLIDO", 
+      ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "SUSTENTABLE",
+      TRUE ~ "SINGULAR"
+    ),
+    
+    # Convertir a factor con niveles ordenados
+    categoria_4s = factor(categoria_4s, 
+                          levels = c("SUPERIOR", "SÓLIDO", "SUSTENTABLE", "SINGULAR"),
+                          ordered = FALSE)
+  )
+
+# 2.3 Verificar la distribución resultante
+cat("✅ Nueva categorización 4S aplicada\n")
+distribucion_4s <- table(datos$categoria_4s, useNA = "ifany")
+cat("📊 Distribución corregida:\n")
+for(categoria in names(distribucion_4s)) {
+  pct <- round(distribucion_4s[categoria] / sum(distribucion_4s) * 100, 1)
+  cat("   ", categoria, ":", distribucion_4s[categoria], "(", pct, "%)\n")
+}
+
+# 2.4 Diagnóstico de valores para entender la distribución
+cat("\n🔍 DIAGNÓSTICO DE VALORES:\n")
+cat("- Rango IVU segmentado:", round(min(datos$ivu_segmentado, na.rm = TRUE), 3), 
+    "a", round(max(datos$ivu_segmentado, na.rm = TRUE), 3), "\n")
+cat("- Rango IVP segmentado:", round(min(datos$ivp_segmentado, na.rm = TRUE), 3), 
+    "a", round(max(datos$ivp_segmentado, na.rm = TRUE), 3), "\n")
+
+# Contar proyectos por umbrales
+proyectos_ivu_alto <- sum(datos$ivu_segmentado >= 0.5, na.rm = TRUE)
+proyectos_ivp_alto <- sum(datos$ivp_segmentado >= 0.5, na.rm = TRUE)
+cat("- Proyectos con IVU segmentado >= 0.5:", proyectos_ivu_alto, "\n")
+cat("- Proyectos con IVP segmentado >= 0.5:", proyectos_ivp_alto, "\n")
+
+# Si la distribución sigue siendo problemática, investigar más
+if(sum(datos$categoria_4s == "SÓLIDO", na.rm = TRUE) > (nrow(datos) * 0.6)) {
+  cat("\n⚠️  DISTRIBUCIÓN SIGUE SESGADA - INVESTIGACIÓN ADICIONAL:\n")
+  
+  # Estadísticas detalladas
+  stats_ivu <- summary(datos$ivu_segmentado)
+  stats_ivp <- summary(datos$ivp_segmentado)
+  
+  cat("📈 Estadísticas IVU segmentado:\n")
+  print(stats_ivu)
+  cat("📈 Estadísticas IVP segmentado:\n") 
+  print(stats_ivp)
+  
+  # Verificar si los valores están normalizados correctamente
+  if(max(datos$ivu_segmentado, na.rm = TRUE) > 1.1 || max(datos$ivp_segmentado, na.rm = TRUE) > 1.1) {
+    cat("🚨 PROBLEMA: Los índices no están normalizados entre 0-1\n")
+    cat("   Considera renormalizar antes de aplicar categorización 4S\n")
+  }
+}
+
+cat("✅ Corrección de categorización 4S completada\n")
+
 # ---- 14. EXPORTAR RESULTADOS ----
 cat("\n💾 EXPORTANDO RESULTADOS...\n")
 
