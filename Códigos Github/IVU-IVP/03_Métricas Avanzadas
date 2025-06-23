@@ -1,0 +1,654 @@
+# SCRIPT 3: INTEGRACIÓN Y MÉTRICAS AVANZADAS
+# Flujo Optimizado IVU-IVP - Consolida metodologías del Script 6 y análisis comparativo del Script 10
+
+# ---- 1. CONFIGURACIÓN INICIAL ----
+cat("🚀 INICIANDO SCRIPT 3: INTEGRACIÓN Y MÉTRICAS AVANZADAS\n")
+cat("=========================================================\n\n")
+
+# Limpiar el entorno y cargar librerías necesarias
+rm(list = ls())
+
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+library(gridExtra)
+library(knitr)
+library(sf)
+library(leaflet)
+library(RColorBrewer)
+library(scales)
+library(DT)
+library(plotly)
+library(stringr)
+library(tidyr)
+library(reshape2)
+library(readr)
+
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[02] IVU-IVP')
+
+cat("✅ Configuración inicial completada\n")
+
+# CAPTURAR SALIDA DE CONSOLA
+timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+archivo_log <- paste0("script3_log_", timestamp, ".txt")
+sink(archivo_log, append = FALSE, split = TRUE)
+
+# ---- 2. CARGAR DATOS DEL SCRIPT 2 ----
+cat("\n📊 CARGANDO DATOS CON ÍNDICES PRINCIPALES...\n")
+
+# Intentar cargar el archivo correcto del Script 2
+archivos_posibles <- c(
+  "base_con_indices_principales.csv",
+  "indices_principales_completos_metodologia_original.csv",
+  "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[02] DATOS/[00] BASE INTEGRADA/OUTPUT_BASE INTEGRADA_IVU-IVP/indices_principales_completos_metodologia_original.csv"
+)
+
+datos <- NULL
+archivo_usado <- NULL
+
+for(archivo in archivos_posibles) {
+  if(file.exists(archivo)) {
+    tryCatch({
+      datos <- read.csv(archivo, stringsAsFactors = FALSE, encoding = "UTF-8")
+      archivo_usado <- archivo
+      cat("✅ Archivo cargado exitosamente:", basename(archivo), "\n")
+      break
+    }, error = function(e) {
+      cat("⚠️  Error cargando", basename(archivo), ":", e$message, "\n")
+    })
+  }
+}
+
+if(is.null(datos)) {
+  stop("❌ No se pudo cargar ningún archivo con los índices principales. 
+       Asegúrate de haber ejecutado el Script 2 primero.")
+}
+
+# Verificar variables críticas del Script 2
+variables_criticas <- c("ivu", "prob_incremento_nse")
+variables_opcionales <- c("ivp_v2", "categoria_4s", "ivu_proyectado", 
+                          "indice_potencial_inversion", "ivu_segmentado", "ivp_segmentado")
+
+# Detectar qué variables existen
+variables_criticas_faltantes <- setdiff(variables_criticas, names(datos))
+variables_opcionales_faltantes <- setdiff(variables_opcionales, names(datos))
+
+if(length(variables_criticas_faltantes) > 0) {
+  stop("❌ Variables críticas faltantes del Script 2: ", 
+       paste(variables_criticas_faltantes, collapse = ", "), 
+       "\n   Ejecuta primero el Script 2 completo.")
+}
+
+# Alertar sobre variables opcionales faltantes
+if(length(variables_opcionales_faltantes) > 0) {
+  cat("⚠️  Variables opcionales que se crearán en este script:\n")
+  for(var in variables_opcionales_faltantes) {
+    cat("   -", var, "\n")
+  }
+}
+
+cat("✅ Datos cargados exitosamente:\n")
+cat("- Archivo usado:", basename(archivo_usado), "\n")
+cat("- Proyectos:", nrow(datos), "\n")
+cat("- Variables totales:", ncol(datos), "\n")
+cat("- Proyectos con IVU:", sum(!is.na(datos$ivu)), "\n")
+
+# Verificar si tenemos IVP (puede tener nombres diferentes)
+if("ivp_v2" %in% names(datos)) {
+  cat("- Proyectos con IVP:", sum(!is.na(datos$ivp_v2)), "\n")
+} else if("ivp" %in% names(datos)) {
+  # Renombrar para consistencia
+  datos$ivp_v2 <- datos$ivp
+  cat("- Proyectos con IVP (renombrado):", sum(!is.na(datos$ivp_v2)), "\n")
+} else {
+  cat("- ⚠️  IVP no encontrado, se necesitará crear\n")
+}
+
+# Verificar evolución NSE
+if("prob_incremento_nse" %in% names(datos)) {
+  cat("- Proyectos con evolución NSE:", sum(!is.na(datos$prob_incremento_nse)), "\n")
+}
+
+# Verificar categorización 4S
+if("categoria_4s" %in% names(datos)) {
+  cat("- Proyectos con categorización 4S:", sum(!is.na(datos$categoria_4s)), "\n")
+} else {
+  cat("- ⚠️  Categorización 4S no encontrada, se creará\n")
+}
+
+# ---- 3. CREAR VARIABLES BASE FALTANTES DEL SCRIPT 2 ----
+cat("\n🔧 VERIFICANDO Y CREANDO VARIABLES BASE FALTANTES...\n")
+
+# 3.1 Crear IVU proyectado si no existe
+if(!"ivu_proyectado" %in% names(datos)) {
+  cat("⚙️  Creando IVU proyectado...\n")
+  datos <- datos %>%
+    mutate(
+      ivu_proyectado = ivu * (1 + (prob_incremento_nse * 0.3)),
+      incremento_valor = ivu_proyectado - ivu,
+      ivu_proyectado_categoria = cut(
+        ivu_proyectado, 
+        breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+        labels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"),
+        include.lowest = TRUE
+      )
+    )
+}
+
+# 3.2 Crear índice de potencial de inversión si no existe
+if(!"indice_potencial_inversion" %in% names(datos)) {
+  cat("⚙️  Creando índice de potencial de inversión...\n")
+  datos <- datos %>%
+    mutate(
+      indice_potencial_inversion = (ivu * 0.6) + (prob_incremento_nse * 0.4),
+      categoria_potencial_inversion = cut(
+        indice_potencial_inversion,
+        breaks = c(0, 0.3, 0.5, 0.7, 1),
+        labels = c("Bajo potencial", "Potencial moderado", "Alto potencial", "Excelente potencial"),
+        include.lowest = TRUE
+      )
+    )
+}
+
+# 3.3 Crear categorización 4S básica si no existe
+if(!"categoria_4s" %in% names(datos)) {
+  cat("⚙️  Creando categorización 4S básica...\n")
+  
+  # Verificar si tenemos IVU e IVP segmentados, si no usar los generales
+  if(!"ivu_segmentado" %in% names(datos)) {
+    datos$ivu_segmentado <- datos$ivu
+  }
+  if(!"ivp_segmentado" %in% names(datos)) {
+    datos$ivp_segmentado <- datos$ivp_v2
+  }
+  
+  datos <- datos %>%
+    mutate(
+      categoria_4s = case_when(
+        ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "SUPERIOR",
+        ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "SÓLIDO",
+        ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "SUSTENTABLE",
+        TRUE ~ "SINGULAR"
+      ),
+      categoria_4s = factor(categoria_4s, 
+                            levels = c("SUPERIOR", "SÓLIDO", "SUSTENTABLE", "SINGULAR"),
+                            ordered = FALSE)
+    )
+}
+
+# 3.4 Verificar variables de tiempo de evolución NSE
+if(!"tiempo_estimado_cambio" %in% names(datos)) {
+  cat("⚙️  Creando tiempo estimado de cambio NSE...\n")
+  datos <- datos %>%
+    mutate(
+      tiempo_estimado_cambio = case_when(
+        prob_incremento_nse >= 0.7 ~ "1-3 años",
+        prob_incremento_nse >= 0.5 ~ "3-5 años",
+        prob_incremento_nse >= 0.3 ~ "5-10 años",
+        TRUE ~ "Más de 10 años o sin cambio previsible"
+      )
+    )
+}
+
+cat("✅ Variables base verificadas y creadas según metodología original\n")
+
+# ---- 4. INTEGRACIÓN IVU-NSE AVANZADA (Script 6 Original Expandido) ----
+cat("\n🔗 EXPANDIENDO INTEGRACIÓN IVU-NSE...\n")
+
+# 4.1 Métricas combinadas avanzadas (Del Script 6 original)
+datos <- datos %>%
+  mutate(
+    # Potencial de revalorización a corto plazo (1-3 años)
+    potencial_corto_plazo = case_when(
+      tiempo_estimado_cambio == "1-3 años" ~ ivu_proyectado * 1.2,
+      tiempo_estimado_cambio == "3-5 años" ~ ivu_proyectado * 1.1,
+      TRUE ~ ivu_proyectado
+    ),
+    
+    # Potencial de revalorización a largo plazo (5+ años)
+    potencial_largo_plazo = case_when(
+      tiempo_estimado_cambio %in% c("1-3 años", "3-5 años") ~ ivu_proyectado * 1.4,
+      tiempo_estimado_cambio == "5-10 años" ~ ivu_proyectado * 1.2,
+      TRUE ~ ivu_proyectado * 1.05
+    ),
+    
+    # Score compuesto de inversión (metodología original del Script 6)
+    score_inversion_compuesto = (
+      (ivu * 0.25) +                           # Valor actual ubicación
+        (ivp_v2 * 0.20) +                        # Valor del proyecto
+        (prob_incremento_nse * 0.30) +           # Probabilidad evolución NSE
+        (indice_potencial_inversion * 0.25)      # Potencial integrado
+    ),
+    
+    # Ratio de eficiencia de inversión
+    ratio_eficiencia_inversion = ifelse(p_m2 > 0, 
+                                        score_inversion_compuesto / (p_m2 / 1000000), # Normalizar precio
+                                        0),
+    
+    # Categorías de timing de mercado (Del Script 6)
+    timing_mercado = case_when(
+      prob_incremento_nse >= 0.7 & ivu >= 0.6 ~ "Timing Óptimo",
+      prob_incremento_nse >= 0.5 & ivu >= 0.4 ~ "Timing Favorable", 
+      prob_incremento_nse >= 0.3 ~ "Timing Moderado",
+      TRUE ~ "Timing Conservador"
+    )
+  )
+
+# 4.2 Normalizar score compuesto
+min_score <- min(datos$score_inversion_compuesto, na.rm = TRUE)
+max_score <- max(datos$score_inversion_compuesto, na.rm = TRUE)
+datos$score_inversion_norm <- (datos$score_inversion_compuesto - min_score) / (max_score - min_score)
+
+# 4.3 Categorías finales de potencial de inversión
+datos <- datos %>%
+  mutate(
+    categoria_inversion_final = cut(
+      score_inversion_norm,
+      breaks = c(0, 0.25, 0.50, 0.75, 1.0),
+      labels = c("Potencial Limitado", "Potencial Moderado", "Alto Potencial", "Potencial Excepcional"),
+      include.lowest = TRUE
+    )
+  )
+
+cat("✅ Integración IVU-NSE expandida completada\n")
+
+# ---- 5. CATEGORIZACIÓN 4S REFINADA (Script 7 Original Expandido) ----
+cat("\n🎯 REFINANDO CATEGORIZACIÓN 4S...\n")
+
+# 5.1 Verificar que tenemos la categorización básica
+if("categoria_4s" %in% names(datos) && !all(is.na(datos$categoria_4s))) {
+  
+  # 5.2 Análisis por categoría 4S (metodología original expandida)
+  analisis_4s <- datos %>%
+    filter(!is.na(categoria_4s)) %>%
+    group_by(categoria_4s) %>%
+    summarise(
+      count = n(),
+      ivu_promedio = mean(ivu, na.rm = TRUE),
+      ivp_promedio = mean(ivp_v2, na.rm = TRUE),
+      prob_nse_promedio = mean(prob_incremento_nse, na.rm = TRUE),
+      precio_promedio = mean(p_m2, na.rm = TRUE),
+      absorcion_promedio = mean(absorcion, na.rm = TRUE),
+      score_inversion_promedio = mean(score_inversion_norm, na.rm = TRUE),
+      .groups = 'drop'
+    )
+  
+  # 5.3 Subcategorización dentro de cada 4S (Del Script 7 original)
+  datos <- datos %>%
+    group_by(categoria_4s) %>%
+    mutate(
+      # Ranking dentro de cada categoría 4S
+      ranking_dentro_categoria = rank(-score_inversion_norm, ties.method = "min"),
+      percentil_categoria = rank(score_inversion_norm) / n(),
+      
+      # Subcategorías dentro de cada 4S
+      subcategoria_4s = case_when(
+        percentil_categoria >= 0.8 ~ paste0(categoria_4s, " Elite"),
+        percentil_categoria >= 0.6 ~ paste0(categoria_4s, " Premium"),
+        percentil_categoria >= 0.4 ~ paste0(categoria_4s, " Estándar"),
+        percentil_categoria >= 0.2 ~ paste0(categoria_4s, " Básico"),
+        TRUE ~ paste0(categoria_4s, " Económico")
+      )
+    ) %>%
+    ungroup()
+  
+  # 5.4 Características distintivas por categoría 4S (Del Script 7)
+  datos <- datos %>%
+    mutate(
+      caracteristica_distintiva = case_when(
+        categoria_4s == "SUPERIOR" ~ 
+          case_when(
+            ivu >= 0.8 & ivp_v2 >= 0.8 ~ "Ultra Premium",
+            prob_incremento_nse >= 0.7 ~ "Alto Crecimiento",
+            TRUE ~ "Equilibrio Óptimo"
+          ),
+        categoria_4s == "SÓLIDO" ~ 
+          case_when(
+            ivp_v2 >= 0.8 ~ "Proyecto Excepcional",
+            prob_incremento_nse >= 0.6 ~ "Zona en Desarrollo",
+            TRUE ~ "Valor del Proyecto"
+          ),
+        categoria_4s == "SUSTENTABLE" ~ 
+          case_when(
+            ivu >= 0.8 ~ "Ubicación Premium",
+            prob_incremento_nse <= 0.3 ~ "Zona Consolidada",
+            TRUE ~ "Valor de Ubicación"
+          ),
+        categoria_4s == "SINGULAR" ~ 
+          case_when(
+            score_inversion_norm >= 0.6 ~ "Oportunidad Especial",
+            p_m2 <= quantile(p_m2, 0.25, na.rm = TRUE) ~ "Accesible",
+            TRUE ~ "Nicho Específico"
+          ),
+        TRUE ~ "Sin Clasificar"
+      )
+    )
+  
+  cat("✅ Categorización 4S refinada completada\n")
+  cat("📊 Distribución de categorías 4S:\n")
+  print(table(datos$categoria_4s, useNA = "ifany"))
+  
+} else {
+  cat("⚠️  Categorización 4S no encontrada en los datos\n")
+}
+
+# ---- 6. BENCHMARKING Y ANÁLISIS COMPARATIVO (Script 10 Original) ----
+cat("\n📈 EJECUTANDO BENCHMARKING Y ANÁLISIS COMPARATIVO...\n")
+
+# 6.1 Benchmarks por segmento de mercado
+benchmarks_segmento <- datos %>%
+  group_by(Segmento) %>%
+  summarise(
+    proyectos_count = n(),
+    ivu_percentil_25 = quantile(ivu, 0.25, na.rm = TRUE),
+    ivu_mediana = median(ivu, na.rm = TRUE),
+    ivu_percentil_75 = quantile(ivu, 0.75, na.rm = TRUE),
+    ivp_percentil_25 = quantile(ivp_v2, 0.25, na.rm = TRUE),
+    ivp_mediana = median(ivp_v2, na.rm = TRUE),
+    ivp_percentil_75 = quantile(ivp_v2, 0.75, na.rm = TRUE),
+    absorcion_mediana = median(absorcion, na.rm = TRUE),
+    precio_mediana = median(p_m2, na.rm = TRUE),
+    score_inversion_mediana = median(score_inversion_norm, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+# 6.2 Benchmarks por NSE
+benchmarks_nse <- datos %>%
+  group_by(nse) %>%
+  summarise(
+    proyectos_count = n(),
+    ivu_mediana = median(ivu, na.rm = TRUE),
+    ivp_mediana = median(ivp_v2, na.rm = TRUE),
+    prob_nse_mediana = median(prob_incremento_nse, na.rm = TRUE),
+    absorcion_mediana = median(absorcion, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+# 6.3 Benchmarks por municipio
+benchmarks_municipio <- datos %>%
+  group_by(Municipio) %>%
+  filter(n() >= 3) %>%  # Solo municipios con al menos 3 proyectos
+  summarise(
+    proyectos_count = n(),
+    ivu_mediana = median(ivu, na.rm = TRUE),
+    precio_mediana = median(p_m2, na.rm = TRUE),
+    absorcion_mediana = median(absorcion, na.rm = TRUE),
+    diversidad_desarrolladores = n_distinct(Desarrollador),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(proyectos_count))
+
+# 6.4 Posicionamiento relativo vs benchmarks
+# Primero hacer los joins con nombres explícitos
+datos <- datos %>%
+  # Join con benchmarks de segmento
+  left_join(benchmarks_segmento %>% 
+              select(Segmento, ivu_mediana, ivp_mediana) %>%
+              rename(ivu_bench_segmento = ivu_mediana,
+                     ivp_bench_segmento = ivp_mediana), 
+            by = "Segmento") %>%
+  # Join con benchmarks de NSE  
+  left_join(benchmarks_nse %>% 
+              select(nse, ivu_mediana, prob_nse_mediana) %>%
+              rename(ivu_bench_nse = ivu_mediana,
+                     prob_nse_bench_nse = prob_nse_mediana), 
+            by = "nse") %>%
+  # Join con benchmarks de municipio
+  left_join(benchmarks_municipio %>% 
+              select(Municipio, ivu_mediana, precio_mediana, absorcion_mediana) %>%
+              rename(ivu_bench_municipio = ivu_mediana,
+                     precio_bench_municipio = precio_mediana,
+                     absorcion_bench_municipio = absorcion_mediana), 
+            by = "Municipio") %>%
+  mutate(
+    # Posición relativa vs segmento
+    posicion_ivu_segmento = case_when(
+      is.na(ivu_bench_segmento) ~ "Sin Benchmark",
+      ivu >= ivu_bench_segmento * 1.2 ~ "Muy Superior",
+      ivu >= ivu_bench_segmento * 1.1 ~ "Superior", 
+      ivu >= ivu_bench_segmento * 0.9 ~ "En Línea",
+      ivu >= ivu_bench_segmento * 0.8 ~ "Inferior",
+      TRUE ~ "Muy Inferior"
+    ),
+    
+    posicion_ivp_segmento = case_when(
+      is.na(ivp_bench_segmento) ~ "Sin Benchmark",
+      ivp_v2 >= ivp_bench_segmento * 1.2 ~ "Muy Superior",
+      ivp_v2 >= ivp_bench_segmento * 1.1 ~ "Superior",
+      ivp_v2 >= ivp_bench_segmento * 0.9 ~ "En Línea", 
+      ivp_v2 >= ivp_bench_segmento * 0.8 ~ "Inferior",
+      TRUE ~ "Muy Inferior"
+    ),
+    
+    # Posición relativa vs municipio
+    posicion_precio_municipio = case_when(
+      is.na(precio_bench_municipio) ~ "Sin Benchmark",
+      p_m2 >= precio_bench_municipio * 1.2 ~ "Premium",
+      p_m2 >= precio_bench_municipio * 1.1 ~ "Sobre Mercado",
+      p_m2 >= precio_bench_municipio * 0.9 ~ "En Mercado",
+      p_m2 >= precio_bench_municipio * 0.8 ~ "Bajo Mercado",
+      TRUE ~ "Muy Bajo Mercado"
+    ),
+    
+    # Score de competitividad general
+    score_competitividad = case_when(
+      posicion_ivu_segmento %in% c("Superior", "Muy Superior") & 
+        posicion_ivp_segmento %in% c("Superior", "Muy Superior") ~ "Altamente Competitivo",
+      posicion_ivu_segmento == "En Línea" & 
+        posicion_ivp_segmento == "En Línea" ~ "Competitivo",
+      posicion_ivu_segmento %in% c("Inferior", "Muy Inferior") | 
+        posicion_ivp_segmento %in% c("Inferior", "Muy Inferior") ~ "Poco Competitivo",
+      posicion_ivu_segmento == "Sin Benchmark" | 
+        posicion_ivp_segmento == "Sin Benchmark" ~ "Sin Información Suficiente",
+      TRUE ~ "Moderadamente Competitivo"
+    )
+  )
+
+cat("✅ Benchmarking completado\n")
+
+# 6.5 Análisis de oportunidades de mercado
+analisis_oportunidades <- datos %>%
+  group_by(Municipio, Segmento) %>%
+  summarise(
+    proyectos = n(),
+    ivu_promedio = mean(ivu, na.rm = TRUE),
+    absorcion_promedio = mean(absorcion, na.rm = TRUE),
+    oferta_disponible = sum(unidades_inv, na.rm = TRUE),
+    precio_promedio = mean(p_m2, na.rm = TRUE),
+    desarrolladores_activos = n_distinct(Desarrollador),
+    .groups = 'drop'
+  ) %>%
+  filter(proyectos >= 2) %>%
+  mutate(
+    saturacion_mercado = case_when(
+      desarrolladores_activos >= 5 ~ "Alta Saturación",
+      desarrolladores_activos >= 3 ~ "Saturación Moderada", 
+      desarrolladores_activos >= 2 ~ "Competencia Básica",
+      TRUE ~ "Mercado Abierto"
+    ),
+    oportunidad_mercado = case_when(
+      saturacion_mercado == "Mercado Abierto" & absorcion_promedio >= 0.8 ~ "Oportunidad Alta",
+      saturacion_mercado == "Competencia Básica" & absorcion_promedio >= 0.6 ~ "Oportunidad Moderada",
+      saturacion_mercado == "Saturación Moderada" & absorcion_promedio >= 0.5 ~ "Oportunidad Limitada",
+      TRUE ~ "Mercado Saturado"
+    )
+  ) %>%
+  arrange(desc(absorcion_promedio))
+
+cat("✅ Análisis de oportunidades completado\n")
+
+# ---- 7. MÉTRICAS COMBINADAS FINALES ----
+cat("\n🔄 CALCULANDO MÉTRICAS COMBINADAS FINALES...\n")
+
+# 7.1 Índice integral de atractivo (combinando todo)
+datos <- datos %>%
+  mutate(
+    # Normalizar variables para el índice integral
+    ivu_norm_final = (ivu - min(ivu, na.rm = TRUE)) / (max(ivu, na.rm = TRUE) - min(ivu, na.rm = TRUE)),
+    ivp_norm_final = (ivp_v2 - min(ivp_v2, na.rm = TRUE)) / (max(ivp_v2, na.rm = TRUE) - min(ivp_v2, na.rm = TRUE)),
+    absorcion_norm = (absorcion - min(absorcion, na.rm = TRUE)) / (max(absorcion, na.rm = TRUE) - min(absorcion, na.rm = TRUE)),
+    
+    # Índice integral de atractivo (metodología original refinada)
+    indice_atractivo_integral = (
+      (ivu_norm_final * 0.30) +                     # Valor ubicación 30%
+        (ivp_norm_final * 0.25) +                     # Valor proyecto 25%
+        (prob_incremento_nse * 0.20) +                # Evolución NSE 20%
+        (absorcion_norm * 0.15) +                     # Performance comercial 15%
+        (score_inversion_norm * 0.10)                 # Score inversión 10%
+    ),
+    
+    # Categoría final de recomendación
+    recomendacion_final = cut(
+      indice_atractivo_integral,
+      breaks = c(0, 0.3, 0.5, 0.7, 0.85, 1.0),
+      labels = c("No Recomendado", "Revisión Necesaria", "Recomendado", "Altamente Recomendado", "Inversión Prioritaria"),
+      include.lowest = TRUE
+    )
+  )
+
+# 7.2 Métricas de correlación entre índices principales
+correlaciones_indices <- cor(datos %>% 
+                               select(ivu, ivp_v2, prob_incremento_nse, score_inversion_norm, 
+                                      indice_atractivo_integral, absorcion) %>%
+                               na.omit(), 
+                             use = "complete.obs")
+
+cat("✅ Métricas combinadas finales calculadas\n")
+
+# ---- 8. ESTADÍSTICAS Y VALIDACIÓN ----
+cat("\n📊 GENERANDO ESTADÍSTICAS FINALES...\n")
+
+# 8.1 Estadísticas descriptivas por categoría 4S
+if("categoria_4s" %in% names(datos)) {
+  estadisticas_4s <- datos %>%
+    filter(!is.na(categoria_4s)) %>%
+    group_by(categoria_4s) %>%
+    summarise(
+      count = n(),
+      pct = round(n() / nrow(.) * 100, 1),
+      ivu_medio = round(mean(ivu, na.rm = TRUE), 3),
+      ivp_medio = round(mean(ivp_v2, na.rm = TRUE), 3),
+      prob_nse_media = round(mean(prob_incremento_nse, na.rm = TRUE), 3),
+      score_integral_medio = round(mean(indice_atractivo_integral, na.rm = TRUE), 3),
+      precio_medio = round(mean(p_m2, na.rm = TRUE), 0),
+      .groups = 'drop'
+    )
+}
+
+# 8.2 Estadísticas por recomendación final
+estadisticas_recomendacion <- datos %>%
+  filter(!is.na(recomendacion_final)) %>%
+  group_by(recomendacion_final) %>%
+  summarise(
+    count = n(),
+    pct = round(n() / nrow(.) * 100, 1),
+    .groups = 'drop'
+  )
+
+# 8.3 Top proyectos por categorías
+top_proyectos <- datos %>%
+  arrange(desc(indice_atractivo_integral)) %>%
+  select(Proyecto, Desarrollador, Municipio, Segmento, categoria_4s, 
+         indice_atractivo_integral, recomendacion_final, score_competitividad) %>%
+  head(20)
+
+cat("✅ Estadísticas generadas\n")
+
+# ---- 9. GUARDAR RESULTADOS ----
+cat("\n💾 GUARDANDO RESULTADOS...\n")
+
+# 9.1 Dataset completo con todas las métricas
+write.csv(datos, "base_con_metricas_avanzadas.csv", row.names = FALSE)
+
+# 9.2 Benchmarks por segmento, NSE y municipio
+write.csv(benchmarks_segmento, "benchmarks_por_segmento.csv", row.names = FALSE)
+write.csv(benchmarks_nse, "benchmarks_por_nse.csv", row.names = FALSE)
+write.csv(benchmarks_municipio, "benchmarks_por_municipio.csv", row.names = FALSE)
+
+# 9.3 Análisis de oportunidades de mercado
+write.csv(analisis_oportunidades, "analisis_oportunidades_mercado.csv", row.names = FALSE)
+
+# 9.4 Estadísticas y correlaciones
+if(exists("estadisticas_4s")) {
+  write.csv(estadisticas_4s, "estadisticas_por_categoria_4s.csv", row.names = FALSE)
+}
+write.csv(estadisticas_recomendacion, "estadisticas_por_recomendacion.csv", row.names = FALSE)
+write.csv(top_proyectos, "top_20_proyectos_integrales.csv", row.names = FALSE)
+
+# 9.5 Matriz de correlaciones
+write.csv(correlaciones_indices, "matriz_correlaciones_indices.csv", row.names = TRUE)
+
+cat("✅ Archivos guardados:\n")
+cat("- base_con_metricas_avanzadas.csv (dataset completo)\n")
+cat("- benchmarks_por_segmento.csv\n")
+cat("- benchmarks_por_nse.csv\n")
+cat("- benchmarks_por_municipio.csv\n")
+cat("- analisis_oportunidades_mercado.csv\n")
+if(exists("estadisticas_4s")) cat("- estadisticas_por_categoria_4s.csv\n")
+cat("- estadisticas_por_recomendacion.csv\n")
+cat("- top_20_proyectos_integrales.csv\n")
+cat("- matriz_correlaciones_indices.csv\n")
+
+# ---- 10. RESUMEN EJECUTIVO ----
+cat("\n", rep("=", 70), "\n")
+cat("SCRIPT 3: INTEGRACIÓN Y MÉTRICAS AVANZADAS - COMPLETADO\n")
+cat(rep("=", 70), "\n")
+
+cat("\n📊 ESTADÍSTICAS FINALES:\n")
+cat("- Proyectos procesados:", nrow(datos), "\n")
+cat("- Variables totales en dataset final:", ncol(datos), "\n")
+cat("- Proyectos con análisis integral:", sum(!is.na(datos$indice_atractivo_integral)), "\n")
+cat("- Proyectos con benchmarking:", sum(!is.na(datos$score_competitividad)), "\n")
+
+cat("\n🎯 MÉTRICAS AVANZADAS CREADAS:\n")
+cat("✅ Integración IVU-NSE Expandida\n")
+cat("   - Potencial corto y largo plazo\n")
+cat("   - Score compuesto de inversión\n")
+cat("   - Timing de mercado\n")
+cat("   - Ratio de eficiencia de inversión\n")
+
+cat("\n✅ Categorización 4S Refinada\n")
+if(exists("estadisticas_4s")) {
+  cat("   - Distribución por categorías:\n")
+  for(i in 1:nrow(estadisticas_4s)) {
+    cat("     *", estadisticas_4s$categoria_4s[i], ":", 
+        estadisticas_4s$count[i], "(", estadisticas_4s$pct[i], "%)\n")
+  }
+  cat("   - Subcategorías Elite/Premium/Estándar/Básico/Económico\n")
+  cat("   - Características distintivas por categoría\n")
+}
+
+cat("\n✅ Benchmarking y Análisis Comparativo\n")
+cat("   - Benchmarks por", nrow(benchmarks_segmento), "segmentos\n")
+cat("   - Benchmarks por", nrow(benchmarks_nse), "niveles NSE\n")
+cat("   - Benchmarks por", nrow(benchmarks_municipio), "municipios\n")
+cat("   - Análisis de", nrow(analisis_oportunidades), "oportunidades de mercado\n")
+
+cat("\n✅ Métricas Combinadas Finales\n")
+cat("   - Índice Integral de Atractivo\n")
+cat("   - Sistema de Recomendaciones de 5 niveles\n")
+cat("   - Matriz de correlaciones entre índices\n")
+cat("   - Score de competitividad por proyecto\n")
+
+cat("\n📈 DISTRIBUCIÓN DE RECOMENDACIONES:\n")
+for(i in 1:nrow(estadisticas_recomendacion)) {
+  cat("   ", estadisticas_recomendacion$recomendacion_final[i], ":", 
+      estadisticas_recomendacion$count[i], "(", estadisticas_recomendacion$pct[i], "%)\n")
+}
+
+cat("\n🔗 CORRELACIONES PRINCIPALES:\n")
+cat("- IVU vs IVP:", round(correlaciones_indices["ivu", "ivp_v2"], 3), "\n")
+cat("- IVU vs Evolución NSE:", round(correlaciones_indices["ivu", "prob_incremento_nse"], 3), "\n")
+cat("- IVP vs Absorción:", round(correlaciones_indices["ivp_v2", "absorcion"], 3), "\n")
+cat("- Índice Integral vs Score Inversión:", round(correlaciones_indices["indice_atractivo_integral", "score_inversion_norm"], 3), "\n")
+
+cat("\n🔄 SIGUIENTE PASO:\n")
+cat("Ejecutar Script 4: VISUALIZACIONES Y MAPAS INTERACTIVOS\n")
+cat("para crear las visualizaciones de análisis exploratorio\n")
+
+cat("\n", rep("=", 70), "\n")
+
+# FINALIZAR CAPTURA
+sink()
+cat("📄 Log guardado en:", archivo_log, "\n")
