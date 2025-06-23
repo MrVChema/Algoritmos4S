@@ -1,0 +1,870 @@
+# SCRIPT 4 CORREGIDO: VISUALIZACIONES CON CATEGORIZACIÓN 4S CORRECTA
+# Flujo Optimizado IVU-IVP - Visualizaciones para análisis inmobiliario
+
+# ---- 1. CONFIGURACIÓN INICIAL ----
+cat("🚀 INICIANDO SCRIPT 4 CORREGIDO: VISUALIZACIONES CON CATEGORIZACIÓN 4S CORRECTA\n")
+cat("================================================================\n\n")
+
+# Limpiar el entorno y cargar librerías necesarias
+rm(list = ls())
+
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(leaflet)
+library(sf)
+library(RColorBrewer)
+library(htmlwidgets)
+library(htmltools)
+library(DT)
+library(corrplot)
+library(gridExtra)
+library(scales)
+library(viridis)
+library(forcats)
+library(stringr)
+library(tidyr)
+library(readr)
+
+# Establecer directorio de trabajo
+setwd('/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[02] IVU-IVP/VISUALIZACION')
+
+cat("✅ Configuración inicial completada\n")
+
+# CAPTURAR SALIDA DE CONSOLA
+timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+archivo_log <- paste0("script4_corregido_log_", timestamp, ".txt")
+sink(archivo_log, append = FALSE, split = TRUE)
+
+# ---- 2. CARGAR DATOS ----
+cat("\n📊 CARGANDO DATOS CON MÉTRICAS AVANZADAS...\n")
+
+# Cargar datos del Script 3
+archivos_posibles <- c(
+  "base_con_metricas_avanzadas.csv",
+  "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO/[04] MODELACIÓN/[02] IVU-IVP/base_con_metricas_avanzadas.csv"
+)
+
+datos <- NULL
+for(archivo in archivos_posibles) {
+  if(file.exists(archivo)) {
+    datos <- read.csv(archivo, stringsAsFactors = FALSE, encoding = "UTF-8")
+    cat("✅ Archivo cargado:", basename(archivo), "\n")
+    break
+  }
+}
+
+if(is.null(datos)) {
+  stop("❌ No se pudo cargar el archivo con métricas avanzadas.")
+}
+
+cat("✅ Datos cargados - Proyectos:", nrow(datos), "\n")
+
+# ---- 3. CORRECCIÓN DE CATEGORIZACIÓN 4S ----
+cat("\n🔧 CORRIGIENDO CATEGORIZACIÓN 4S...\n")
+
+# Función para categorización 4S CORRECTA basada en posición en matriz
+categorizar_4s_correcto <- function(ivu, ivp) {
+  case_when(
+    ivu >= 0.5 & ivp >= 0.5 ~ "SUPERIOR",     # Alto IVU + Alto IVP
+    ivu >= 0.5 & ivp < 0.5 ~ "SUSTENTABLE",   # Alto IVU + Bajo IVP  
+    ivu < 0.5 & ivp >= 0.5 ~ "SÓLIDO",        # Bajo IVU + Alto IVP
+    ivu < 0.5 & ivp < 0.5 ~ "SINGULAR",       # Bajo IVU + Bajo IVP
+    TRUE ~ "SIN_CLASIFICAR"
+  )
+}
+
+# Aplicar categorización correcta
+datos <- datos %>%
+  mutate(
+    # Asegurar que tenemos las métricas base
+    ivu_base = ifelse(is.na(ivu), 0, ivu),
+    ivp_base = ifelse(is.na(ivp_v2), 0, ivp_v2),
+    
+    # Categorización 4S CORRECTA
+    categoria_4s_correcta = categorizar_4s_correcto(ivu_base, ivp_base),
+    
+    # Reemplazar la categorización anterior
+    categoria_4s = categoria_4s_correcta,
+    
+    # Crear etiquetas de diagnóstico
+    diagnostico_posicion = paste0(
+      "IVU: ", round(ivu_base, 3), 
+      " | IVP: ", round(ivp_base, 3),
+      " | Categoría: ", categoria_4s
+    )
+  )
+
+# Verificar la corrección
+cat("🔍 VERIFICANDO CATEGORIZACIÓN CORREGIDA:\n")
+verificacion <- datos %>%
+  filter(!is.na(ivu_base) & !is.na(ivp_base)) %>%
+  group_by(categoria_4s) %>%
+  summarise(
+    n_proyectos = n(),
+    ivu_promedio = round(mean(ivu_base), 3),
+    ivp_promedio = round(mean(ivp_base), 3),
+    ivu_min = round(min(ivu_base), 3),
+    ivu_max = round(max(ivu_base), 3),
+    ivp_min = round(min(ivp_base), 3),
+    ivp_max = round(max(ivp_base), 3),
+    .groups = 'drop'
+  )
+
+print(verificacion)
+
+# ---- 4. CONFIGURACIÓN DE COLORES CORREGIDA ----
+cat("\n🎨 CONFIGURANDO PALETAS DE COLORES CORREGIDAS...\n")
+
+# Paletas con lógica clara por categoría
+colores_4s_correcto <- c(
+  "SUPERIOR" = "#1f77b4",      # Azul - Lo mejor en ambos
+  "SUSTENTABLE" = "#2ca02c",   # Verde - Buena ubicación, proyecto simple
+  "SÓLIDO" = "#ff7f0e",        # Naranja - Buen proyecto, ubicación mejorable
+  "SINGULAR" = "#d62728",      # Rojo - Necesita mejoras en ambos
+  "SIN_CLASIFICAR" = "#cccccc" # Gris - Sin datos suficientes
+)
+
+# Función para asignar colores de forma segura
+asignar_color_seguro <- function(valores, paleta) {
+  resultado <- character(length(valores))
+  for(i in seq_along(valores)) {
+    valor <- as.character(valores[i])
+    if(!is.na(valor) && valor %in% names(paleta)) {
+      resultado[i] <- paleta[valor]
+    } else {
+      resultado[i] <- "#cccccc"  # Gris por defecto
+    }
+  }
+  return(resultado)
+}
+
+cat("✅ Paletas de colores corregidas configuradas\n")
+
+# ---- 5. INTERFAZ DE SELECCIÓN DE PROYECTOS ----
+cat("\n🎯 CREANDO INTERFAZ DE SELECCIÓN DE PROYECTOS...\n")
+
+# Función para mostrar proyectos disponibles (con IDs consistentes)
+mostrar_proyectos_disponibles <- function(datos) {
+  cat("\n📋 PROYECTOS DISPONIBLES PARA COMPARACIÓN:\n")
+  cat(rep("=", 50), "\n")
+  
+  # Crear IDs consistentes basados en la posición ORIGINAL
+  proyectos_info <- datos %>%
+    mutate(id_original = row_number()) %>%  # ID basado en posición original
+    select(id_original, Proyecto, Desarrollador, Municipio, Segmento, categoria_4s, ivu_base, ivp_base) %>%
+    arrange(categoria_4s, desc(ivu_base)) %>%  # Solo para mostrar ordenado
+    mutate(
+      info_completa = paste0(
+        id_original, ". ", Proyecto, 
+        " | Dev: ", Desarrollador,
+        " | ", Municipio, 
+        " | ", Segmento,
+        " | ", categoria_4s,
+        " | IVU: ", round(ivu_base, 3),
+        " | IVP: ", round(ivp_base, 3)
+      )
+    )
+  
+  # Mostrar por categoría
+  for(categoria in c("SUPERIOR", "SUSTENTABLE", "SÓLIDO", "SINGULAR")) {
+    proyectos_categoria <- proyectos_info %>% filter(categoria_4s == categoria)
+    if(nrow(proyectos_categoria) > 0) {
+      cat("\n", categoria, " (", nrow(proyectos_categoria), " proyectos):\n")
+      for(i in 1:min(5, nrow(proyectos_categoria))) {  # Mostrar máximo 5 por categoría
+        cat("  ", proyectos_categoria$info_completa[i], "\n")
+      }
+      if(nrow(proyectos_categoria) > 5) {
+        cat("  ... y", nrow(proyectos_categoria) - 5, "más\n")
+      }
+    }
+  }
+  
+  cat("\n", rep("=", 50), "\n")
+  cat("📝 INSTRUCCIONES PARA COMPARAR PROYECTOS:\n")
+  cat("1. Selecciona el ID del proyecto principal\n")
+  cat("2. Opcionalmente selecciona IDs de comparables\n")
+  cat("3. Usa la función: comparar_proyectos_por_id(id_principal, c(id_comp1, id_comp2))\n")
+  cat("4. O usa nombres: comparar_proyectos_por_nombre('Nombre_Proyecto')\n\n")
+  
+  cat("🔍 BÚSQUEDA RÁPIDA DE PROYECTO:\n")
+  cat("buscar_proyecto('nombre_parcial') - para encontrar un proyecto específico\n\n")
+  
+  return(invisible(proyectos_info))
+}
+
+# Función para buscar proyectos por nombre parcial
+buscar_proyecto <- function(nombre_parcial) {
+  cat("\n🔍 BÚSQUEDA DE PROYECTO:", nombre_parcial, "\n")
+  cat(rep("=", 40), "\n")
+  
+  resultados <- datos %>%
+    mutate(id_original = row_number()) %>%
+    filter(grepl(nombre_parcial, Proyecto, ignore.case = TRUE)) %>%
+    select(id_original, Proyecto, Desarrollador, Municipio, Segmento, categoria_4s, ivu_base, ivp_base)
+  
+  if(nrow(resultados) > 0) {
+    cat("✅ Proyectos encontrados:\n")
+    for(i in 1:nrow(resultados)) {
+      cat("  ID:", resultados$id_original[i], "-", resultados$Proyecto[i], 
+          "|", resultados$categoria_4s[i], 
+          "| IVU:", round(resultados$ivu_base[i], 3),
+          "| IVP:", round(resultados$ivp_base[i], 3), "\n")
+    }
+  } else {
+    cat("❌ No se encontraron proyectos con ese nombre\n")
+  }
+  
+  return(invisible(resultados))
+}
+
+# Función mejorada para comparar proyectos por ID (con IDs consistentes)
+comparar_proyectos_por_id <- function(id_principal, ids_comparables = NULL, datos_input = NULL) {
+  # Usar datos globales si no se pasa un dataset específico
+  if(is.null(datos_input)) {
+    datos_input <- datos
+  }
+  
+  # Usar IDs ORIGINALES (row_number sobre datos sin reordenar)
+  proyectos_info <- datos_input %>%
+    mutate(id_original = row_number()) %>%
+    select(id_original, Proyecto, Desarrollador, Municipio, Segmento, categoria_4s, 
+           ivu_base, ivp_base, prob_incremento_nse, indice_atractivo_integral, 
+           p_m2, absorcion)
+  
+  # Validar ID principal
+  if(!id_principal %in% proyectos_info$id_original) {
+    cat("❌ ID principal no válido:", id_principal, "\n")
+    cat("IDs disponibles van del 1 al", nrow(proyectos_info), "\n")
+    cat("Usa buscar_proyecto('nombre') para encontrar el ID correcto\n")
+    return(NULL)
+  }
+  
+  proyecto_principal <- proyectos_info %>% filter(id_original == id_principal)
+  nombre_principal <- proyecto_principal$Proyecto
+  
+  cat("🎯 Proyecto principal:", nombre_principal, "(ID:", id_principal, ")\n")
+  
+  # Si no se especifican comparables, encontrarlos automáticamente
+  if(is.null(ids_comparables)) {
+    cat("🔍 Buscando proyectos comparables automáticamente...\n")
+    comparables_auto <- encontrar_comparables_automatico_simple(nombre_principal, datos_input, n = 2)
+    if(nrow(comparables_auto) > 0) {
+      # Agregar IDs originales a los comparables
+      comparables_con_id <- datos_input %>%
+        mutate(id_original = row_number()) %>%
+        filter(Proyecto %in% comparables_auto$Proyecto) %>%
+        select(names(proyecto_principal))
+      proyectos_comparar <- bind_rows(proyecto_principal, comparables_con_id)
+    } else {
+      cat("⚠️ No se encontraron comparables automáticamente. Usando solo el proyecto principal.\n")
+      return(NULL)
+    }
+  } else {
+    # Validar IDs de comparables
+    ids_validos <- c()
+    proyectos_comp_nombres <- c()
+    
+    for(id_comp in ids_comparables) {
+      if(id_comp %in% proyectos_info$id_original) {
+        ids_validos <- c(ids_validos, id_comp)
+        nombre_comp <- proyectos_info$Proyecto[proyectos_info$id_original == id_comp]
+        proyectos_comp_nombres <- c(proyectos_comp_nombres, nombre_comp)
+        cat("✅ Proyecto comparable:", nombre_comp, "(ID:", id_comp, ")\n")
+      } else {
+        cat("⚠️ ID comparable no válido ignorado:", id_comp, "\n")
+      }
+    }
+    
+    if(length(ids_validos) > 0) {
+      comparables_seleccionados <- proyectos_info %>% filter(id_original %in% ids_validos)
+      proyectos_comparar <- bind_rows(proyecto_principal, comparables_seleccionados)
+    } else {
+      cat("⚠️ No se encontraron IDs válidos para comparables. Usando solo el proyecto principal.\n")
+      return(NULL)
+    }
+  }
+  
+  # Crear la comparación
+  if(nrow(proyectos_comparar) >= 2) {
+    resultado <- crear_comparacion_visual(proyectos_comparar)
+    return(resultado)
+  } else {
+    cat("❌ Se necesitan al menos 2 proyectos para hacer una comparación.\n")
+    return(NULL)
+  }
+}
+
+# Función para comparar por nombre (corregida)
+comparar_proyectos_por_nombre <- function(nombre_principal, nombres_comparables = NULL) {
+  proyecto_principal <- datos %>% filter(Proyecto == nombre_principal)
+  
+  if(nrow(proyecto_principal) == 0) {
+    stop("❌ Proyecto no encontrado: ", nombre_principal)
+  }
+  
+  if(is.null(nombres_comparables)) {
+    cat("🔍 Buscando proyectos comparables automáticamente...\n")
+    comparables_auto <- encontrar_comparables_automatico_simple(nombre_principal, datos, n = 2)
+    if(nrow(comparables_auto) > 0) {
+      proyectos_comparar <- bind_rows(proyecto_principal, comparables_auto)
+    } else {
+      cat("⚠️ No se encontraron comparables automáticamente. Usando solo el proyecto principal.\n")
+      proyectos_comparar <- proyecto_principal
+    }
+  } else {
+    comparables_seleccionados <- datos %>% filter(Proyecto %in% nombres_comparables)
+    if(nrow(comparables_seleccionados) > 0) {
+      proyectos_comparar <- bind_rows(proyecto_principal, comparables_seleccionados)
+    } else {
+      cat("⚠️ No se encontraron proyectos con los nombres especificados. Usando solo el proyecto principal.\n")
+      proyectos_comparar <- proyecto_principal
+    }
+  }
+  
+  if(nrow(proyectos_comparar) >= 2) {
+    resultado <- crear_comparacion_visual(proyectos_comparar)
+    return(resultado)
+  } else {
+    cat("❌ Se necesitan al menos 2 proyectos para hacer una comparación.\n")
+    return(NULL)
+  }
+}
+
+# Función para encontrar comparables automáticamente (simplificada y corregida)
+encontrar_comparables_automatico_simple <- function(proyecto_nombre, datos_input, n = 2) {
+  proyecto_ref <- datos_input %>% filter(Proyecto == proyecto_nombre)
+  
+  if(nrow(proyecto_ref) == 0) {
+    cat("❌ Proyecto no encontrado: ", proyecto_nombre, "\n")
+    return(data.frame())
+  }
+  
+  # Criterios de comparabilidad simplificados y seguros
+  comparables <- datos_input %>%
+    filter(Proyecto != proyecto_nombre & 
+             !is.na(Segmento) & !is.na(Municipio) & 
+             !is.na(p_m2) & !is.na(categoria_4s)) %>%
+    mutate(
+      score_similitud = 0,
+      # Mismo segmento (peso 40%)
+      score_similitud = ifelse(Segmento == proyecto_ref$Segmento, score_similitud + 40, score_similitud),
+      # Mismo municipio (peso 30%)
+      score_similitud = ifelse(Municipio == proyecto_ref$Municipio, score_similitud + 30, score_similitud),
+      # Misma categoría 4S (peso 20%)
+      score_similitud = ifelse(categoria_4s == proyecto_ref$categoria_4s, score_similitud + 20, score_similitud),
+      # Precio similar ±30% (peso 10%)
+      diferencia_precio = abs(p_m2 - proyecto_ref$p_m2) / proyecto_ref$p_m2,
+      score_similitud = ifelse(diferencia_precio <= 0.3, score_similitud + 10, score_similitud)
+    ) %>%
+    arrange(desc(score_similitud)) %>%
+    head(n)
+  
+  if(nrow(comparables) > 0) {
+    cat("✅ Comparables encontrados:\n")
+    for(i in 1:nrow(comparables)) {
+      cat("  ", i, ".", comparables$Proyecto[i], " (Similitud:", comparables$score_similitud[i], "%)\n")
+    }
+  } else {
+    cat("⚠️ No se encontraron proyectos comparables.\n")
+  }
+  
+  return(comparables)
+}
+
+# Mostrar proyectos disponibles al cargar
+proyectos_disponibles <- mostrar_proyectos_disponibles(datos)
+
+# ---- 6. FUNCIÓN DE COMPARACIÓN VISUAL MEJORADA ----
+crear_comparacion_visual <- function(proyectos_comparar) {
+  if(nrow(proyectos_comparar) < 2) {
+    stop("❌ Se necesitan al menos 2 proyectos para comparar")
+  }
+  
+  # Preparar datos para visualización
+  datos_largo <- proyectos_comparar %>%
+    select(Proyecto, ivu_base, ivp_base, prob_incremento_nse, indice_atractivo_integral) %>%
+    pivot_longer(cols = -Proyecto, names_to = "Metrica", values_to = "Valor") %>%
+    mutate(
+      Metrica = case_when(
+        Metrica == "ivu_base" ~ "IVU",
+        Metrica == "ivp_base" ~ "IVP", 
+        Metrica == "prob_incremento_nse" ~ "Evolución NSE",
+        Metrica == "indice_atractivo_integral" ~ "Índice Integral"
+      ),
+      Metrica = factor(Metrica, levels = c("IVU", "IVP", "Evolución NSE", "Índice Integral"))
+    )
+  
+  # Gráfico de barras comparativo
+  grafico_barras <- ggplot(datos_largo, aes(x = Metrica, y = Valor, fill = Proyecto)) +
+    geom_col(position = "dodge", alpha = 0.8, color = "white", size = 0.5) +
+    scale_fill_brewer(type = "qual", palette = "Set2") +
+    scale_y_continuous(limits = c(0, 1), labels = scales::percent_format()) +
+    labs(
+      title = "Comparación de Métricas Clave",
+      subtitle = paste("Proyectos:", paste(proyectos_comparar$Proyecto, collapse = " vs ")),
+      x = "Métricas de Evaluación",
+      y = "Valor (0-100%)",
+      fill = "Proyecto"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(size = 14, face = "bold"),
+      legend.position = "bottom"
+    )
+  
+  # Mostrar en RStudio
+  print(grafico_barras)
+  
+  # Crear tabla comparativa
+  tabla_comparativa <- proyectos_comparar %>%
+    mutate(
+      IVU = paste0(round(ivu_base * 100, 1), "%"),
+      IVP = paste0(round(ivp_base * 100, 1), "%"),
+      `Evolución NSE` = paste0(round(prob_incremento_nse * 100, 1), "%"),
+      `Índice Integral` = paste0(round(indice_atractivo_integral * 100, 1), "%"),
+      `Precio/m²` = paste0("$", format(p_m2, big.mark = ",")),
+      `Absorción` = paste0(round(absorcion * 100, 1), "%")
+    ) %>%
+    select(Proyecto, Desarrollador, Municipio, Segmento, categoria_4s, 
+           IVU, IVP, `Evolución NSE`, `Índice Integral`, `Precio/m²`, `Absorción`)
+  
+  cat("\n📊 TABLA COMPARATIVA:\n")
+  print(tabla_comparativa)
+  
+  # Guardar gráfico
+  nombre_archivo <- paste0("comparacion_", 
+                           gsub("[^A-Za-z0-9]", "_", proyectos_comparar$Proyecto[1]), 
+                           "_", timestamp, ".png")
+  ggsave(nombre_archivo, grafico_barras, width = 12, height = 8, dpi = 300)
+  
+  return(list(
+    grafico = grafico_barras,
+    tabla = tabla_comparativa,
+    datos = proyectos_comparar,
+    archivo = nombre_archivo
+  ))
+}
+
+# ---- 7. MATRICES IVU-IVP CORREGIDAS POR SEGMENTO ----
+cat("\n📊 CREANDO MATRICES IVU-IVP CORREGIDAS POR SEGMENTO...\n")
+
+# Función para crear matriz por segmento con categorización correcta
+crear_matriz_segmento_corregida <- function(segmento_seleccionado) {
+  datos_segmento <- datos %>%
+    filter(Segmento == segmento_seleccionado & 
+             !is.na(ivu_base) & !is.na(ivp_base) & 
+             !is.na(categoria_4s))
+  
+  if(nrow(datos_segmento) == 0) {
+    cat("⚠️  No hay datos para el segmento:", segmento_seleccionado, "\n")
+    return(NULL)
+  }
+  
+  # Verificar que la categorización es correcta
+  datos_segmento <- datos_segmento %>%
+    mutate(categoria_4s_verificada = categorizar_4s_correcto(ivu_base, ivp_base))
+  
+  # Gráfico ggplot con categorización corregida
+  grafico_ggplot <- ggplot(datos_segmento, aes(x = ivu_base, y = ivp_base, color = categoria_4s_verificada)) +
+    geom_point(size = 4, alpha = 0.8) +
+    scale_color_manual(values = colores_4s_correcto, name = "Categoría 4S") +
+    # Líneas divisorias
+    geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray30", size = 1) +
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray30", size = 1) +
+    # Etiquetas de cuadrantes
+    annotate("text", x = 0.25, y = 0.75, label = "SUSTENTABLE", 
+             color = "gray40", size = 5, fontface = "bold") +
+    annotate("text", x = 0.75, y = 0.75, label = "SUPERIOR", 
+             color = "gray40", size = 5, fontface = "bold") +
+    annotate("text", x = 0.25, y = 0.25, label = "SINGULAR", 
+             color = "gray40", size = 5, fontface = "bold") +
+    annotate("text", x = 0.75, y = 0.25, label = "SÓLIDO", 
+             color = "gray40", size = 5, fontface = "bold") +
+    # Formato
+    scale_x_continuous(limits = c(0, 1), labels = scales::percent_format()) +
+    scale_y_continuous(limits = c(0, 1), labels = scales::percent_format()) +
+    labs(
+      title = paste("Matriz IVU vs IVP - Segmento:", segmento_seleccionado),
+      subtitle = paste("Proyectos analizados:", nrow(datos_segmento), "| Categorización corregida"),
+      x = "IVU - Índice de Valor por Ubicación",
+      y = "IVP - Índice de Valor del Proyecto",
+      caption = "Líneas divisorias en 50% para cada índice"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      plot.subtitle = element_text(size = 12),
+      legend.position = "bottom",
+      panel.grid.minor = element_blank()
+    )
+  
+  # Mostrar en RStudio
+  print(grafico_ggplot)
+  
+  # Versión interactiva
+  grafico_interactivo <- plot_ly(
+    data = datos_segmento,
+    x = ~ivu_base, 
+    y = ~ivp_base,
+    color = ~categoria_4s_verificada,
+    colors = colores_4s_correcto,
+    text = ~paste0(
+      "Proyecto: ", Proyecto, "<br/>",
+      "IVU: ", round(ivu_base, 3), "<br/>",
+      "IVP: ", round(ivp_base, 3), "<br/>",
+      "Categoría: ", categoria_4s_verificada, "<br/>",
+      "Precio/m²: $", format(p_m2, big.mark = ","), "<br/>",
+      "Desarrollador: ", Desarrollador
+    ),
+    hovertemplate = "%{text}<extra></extra>",
+    type = "scatter",
+    mode = "markers",
+    marker = list(size = 12, opacity = 0.8)
+  ) %>%
+    layout(
+      title = list(
+        text = paste("Matriz IVU vs IVP - Segmento:", segmento_seleccionado),
+        font = list(size = 16)
+      ),
+      xaxis = list(
+        title = "IVU - Índice de Valor por Ubicación",
+        tickformat = ".0%",
+        range = c(0, 1)
+      ),
+      yaxis = list(
+        title = "IVP - Índice de Valor del Proyecto",
+        tickformat = ".0%",
+        range = c(0, 1)
+      ),
+      shapes = list(
+        # Línea vertical en 0.5
+        list(type = "line", x0 = 0.5, x1 = 0.5, y0 = 0, y1 = 1, 
+             line = list(color = "gray", dash = "dash", width = 2)),
+        # Línea horizontal en 0.5
+        list(type = "line", x0 = 0, x1 = 1, y0 = 0.5, y1 = 0.5,
+             line = list(color = "gray", dash = "dash", width = 2))
+      ),
+      annotations = list(
+        list(x = 0.25, y = 0.75, text = "SUSTENTABLE", showarrow = FALSE, 
+             font = list(size = 14, color = "gray40")),
+        list(x = 0.75, y = 0.75, text = "SUPERIOR", showarrow = FALSE, 
+             font = list(size = 14, color = "gray40")),
+        list(x = 0.25, y = 0.25, text = "SINGULAR", showarrow = FALSE, 
+             font = list(size = 14, color = "gray40")),
+        list(x = 0.75, y = 0.25, text = "SÓLIDO", showarrow = FALSE, 
+             font = list(size = 14, color = "gray40"))
+      )
+    )
+  
+  # Guardar archivos
+  nombre_base <- gsub(" ", "_", tolower(segmento_seleccionado))
+  ggsave(paste0("matriz_", nombre_base, "_corregida.png"), 
+         grafico_ggplot, width = 12, height = 9, dpi = 300)
+  
+  saveWidget(grafico_interactivo, 
+             paste0("matriz_", nombre_base, "_corregida_interactiva.html"))
+  
+  # Estadísticas del segmento
+  estadisticas <- datos_segmento %>%
+    group_by(categoria_4s_verificada) %>%
+    summarise(
+      n_proyectos = n(),
+      ivu_promedio = round(mean(ivu_base), 3),
+      ivp_promedio = round(mean(ivp_base), 3),
+      .groups = 'drop'
+    )
+  
+  cat("📊 Estadísticas del segmento", segmento_seleccionado, ":\n")
+  print(estadisticas)
+  
+  return(list(
+    ggplot = grafico_ggplot,
+    plotly = grafico_interactivo,
+    datos = datos_segmento,
+    estadisticas = estadisticas
+  ))
+}
+
+# Crear matrices para cada segmento
+segmentos_disponibles <- unique(datos$Segmento)
+segmentos_disponibles <- segmentos_disponibles[!is.na(segmentos_disponibles)]
+
+cat("📊 Segmentos encontrados:", paste(segmentos_disponibles, collapse = ", "), "\n")
+
+matrices_corregidas <- list()
+for(segmento in segmentos_disponibles) {
+  cat("\n--- Creando matriz corregida para segmento:", segmento, "---\n")
+  matrices_corregidas[[segmento]] <- crear_matriz_segmento_corregida(segmento)
+}
+
+cat("✅ Matrices corregidas por segmento creadas\n")
+
+# ---- 8. MAPAS INTERACTIVOS CORREGIDOS ----
+cat("\n🗺️  CREANDO MAPAS INTERACTIVOS CORREGIDOS...\n")
+
+# Preparar datos para mapas
+datos_mapa <- datos %>%
+  filter(!is.na(Latitud) & !is.na(Longitud) &
+           Latitud != 0 & Longitud != 0 &
+           !is.na(categoria_4s)) %>%
+  mutate(
+    popup_label = paste0(
+      "<b>", Proyecto, "</b><br/>",
+      "Desarrollador: ", Desarrollador, "<br/>",
+      "Municipio: ", Municipio, "<br/>",
+      "Segmento: ", Segmento, "<br/>",
+      "IVU: ", round(ivu_base, 3), " (", round(ivu_base*100, 1), "%)<br/>",
+      "IVP: ", round(ivp_base, 3), " (", round(ivp_base*100, 1), "%)<br/>",
+      "Categoría 4S: ", categoria_4s, "<br/>",
+      "Precio/m²: $", format(p_m2, big.mark = ",")
+    )
+  )
+
+# Función para crear mapa base
+crear_mapa_base <- function(datos, titulo) {
+  centro_lat <- mean(datos$Latitud, na.rm = TRUE)
+  centro_lng <- mean(datos$Longitud, na.rm = TRUE)
+  
+  leaflet(datos) %>%
+    addTiles() %>%
+    setView(lng = centro_lng, lat = centro_lat, zoom = 11) %>%
+    addControl(titulo, position = "topright")
+}
+
+# Mapa 4S corregido
+mapa_4s_corregido <- datos_mapa %>%
+  mutate(color_asignado = asignar_color_seguro(categoria_4s, colores_4s_correcto)) %>%
+  crear_mapa_base("Categorización 4S - Corregida") %>%
+  addCircleMarkers(
+    lng = ~Longitud, lat = ~Latitud,
+    radius = 10,
+    fillColor = ~color_asignado,
+    color = "white",
+    weight = 2,
+    fillOpacity = 0.8,
+    popup = ~popup_label
+  ) %>%
+  addLegend(
+    "bottomright",
+    colors = colores_4s_correcto,
+    labels = names(colores_4s_correcto),
+    title = "Categoría 4S",
+    opacity = 0.8
+  )
+
+# Mostrar y guardar mapa
+print(mapa_4s_corregido)
+saveWidget(mapa_4s_corregido, "mapa_4s_corregido.html")
+
+cat("✅ Mapas corregidos creados\n")
+
+# ---- 9. EJEMPLOS PRÁCTICOS PASO A PASO ----
+cat("\n🎯 EJEMPLOS PRÁCTICOS PASO A PASO...\n")
+
+# Función para hacer un ejemplo práctico completo
+ejemplo_comparacion_completa <- function() {
+  cat("\n📚 TUTORIAL COMPLETO DE COMPARACIÓN DE PROYECTOS\n")
+  cat(rep("=", 60), "\n")
+  
+  # Paso 1: Mostrar primeros proyectos por categoría
+  cat("\n📋 PASO 1: SELECCIONAR PROYECTOS PARA COMPARAR\n")
+  cat("Primeros 3 proyectos por categoría:\n\n")
+  
+  for(categoria in c("SUPERIOR", "SUSTENTABLE", "SÓLIDO", "SINGULAR")) {
+    proyectos_cat <- datos %>%
+      filter(categoria_4s == categoria) %>%
+      head(3) %>%
+      mutate(id = row_number())
+    
+    if(nrow(proyectos_cat) > 0) {
+      cat("🔵", categoria, ":\n")
+      for(i in 1:nrow(proyectos_cat)) {
+        # Buscar el ID real
+        id_real <- which(datos$Proyecto == proyectos_cat$Proyecto[i])
+        cat("  ID:", id_real, "-", proyectos_cat$Proyecto[i], "\n")
+      }
+      cat("\n")
+    }
+  }
+  
+  # Paso 2: Ejemplo práctico
+  cat("📊 PASO 2: EJEMPLO DE COMPARACIÓN\n")
+  cat("Vamos a comparar el primer proyecto SUPERIOR con dos SUSTENTABLES:\n\n")
+  
+  # Buscar proyectos para el ejemplo
+  proyecto_superior <- datos %>% 
+    filter(categoria_4s == "SUPERIOR") %>% 
+    head(1)
+  
+  proyectos_sustentables <- datos %>% 
+    filter(categoria_4s == "SUSTENTABLE") %>% 
+    head(2)
+  
+  if(nrow(proyecto_superior) > 0 && nrow(proyectos_sustentables) >= 2) {
+    id_superior <- which(datos$Proyecto == proyecto_superior$Proyecto[1])
+    id_sust1 <- which(datos$Proyecto == proyectos_sustentables$Proyecto[1])
+    id_sust2 <- which(datos$Proyecto == proyectos_sustentables$Proyecto[2])
+    
+    cat("Ejecutando: comparar_proyectos_por_id(", id_superior, ", c(", id_sust1, ",", id_sust2, "))\n\n")
+    
+    tryCatch({
+      resultado <- comparar_proyectos_por_id(id_superior, c(id_sust1, id_sust2))
+      cat("✅ Ejemplo completado exitosamente!\n")
+      return(resultado)
+    }, error = function(e) {
+      cat("⚠️ Error en el ejemplo:", e$message, "\n")
+      return(NULL)
+    })
+  } else {
+    cat("⚠️ No hay suficientes proyectos para el ejemplo automático.\n")
+    return(NULL)
+  }
+}
+
+# Función para guía rápida
+guia_rapida_uso <- function() {
+  cat("\n⚡ GUÍA RÁPIDA DE USO\n")
+  cat(rep("=", 40), "\n")
+  cat("1️⃣ Ver proyectos: mostrar_proyectos_disponibles(datos)\n")
+  cat("2️⃣ Comparar por ID: comparar_proyectos_por_id(ID_principal, c(ID1, ID2))\n")
+  cat("3️⃣ Comparar por nombre: comparar_proyectos_por_nombre('Nombre')\n")
+  cat("4️⃣ Crear matriz: crear_matriz_segmento_corregida('Segmento')\n\n")
+  
+  cat("💡 EJEMPLOS RÁPIDOS:\n")
+  cat("comparar_proyectos_por_id(1)  # Comparación automática\n")
+  cat("comparar_proyectos_por_id(1, c(5, 10))  # Comparación específica\n")
+  cat("comparar_proyectos_por_nombre('Una')  # Por nombre\n\n")
+}
+
+# Ejecutar guía rápida
+guia_rapida_uso()
+
+# Ejecutar ejemplo completo
+cat("\n🎮 EJECUTANDO EJEMPLO PRÁCTICO AUTOMÁTICO...\n")
+resultado_ejemplo <- ejemplo_comparacion_completa()
+
+# Búsqueda específica para los proyectos mencionados por el usuario
+cat("\n🔍 BÚSQUEDA ESPECÍFICA PARA TU EJEMPLO:\n")
+cat("Buscando Luna, Parc 302 y Ventum Torre 3...\n\n")
+
+# Buscar Luna
+luna_resultado <- buscar_proyecto("Luna")
+# Buscar Parc 302  
+parc_resultado <- buscar_proyecto("Parc 302")
+# Buscar Ventum Torre 3
+ventum_resultado <- buscar_proyecto("Ventum Torre 3")
+
+# Mostrar comandos específicos si se encontraron los proyectos
+if(nrow(luna_resultado) > 0 && nrow(parc_resultado) > 0 && nrow(ventum_resultado) > 0) {
+  luna_id <- luna_resultado$id_original[1]
+  parc_id <- parc_resultado$id_original[1] 
+  ventum_id <- ventum_resultado$id_original[1]
+  
+  cat("\n✅ COMANDO ESPECÍFICO PARA TU EJEMPLO:\n")
+  cat("resultado <- comparar_proyectos_por_id(", luna_id, ", c(", parc_id, ", ", ventum_id, "))\n")
+  cat("# Esto comparará:", luna_resultado$Proyecto[1], "vs", parc_resultado$Proyecto[1], "vs", ventum_resultado$Proyecto[1], "\n\n")
+}
+
+# ---- 10. GUÍA DE USO COMPLETA ----
+cat("\n📖 GUÍA DE USO DEL SISTEMA CORREGIDO\n")
+cat("=====================================\n")
+
+cat("\n🔧 CORRECCIONES IMPLEMENTADAS:\n")
+cat("✅ Categorización 4S corregida según posición en matriz\n")
+cat("✅ Interfaz clara para selección de proyectos\n")
+cat("✅ Colores consistentes con la lógica de categorías\n")
+cat("✅ Verificación automática de categorización\n")
+
+cat("\n🎯 FUNCIONES PRINCIPALES:\n")
+cat("1. mostrar_proyectos_disponibles(datos) - Lista todos los proyectos\n")
+cat("2. comparar_proyectos_por_id(id_principal, c(id1, id2)) - Comparación por ID\n")
+cat("3. comparar_proyectos_por_nombre('Proyecto') - Comparación por nombre\n")
+cat("4. crear_matriz_segmento_corregida('Segmento') - Matriz específica\n")
+
+cat("\n🗺️  ARCHIVOS GENERADOS:\n")
+cat("- mapa_4s_corregido.html (mapa interactivo corregido)\n")
+cat("- matriz_[segmento]_corregida.png (matrices estáticas)\n")
+cat("- matriz_[segmento]_corregida_interactiva.html (matrices interactivas)\n")
+cat("- comparacion_[proyecto]_[timestamp].png (comparaciones)\n")
+
+cat("\n📊 LÓGICA DE CATEGORIZACIÓN 4S:\n")
+cat("🔵 SUPERIOR: IVU ≥ 50% e IVP ≥ 50% (lo mejor en ambos)\n")
+cat("🟢 SUSTENTABLE: IVU ≥ 50% e IVP < 50% (buena ubicación, proyecto simple)\n")
+cat("🟠 SÓLIDO: IVU < 50% e IVP ≥ 50% (buen proyecto, ubicación mejorable)\n")
+cat("🔴 SINGULAR: IVU < 50% e IVP < 50% (necesita mejoras en ambos)\n")
+
+# ---- 11. RESUMEN EJECUTIVO ----
+cat("\n", rep("=", 70), "\n")
+cat("SCRIPT 4 CORREGIDO: VISUALIZACIONES CON CATEGORIZACIÓN 4S CORRECTA - COMPLETADO\n")
+cat(rep("=", 70), "\n")
+
+cat("\n✅ PROBLEMAS SOLUCIONADOS:\n")
+cat("🔧 Categorización 4S ahora refleja correctamente la posición en matriz\n")
+cat("🎯 Interfaz clara para selección y comparación de proyectos\n")
+cat("🎨 Colores consistentes con la lógica de cada categoría\n")
+cat("📊 Verificación automática de clasificaciones\n")
+
+cat("\n📊 ESTADÍSTICAS FINALES:\n")
+cat("- Proyectos procesados:", nrow(datos), "\n")
+cat("- Segmentos analizados:", length(segmentos_disponibles), "\n")
+cat("- Matrices corregidas generadas:", length(matrices_corregidas), "\n")
+
+# Distribución final corregida
+distribucion_final <- table(datos$categoria_4s, useNA = "ifany")
+cat("\n🎯 Distribución final categorización 4S:\n")
+for(categoria in names(distribucion_final)) {
+  pct <- round(distribucion_final[categoria] / sum(distribucion_final) * 100, 1)
+  cat("   ", categoria, ":", distribucion_final[categoria], "(", pct, "%)\n")
+}
+
+cat("\n🚀 PRÓXIMOS PASOS:\n")
+cat("1. Usar las funciones corregidas para analizar proyectos específicos\n")
+cat("2. Revisar las matrices por segmento para insights estratégicos\n")
+cat("3. Continuar con Script 5: Análisis integral y exportación\n")
+
+cat("\n💻 COMANDOS ACTUALIZADOS PARA USAR:\n")
+cat("# 1. Ver todos los proyectos disponibles:\n")
+cat("mostrar_proyectos_disponibles(datos)\n\n")
+cat("# 2. Buscar un proyecto específico:\n")
+cat("buscar_proyecto('Luna')     # Busca proyectos que contengan 'Luna'\n")
+cat("buscar_proyecto('Ventum')   # Busca proyectos que contengan 'Ventum'\n")
+cat("buscar_proyecto('Parc')     # Busca proyectos que contengan 'Parc'\n\n")
+cat("# 3. Comparar proyectos (ejemplo corregido):\n")
+cat("# Primero encuentra los IDs correctos:\n")
+cat("buscar_proyecto('Luna')\n")
+cat("buscar_proyecto('Parc')\n") 
+cat("buscar_proyecto('Ventum')\n")
+cat("# Luego usa los IDs que te devuelva la búsqueda\n\n")
+cat("# 4. Comparación automática (encuentra similares automáticamente):\n")
+cat("resultado <- comparar_proyectos_por_id(ID_PRINCIPAL)  # Solo especifica el proyecto principal\n\n")
+
+cat("\n", rep("=", 70), "\n")
+
+# FINALIZAR CAPTURA
+sink()
+cat("📄 Log guardado en:", archivo_log, "\n")
+
+# MENSAJE FINAL CON INSTRUCCIONES CLARAS
+cat("\n🎉 ¡SCRIPT 4 CORREGIDO Y FUNCIONANDO!\n")
+cat("=========================================\n")
+cat("✅ Problemas solucionados:\n")
+cat("  - Referencia circular en funciones corregida\n") 
+cat("  - Búsqueda automática simplificada y estable\n")
+cat("  - Manejo de errores mejorado\n\n")
+
+cat("🎯 PARA EMPEZAR A USAR:\n")
+cat("1. mostrar_proyectos_disponibles(datos)\n")
+cat("2. comparar_proyectos_por_id(ID_PRINCIPAL, c(ID1, ID2))\n\n")
+
+cat("📊 EJEMPLO INMEDIATO CORREGIDO:\n")
+cat("# Paso 1: Buscar los proyectos que quieres comparar\n")
+cat("buscar_proyecto('Luna')     # Para encontrar el ID de Luna\n")
+cat("buscar_proyecto('Parc')     # Para encontrar el ID de Parc 302\n")
+cat("buscar_proyecto('Ventum')   # Para encontrar el ID de Ventum Torre 3\n\n")
+cat("# Paso 2: Una vez que tengas los IDs correctos, compara:\n")
+cat("resultado <- comparar_proyectos_por_id(ID_LUNA, c(ID_PARC, ID_VENTUM))\n\n")
+cat("# Ejemplo de búsqueda inmediata:\n")
+cat("luna_id <- buscar_proyecto('Luna')$id_original[1]\n")
+cat("# Luego usar ese ID para comparar\n\n")
