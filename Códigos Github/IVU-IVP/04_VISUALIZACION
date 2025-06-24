@@ -450,7 +450,7 @@ crear_comparacion_visual <- function(proyectos_comparar) {
 # ---- 7. MATRICES IVU-IVP CORREGIDAS POR SEGMENTO ----
 cat("\n📊 CREANDO MATRICES IVU-IVP CORREGIDAS POR SEGMENTO...\n")
 
-# Función para crear matriz por segmento con categorización correcta
+# Función CORREGIDA para crear matriz por segmento
 crear_matriz_segmento_corregida <- function(segmento_seleccionado) {
   datos_segmento <- datos %>%
     filter(Segmento == segmento_seleccionado & 
@@ -466,59 +466,29 @@ crear_matriz_segmento_corregida <- function(segmento_seleccionado) {
   datos_segmento <- datos_segmento %>%
     mutate(categoria_4s_verificada = categorizar_4s_correcto(ivu_base, ivp_base))
   
-  # Gráfico ggplot con categorización corregida
-  grafico_ggplot <- ggplot(datos_segmento, aes(x = ivu_base, y = ivp_base, color = categoria_4s_verificada)) +
-    geom_point(size = 4, alpha = 0.8) +
-    scale_color_manual(values = colores_4s_correcto, name = "Categoría 4S") +
-    # Líneas divisorias
-    geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray30", size = 1) +
-    geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray30", size = 1) +
-    # Etiquetas de cuadrantes
-    annotate("text", x = 0.25, y = 0.75, label = "SUSTENTABLE", 
-             color = "gray40", size = 5, fontface = "bold") +
-    annotate("text", x = 0.75, y = 0.75, label = "SUPERIOR", 
-             color = "gray40", size = 5, fontface = "bold") +
-    annotate("text", x = 0.25, y = 0.25, label = "SINGULAR", 
-             color = "gray40", size = 5, fontface = "bold") +
-    annotate("text", x = 0.75, y = 0.25, label = "SÓLIDO", 
-             color = "gray40", size = 5, fontface = "bold") +
-    # Formato
-    scale_x_continuous(limits = c(0, 1), labels = scales::percent_format()) +
-    scale_y_continuous(limits = c(0, 1), labels = scales::percent_format()) +
-    labs(
-      title = paste("Matriz IVU vs IVP - Segmento:", segmento_seleccionado),
-      subtitle = paste("Proyectos analizados:", nrow(datos_segmento), "| Categorización corregida"),
-      x = "IVU - Índice de Valor por Ubicación",
-      y = "IVP - Índice de Valor del Proyecto",
-      caption = "Líneas divisorias en 50% para cada índice"
-    ) +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(size = 14, face = "bold"),
-      plot.subtitle = element_text(size = 12),
-      legend.position = "bottom",
-      panel.grid.minor = element_blank()
-    )
-  
-  # Mostrar en RStudio
-  print(grafico_ggplot)
-  
-  # Versión interactiva
+  # PRIMERO: Crear el gráfico interactivo CON HOVER SIMPLIFICADO Y LEGIBLE
   grafico_interactivo <- plot_ly(
     data = datos_segmento,
     x = ~ivu_base, 
     y = ~ivp_base,
     color = ~categoria_4s_verificada,
     colors = colores_4s_correcto,
-    text = ~paste0(
-      "Proyecto: ", Proyecto, "<br/>",
-      "IVU: ", round(ivu_base, 3), "<br/>",
-      "IVP: ", round(ivp_base, 3), "<br/>",
-      "Categoría: ", categoria_4s_verificada, "<br/>",
-      "Precio/m²: $", format(p_m2, big.mark = ","), "<br/>",
-      "Desarrollador: ", Desarrollador
+    # Usar customdata para información adicional
+    customdata = ~paste(Desarrollador, "|", Municipio, "|", Segmento, "|", format(p_m2, big.mark = ",")),
+    hovertemplate = paste0(
+      "<b>%{hovertext}</b><br>",
+      "<br>",
+      "IVU: %{x:.1%}<br>",
+      "IVP: %{y:.1%}<br>",
+      "Categoría: %{fullData.color}<br>",
+      "<br>",
+      "Desarrollador: %{customdata[0]}<br>",
+      "Municipio: %{customdata[1]}<br>",
+      "Segmento: %{customdata[2]}<br>",
+      "Precio/m²: $%{customdata[3]}<br>",
+      "<extra></extra>"
     ),
-    hovertemplate = "%{text}<extra></extra>",
+    hovertext = ~Proyecto,
     type = "scatter",
     mode = "markers",
     marker = list(size = 12, opacity = 0.8)
@@ -538,6 +508,16 @@ crear_matriz_segmento_corregida <- function(segmento_seleccionado) {
         tickformat = ".0%",
         range = c(0, 1)
       ),
+      # Configuración del hover simplificada pero efectiva
+      hoverlabel = list(
+        bgcolor = "white",
+        bordercolor = "black",
+        font = list(
+          family = "Arial",
+          size = 14,
+          color = "black"
+        )
+      ),
       shapes = list(
         # Línea vertical en 0.5
         list(type = "line", x0 = 0.5, x1 = 0.5, y0 = 0, y1 = 1, 
@@ -547,15 +527,49 @@ crear_matriz_segmento_corregida <- function(segmento_seleccionado) {
              line = list(color = "gray", dash = "dash", width = 2))
       ),
       annotations = list(
-        list(x = 0.25, y = 0.75, text = "SUSTENTABLE", showarrow = FALSE, 
+        list(x = 0.25, y = 0.75, text = "SÓLIDO", showarrow = FALSE, 
              font = list(size = 14, color = "gray40")),
         list(x = 0.75, y = 0.75, text = "SUPERIOR", showarrow = FALSE, 
              font = list(size = 14, color = "gray40")),
         list(x = 0.25, y = 0.25, text = "SINGULAR", showarrow = FALSE, 
              font = list(size = 14, color = "gray40")),
-        list(x = 0.75, y = 0.25, text = "SÓLIDO", showarrow = FALSE, 
+        list(x = 0.75, y = 0.25, text = "SUSTENTABLE", showarrow = FALSE, 
              font = list(size = 14, color = "gray40"))
       )
+    )
+  
+  # SEGUNDO: Mostrar el gráfico (DESPUÉS de crearlo)
+  print(grafico_interactivo)
+  
+  # TERCERO: Crear el gráfico ggplot para guardar
+  grafico_ggplot <- ggplot(datos_segmento, aes(x = ivu_base, y = ivp_base, color = categoria_4s_verificada)) +
+    geom_point(size = 4, alpha = 0.8) +
+    scale_color_manual(values = colores_4s_correcto, name = "Categoría 4S") +
+    geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray30", linewidth = 1) +
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "gray30", linewidth = 1) +
+    annotate("text", x = 0.25, y = 0.75, label = "SÓLIDO", 
+             color = "gray40", size = 5, fontface = "bold") +
+    annotate("text", x = 0.75, y = 0.75, label = "SUPERIOR", 
+             color = "gray40", size = 5, fontface = "bold") +
+    annotate("text", x = 0.25, y = 0.25, label = "SINGULAR", 
+             color = "gray40", size = 5, fontface = "bold") +
+    annotate("text", x = 0.75, y = 0.25, label = "SUSTENTABLE", 
+             color = "gray40", size = 5, fontface = "bold") +
+    scale_x_continuous(limits = c(0, 1), labels = scales::percent_format()) +
+    scale_y_continuous(limits = c(0, 1), labels = scales::percent_format()) +
+    labs(
+      title = paste("Matriz IVU vs IVP - Segmento:", segmento_seleccionado),
+      subtitle = paste("Proyectos analizados:", nrow(datos_segmento), "| Categorización corregida"),
+      x = "IVU - Índice de Valor por Ubicación",
+      y = "IVP - Índice de Valor del Proyecto",
+      caption = "Líneas divisorias en 50% para cada índice"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      plot.subtitle = element_text(size = 12),
+      legend.position = "bottom",
+      panel.grid.minor = element_blank()
     )
   
   # Guardar archivos
@@ -659,6 +673,296 @@ print(mapa_4s_corregido)
 saveWidget(mapa_4s_corregido, "mapa_4s_corregido.html")
 
 cat("✅ Mapas corregidos creados\n")
+
+# ---- 9. ANÁLISIS DE FORTALEZAS ----
+# ---- FUNCIÓN MÍNIMA: SOLO VARIABLES CONFIRMADAS ----
+# Solo usa las 9 variables que aparecen en tu lista disponible
+
+crear_perfil_fortalezas_inversion <- function(nombres_proyectos) {
+  
+  # Validar que los proyectos existan
+  proyectos_encontrados <- datos %>%
+    filter(Proyecto %in% nombres_proyectos)
+  
+  if(nrow(proyectos_encontrados) == 0) {
+    stop("❌ No se encontraron los proyectos especificados")
+  }
+  
+  cat("🔍 Analizando", nrow(proyectos_encontrados), "proyectos...\n")
+  
+  # SOLO usar las variables que confirmaste están disponibles:
+  # absorcion, Absorcion_por_proyecto, ratio_ventas, meses_mercado, 
+  # unidades_vendidas, unidades_totales, ivu, ivp, nse, prob_incremento_nse
+  
+  perfiles <- proyectos_encontrados %>%
+    mutate(
+      # Usar la variable correcta para absorción
+      absorcion_final = case_when(
+        !is.na(absorcion) ~ absorcion,
+        !is.na(Absorcion_por_proyecto) ~ Absorcion_por_proyecto,
+        TRUE ~ 0.5
+      ),
+      
+      # 1. PERFORMANCE COMERCIAL (0-100)
+      # Solo usar absorcion + ratio_ventas
+      performance_comercial = case_when(
+        !is.na(absorcion_final) & !is.na(ratio_ventas) ~ 
+          pmin(100, pmax(0, 
+                         (pmin(2, absorcion_final) * 50) * 0.6 +  # Absorción max 200% = 100pts
+                           (ratio_ventas * 100) * 0.4               # % Vendido
+          )),
+        !is.na(absorcion_final) ~ 
+          pmin(100, pmax(0, pmin(2, absorcion_final) * 50)),
+        !is.na(ratio_ventas) ~ 
+          pmin(100, pmax(0, ratio_ventas * 100)),
+        TRUE ~ 50
+      ),
+      
+      # 2. FORTALEZA UBICACIÓN (0-100)
+      # Solo usar IVU
+      fortaleza_ubicacion = case_when(
+        !is.na(ivu) ~ pmin(100, pmax(0, ivu * 100)),
+        TRUE ~ 50
+      ),
+      
+      # 3. MOMENTUM MERCADO (0-100)
+      # Convertir NSE + probabilidad incremento + timing
+      nse_numerico = case_when(
+        nse == "A+" ~ 6, nse == "A" ~ 5.5, nse == "B" ~ 5, 
+        nse == "C+" ~ 4, nse == "C" ~ 3, nse == "D+" ~ 2, 
+        nse == "D" ~ 1, nse == "E" ~ 0.5,
+        is.numeric(nse) ~ as.numeric(nse),
+        TRUE ~ 3
+      ),
+      
+      # Factor timing basado en meses en mercado
+      timing_factor = case_when(
+        !is.na(meses_mercado) ~ pmin(100, pmax(0, 100 - (meses_mercado - 12) * 2)),
+        TRUE ~ 50
+      ),
+      
+      momentum_mercado = case_when(
+        !is.na(prob_incremento_nse) & !is.na(nse_numerico) ~ 
+          pmin(100, pmax(0,
+                         (prob_incremento_nse * 100) * 0.5 +    # Potencial NSE
+                           (nse_numerico / 6 * 100) * 0.3 +       # NSE actual  
+                           timing_factor * 0.2                    # Factor timing
+          )),
+        !is.na(prob_incremento_nse) ~ 
+          pmin(100, pmax(0, prob_incremento_nse * 100)),
+        !is.na(nse_numerico) ~ 
+          pmin(100, pmax(0, nse_numerico / 6 * 100)),
+        TRUE ~ 50
+      ),
+      
+      # 4. EFICIENCIA OPERATIVA (0-100)
+      # Usar variables de unidades y tiempo
+      eficiencia_ventas = case_when(
+        !is.na(unidades_vendidas) & !is.na(unidades_totales) & unidades_totales > 0 ~
+          (unidades_vendidas / unidades_totales) * 100,
+        TRUE ~ 50
+      ),
+      
+      velocidad_ventas = case_when(
+        !is.na(unidades_vendidas) & !is.na(meses_mercado) & meses_mercado > 0 ~
+          pmin(100, (unidades_vendidas / meses_mercado) * 10), # 10 unidades/mes = 100pts
+        TRUE ~ 50
+      ),
+      
+      eficiencia_operativa = pmin(100, pmax(0,
+                                            eficiencia_ventas * 0.6 + velocidad_ventas * 0.4
+      )),
+      
+      # 5. CALIDAD DEL PROYECTO (0-100)
+      # Solo usar IVP (ya que no tenemos score_amenidades_total)
+      calidad_proyecto = case_when(
+        !is.na(ivp) ~ pmin(100, pmax(0, ivp * 100)),
+        TRUE ~ 50
+      )
+    ) %>%
+    select(Proyecto, performance_comercial, fortaleza_ubicacion, 
+           momentum_mercado, eficiencia_operativa, calidad_proyecto)
+  
+  # Preparar datos para el gráfico de radar
+  categorias <- c("Performance\nComercial", "Fortaleza\nUbicación", 
+                  "Momentum\nMercado", "Eficiencia\nOperativa", 
+                  "Calidad\nProyecto")
+  
+  # Crear el gráfico de radar
+  fig <- plot_ly(type = "scatterpolar", mode = "lines+markers")
+  
+  # Colores
+  colores_radar <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd")
+  
+  # Agregar cada proyecto al gráfico
+  for(i in 1:nrow(perfiles)) {
+    proyecto <- perfiles[i, ]
+    
+    valores <- c(
+      proyecto$performance_comercial,
+      proyecto$fortaleza_ubicacion, 
+      proyecto$momentum_mercado,
+      proyecto$eficiencia_operativa,
+      proyecto$calidad_proyecto,
+      proyecto$performance_comercial  # Cerrar polígono
+    )
+    
+    categorias_cerradas <- c(categorias, categorias[1])
+    
+    fig <- fig %>%
+      add_trace(
+        r = valores,
+        theta = categorias_cerradas,
+        name = proyecto$Proyecto,
+        line = list(color = colores_radar[i], width = 3),
+        marker = list(color = colores_radar[i], size = 8),
+        fill = "toself",
+        fillcolor = paste0(colores_radar[i], "30"),
+        hovertemplate = paste0(
+          "<b>%{fullData.name}</b><br>",
+          "%{theta}: %{r:.1f}/100<br>",
+          "<extra></extra>"
+        )
+      )
+  }
+  
+  # Layout del radar
+  fig <- fig %>%
+    layout(
+      title = list(
+        text = "Perfil de Fortalezas Inmobiliarias",
+        font = list(size = 18, family = "Arial", color = "black")
+      ),
+      polar = list(
+        radialaxis = list(
+          visible = TRUE,
+          range = c(0, 100),
+          tickmode = "linear",
+          tick0 = 0,
+          dtick = 20,
+          tickfont = list(size = 11),
+          gridcolor = "lightgray"
+        ),
+        angularaxis = list(
+          tickfont = list(size = 11, family = "Arial"),
+          direction = "clockwise",
+          rotation = 90
+        ),
+        bgcolor = "white"
+      ),
+      legend = list(
+        orientation = "h",
+        x = 0.5,
+        xanchor = "center",
+        y = -0.2,
+        font = list(size = 11)
+      ),
+      margin = list(t = 80, b = 120, l = 80, r = 80)
+    )
+  
+  # Mostrar el gráfico
+  print(fig)
+  
+  # Guardar como HTML
+  nombres_archivo <- paste(gsub("[^A-Za-z0-9]", "_", nombres_proyectos), collapse = "_vs_")
+  archivo_html <- paste0("perfil_fortalezas_", nombres_archivo, ".html")
+  saveWidget(fig, archivo_html)
+  
+  # Tabla de resultados
+  cat("\n📊 PERFIL DE FORTALEZAS:\n")
+  tabla_valores <- perfiles %>%
+    mutate(
+      `Performance Comercial` = round(performance_comercial, 1),
+      `Fortaleza Ubicación` = round(fortaleza_ubicacion, 1),
+      `Momentum Mercado` = round(momentum_mercado, 1),
+      `Eficiencia Operativa` = round(eficiencia_operativa, 1),
+      `Calidad Proyecto` = round(calidad_proyecto, 1),
+      
+      `Score Promedio` = round(
+        (performance_comercial + fortaleza_ubicacion + momentum_mercado + 
+           eficiencia_operativa + calidad_proyecto) / 5, 1
+      )
+    ) %>%
+    select(Proyecto, `Performance Comercial`, `Fortaleza Ubicación`, 
+           `Momentum Mercado`, `Eficiencia Operativa`, `Calidad Proyecto`, 
+           `Score Promedio`) %>%
+    arrange(desc(`Score Promedio`))
+  
+  print(tabla_valores)
+  
+  # Análisis comparativo
+  cat("\n💡 ANÁLISIS COMPARATIVO:\n")
+  if(nrow(perfiles) > 1) {
+    for(i in 1:nrow(perfiles)) {
+      proyecto <- perfiles[i, ]
+      scores <- c(proyecto$performance_comercial, proyecto$fortaleza_ubicacion, 
+                  proyecto$momentum_mercado, proyecto$eficiencia_operativa, proyecto$calidad_proyecto)
+      nombres_scores <- c("Performance Comercial", "Fortaleza Ubicación", 
+                          "Momentum Mercado", "Eficiencia Operativa", "Calidad Proyecto")
+      
+      max_idx <- which.max(scores)
+      min_idx <- which.min(scores)
+      
+      cat("\n🎯", proyecto$Proyecto, ":\n")
+      cat("  ✅ Fortaleza principal:", nombres_scores[max_idx], "(", round(scores[max_idx], 1), "/100)\n")
+      cat("  ⚠️  Área de mejora:", nombres_scores[min_idx], "(", round(scores[min_idx], 1), "/100)\n")
+      
+      score_total <- mean(scores)
+      cat("  📊 Score general:", round(score_total, 1), "/100\n")
+    }
+  }
+  
+  cat("\n✅ Gráfico guardado como:", archivo_html, "\n")
+  
+  return(list(
+    grafico = fig,
+    datos = perfiles,
+    tabla = tabla_valores,
+    archivo = archivo_html
+  ))
+}
+
+# Función auxiliar por IDs
+crear_perfil_fortalezas_inversion_por_id <- function(ids_proyectos) {
+  proyectos_info <- datos %>%
+    mutate(id_original = row_number()) %>%
+    filter(id_original %in% ids_proyectos) %>%
+    select(id_original, Proyecto)
+  
+  if(nrow(proyectos_info) == 0) {
+    stop("❌ No se encontraron proyectos con esos IDs")
+  }
+  
+  cat("🎯 Proyectos seleccionados:\n")
+  for(i in 1:nrow(proyectos_info)) {
+    cat("  ID:", proyectos_info$id_original[i], "-", proyectos_info$Proyecto[i], "\n")
+  }
+  
+  nombres_proyectos <- proyectos_info$Proyecto
+  return(crear_perfil_fortalezas_inversion(nombres_proyectos))
+}
+
+# Prueba con variables mínimas
+verificar_solo_variables_confirmadas <- function() {
+  variables_confirmadas <- c("absorcion", "Absorcion_por_proyecto", "ratio_ventas", 
+                             "meses_mercado", "unidades_vendidas", "unidades_totales", 
+                             "ivu", "ivp", "nse", "prob_incremento_nse")
+  
+  cat("🔍 VERIFICANDO SOLO VARIABLES CONFIRMADAS:\n")
+  for(var in variables_confirmadas) {
+    if(var %in% names(datos)) {
+      cat("✅", var, "\n")
+    } else {
+      cat("❌", var, "- NO ENCONTRADA\n")
+    }
+  }
+}
+
+cat("\n🚀 FUNCIÓN MÍNIMA CARGADA - SOLO USA 9 VARIABLES CONFIRMADAS\n")
+cat("📋 Las variables que usa:\n")
+cat("  absorcion, Absorcion_por_proyecto, ratio_ventas, meses_mercado,\n")
+cat("  unidades_vendidas, unidades_totales, ivu, ivp, nse, prob_incremento_nse\n")
+cat("\n✅ AHORA DEBERÍA FUNCIONAR SIN ERRORES\n")
 
 # ---- 9. EJEMPLOS PRÁCTICOS PASO A PASO ----
 cat("\n🎯 EJEMPLOS PRÁCTICOS PASO A PASO...\n")
@@ -789,11 +1093,11 @@ cat("- matriz_[segmento]_corregida.png (matrices estáticas)\n")
 cat("- matriz_[segmento]_corregida_interactiva.html (matrices interactivas)\n")
 cat("- comparacion_[proyecto]_[timestamp].png (comparaciones)\n")
 
-cat("\n📊 LÓGICA DE CATEGORIZACIÓN 4S:\n")
-cat("🔵 SUPERIOR: IVU ≥ 50% e IVP ≥ 50% (lo mejor en ambos)\n")
-cat("🟢 SUSTENTABLE: IVU ≥ 50% e IVP < 50% (buena ubicación, proyecto simple)\n")
-cat("🟠 SÓLIDO: IVU < 50% e IVP ≥ 50% (buen proyecto, ubicación mejorable)\n")
-cat("🔴 SINGULAR: IVU < 50% e IVP < 50% (necesita mejoras en ambos)\n")
+cat("\n📊 LÓGICA DE CATEGORIZACIÓN 4S (Etiquetas Visuales Actualizadas):\n")
+cat("🔵 SUPERIOR: IVU ≥ 50% e IVP ≥ 50% (lo mejor en ambos) - Cuadrante superior derecho\n")
+cat("🟠 SÓLIDO: IVU ≥ 50% e IVP < 50% (buena ubicación, proyecto simple) - Cuadrante superior izquierdo\n")
+cat("🟢 SUSTENTABLE: IVU < 50% e IVP ≥ 50% (buen proyecto, ubicación mejorable) - Cuadrante inferior derecho\n")
+cat("🔴 SINGULAR: IVU < 50% e IVP < 50% (necesita mejoras en ambos) - Cuadrante inferior izquierdo\n")
 
 # ---- 11. RESUMEN EJECUTIVO ----
 cat("\n", rep("=", 70), "\n")
