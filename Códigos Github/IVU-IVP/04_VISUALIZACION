@@ -118,10 +118,10 @@ cat("\n🎨 CONFIGURANDO PALETAS DE COLORES CORREGIDAS...\n")
 
 # Paletas con lógica clara por categoría
 colores_4s_correcto <- c(
-  "SUPERIOR" = "#1f77b4",      # Azul - Lo mejor en ambos
-  "SUSTENTABLE" = "#2ca02c",   # Verde - Buena ubicación, proyecto simple
-  "SÓLIDO" = "#ff7f0e",        # Naranja - Buen proyecto, ubicación mejorable
-  "SINGULAR" = "#d62728",      # Rojo - Necesita mejoras en ambos
+  "SUPERIOR" = "#68D192",      # Azul - Lo mejor en ambos
+  "SUSTENTABLE" = "#F4E785",   # Verde - Buena ubicación, proyecto simple
+  "SÓLIDO" = "#9B87F4",        # Naranja - Buen proyecto, ubicación mejorable
+  "SINGULAR" = "#F8C579",      # Rojo - Necesita mejoras en ambos
   "SIN_CLASIFICAR" = "#cccccc" # Gris - Sin datos suficientes
 )
 
@@ -792,7 +792,7 @@ crear_perfil_fortalezas_inversion <- function(nombres_proyectos) {
   fig <- plot_ly(type = "scatterpolar", mode = "lines+markers")
   
   # Colores
-  colores_radar <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd")
+  colores_radar <- c("#68D192", "#9B87F4", "#F4E785", "#F8C579", "#EF6558")
   
   # Agregar cada proyecto al gráfico
   for(i in 1:nrow(perfiles)) {
@@ -1160,7 +1160,8 @@ cat("  - Manejo de errores mejorado\n\n")
 
 cat("🎯 PARA EMPEZAR A USAR:\n")
 cat("1. mostrar_proyectos_disponibles(datos)\n")
-cat("2. comparar_proyectos_por_id(ID_PRINCIPAL, c(ID1, ID2))\n\n")
+cat("2. comparar_proyectos_por_id(ID_PRINCIPAL, c(ID1, ID2))\n")
+cat("3. crear_perfil_fortalezas_inversion_por_id(c(ID_PRINCIPAL, ID1, ID2))\n\n")
 
 cat("📊 EJEMPLO INMEDIATO CORREGIDO:\n")
 cat("# Paso 1: Buscar los proyectos que quieres comparar\n")
