@@ -1,0 +1,783 @@
+# ================================================================================
+# SISTEMA IVU-IVP: PREPARACIÓN Y INTEGRACIÓN DE DATOS
+# ================================================================================
+# Consolida toda la funcionalidad de carga, transformación e integración de datos
+# Incluye: Carga espacial, transformación de variables, cálculo de índices base
+# ================================================================================
+
+# ---- AJUSTE: VALIDACIONES AL INICIO ----
+
+if (!exists("DIRECTORIO_BASE")) {
+  stop("❌ Ejecutar primero SCRIPT_01_MASTER_CONTROL.R")
+}
+
+if (!dir.exists(DIRECTORIO_BASE)) {
+  stop("❌ DIRECTORIO_BASE no existe: ", DIRECTORIO_BASE)
+}
+
+cat("📊 INICIANDO PREPARACIÓN DE DATOS\n")
+cat("==================================\n")
+cat("📁 Directorio base:", DIRECTORIO_BASE, "\n")
+
+# ---- CONFIGURACIÓN DE RUTAS DE DATOS ----
+RUTAS_DATOS <- list(
+  # Proyectos principales
+  proyectos = file.path(DIRECTORIO_BASE, "[02] DATOS", "[01] PROYECTOS", "[01] VIVIENDA VERTICAL", "Proyectos Integrados_ZMM.csv"),
+  
+  # Variables geográficas
+  areas_verdes = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[01] AREAS VERDES", "AreasVerdes_Zona_V2.xlsx"),
+  demograficos = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[03] DEMOGRAFICOS", "Demograficos_AGEBS.xlsx"),
+  amenidades = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[06] FUNCIONALIDAD Y AMENIDADES", "Qlik Sense - Tabla Amenidades_ Desglose de Amenidades x Proy... MTY.xlsx"),
+  
+  # Archivos KML/KMZ
+  nse_kml = file.path(DIRECTORIO_BASE, "[02] DATOS", "[02] KML_KMZ", "[01] NSE", "NSE-Monterrey.kml"),
+  zonas_redi = file.path(DIRECTORIO_BASE, "[02] DATOS", "[02] KML_KMZ", "[03] ZONAS REDI", "ZMM_REDI_2024.kml"),
+  parques_kml = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[01] AREAS VERDES", "Parques_Peso.kml"),
+  avenidas_kml = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[05] VIALIDAD", "VIALIDADES_PROCESADAS", "avenidas_clasificadas.kml"),
+  
+  # Equipamientos DENUE
+  hospitales = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[02] EQUIPAMIENTO", "DENUE 2024", "Hospitales", "Hospitales.csv"),
+  escuelas_privadas = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[02] EQUIPAMIENTO", "DENUE 2024", "Escuelas Privadas", "Escuelas Privadas.csv"),
+  escuelas_publicas = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[02] EQUIPAMIENTO", "DENUE 2024", "Escuelas Públicas", "Escuelas Públicas.csv"),
+  universidades = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[02] EQUIPAMIENTO", "DENUE 2024", "Universidades", "Universidades.csv"),
+  supermercados = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[02] EQUIPAMIENTO", "DENUE 2024", "Supermercados", "Supermercado.csv"),
+  restaurantes = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[02] EQUIPAMIENTO", "DENUE 2024", "Restaurantes", "Restaurantes.csv"),
+  oficinas = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[02] EQUIPAMIENTO", "DENUE 2024", "Oficinas", "Oficinas.csv"),
+  tiendas_dept = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[02] EQUIPAMIENTO", "DENUE 2024", "Tiendas departamentales", "Tiendas departamentales.csv"),
+  
+  # Clasificaciones
+  clasificacion_avenidas = file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES", "[05] VIALIDAD", "VIALIDADES_PROCESADAS", "clasificacion_avenidas_kml.csv")
+)
+
+# ---- FUNCIONES DE CONVERSIÓN DE COORDENADAS ----
+convertir_dms <- function(coord_str) {
+  if(is.numeric(coord_str)) return(coord_str)
+  
+  if(grepl("^-?[0-9]+\\.[0-9]+$", coord_str)) {
+    return(as.numeric(coord_str))
+  }
+  
+  direccion <- NA
+  if(grepl("[NSEW]", coord_str, ignore.case = TRUE)) {
+    direccion <- toupper(regmatches(coord_str, regexpr("[NSEW]", coord_str, ignore.case = TRUE)))
+  }
+  
+  if(grepl("°|'|\"", coord_str)) {
+    grados <- as.numeric(regmatches(coord_str, regexpr("^-?[0-9]+(?=°)", coord_str, perl = TRUE)))
+    minutos <- as.numeric(regmatches(coord_str, regexpr("(?<=°)[0-9]+(?=')", coord_str, perl = TRUE)))
+    
+    segundos_match <- regexpr("(?<=')[0-9]+(\\.[0-9]+)?(?=\")", coord_str, perl = TRUE)
+    segundos <- if(segundos_match > 0) {
+      as.numeric(regmatches(coord_str, segundos_match))
+    } else {
+      0
+    }
+  } else if(grepl("[0-9]+ [0-9]+ [0-9]+", coord_str)) {
+    partes <- strsplit(gsub("[^0-9\\. NSEW-]", "", coord_str), " ")[[1]]
+    partes <- partes[partes != ""]
+    
+    grados <- as.numeric(partes[1])
+    minutos <- if(length(partes) > 1) as.numeric(partes[2]) else 0
+    segundos <- if(length(partes) > 2) as.numeric(partes[3]) else 0
+  } else {
+    return(as.numeric(gsub("[^0-9\\.-]", "", coord_str)))
+  }
+  
+  if(is.na(grados)) {
+    warning("No se pudieron extraer los grados de: ", coord_str)
+    return(NA)
+  }
+  
+  if(is.na(minutos)) minutos <- 0
+  if(is.na(segundos)) segundos <- 0
+  
+  decimal <- grados + minutos/60 + segundos/3600
+  
+  if(!is.na(direccion) && direccion %in% c("S", "W")) decimal <- -decimal
+  
+  if(abs(decimal) > 90 && decimal > 0) {
+    decimal <- -decimal
+  }
+  
+  return(decimal)
+}
+
+# ---- FUNCIÓN DE CARGA DE DATOS CON VALIDACIÓN ----
+cargar_archivo_con_validacion <- function(ruta, tipo = "csv", encoding = "UTF-8") {
+  if (!file.exists(ruta)) {
+    warning("❌ Archivo no encontrado: ", basename(ruta))
+    return(NULL)
+  }
+  
+  cat("  📁 Cargando:", basename(ruta), "\n")
+  
+  tryCatch({
+    switch(tipo,
+           "csv" = read.csv(ruta, stringsAsFactors = FALSE, encoding = encoding),
+           "xlsx" = read_excel(ruta),
+           "kml" = {
+             capas <- st_layers(ruta)
+             datos_list <- lapply(capas$name, function(x) st_read(ruta, layer = x, quiet = TRUE))
+             do.call(rbind, datos_list)
+           }
+    )
+  }, error = function(e) {
+    warning("❌ Error cargando ", basename(ruta), ": ", conditionMessage(e))
+    return(NULL)
+  })
+}
+
+# ---- CARGA DE DATOS PRINCIPALES ----
+cat("📁 Cargando archivos de datos...\n")
+
+# Proyectos principales
+proyectos <- cargar_archivo_con_validacion(RUTAS_DATOS$proyectos, "csv")
+if (is.null(proyectos)) stop("❌ No se puede continuar sin archivo de proyectos")
+
+# Variables geográficas
+verdes <- cargar_archivo_con_validacion(RUTAS_DATOS$areas_verdes, "xlsx")
+demograficos <- cargar_archivo_con_validacion(RUTAS_DATOS$demograficos, "xlsx")
+amenidades <- cargar_archivo_con_validacion(RUTAS_DATOS$amenidades, "xlsx")
+
+# Archivos KML
+nse_data <- cargar_archivo_con_validacion(RUTAS_DATOS$nse_kml, "kml")
+zonas_redi <- cargar_archivo_con_validacion(RUTAS_DATOS$zonas_redi, "kml")
+parques_kml <- cargar_archivo_con_validacion(RUTAS_DATOS$parques_kml, "kml")
+avenidas_data <- cargar_archivo_con_validacion(RUTAS_DATOS$avenidas_kml, "kml")
+
+# Equipamientos DENUE
+equipamientos_list <- list()
+equipamientos_nombres <- c("hospitales", "escuelas_privadas", "escuelas_publicas", "universidades", 
+                           "supermercados", "restaurantes", "oficinas", "tiendas_dept")
+
+for (nombre in equipamientos_nombres) {
+  archivo <- cargar_archivo_con_validacion(RUTAS_DATOS[[nombre]], "csv")
+  if (!is.null(archivo)) {
+    equipamientos_list[[nombre]] <- archivo %>% filter(!is.na(latitud) & !is.na(longitud))
+  }
+}
+
+# Clasificación de avenidas
+clasificacion_avenidas <- cargar_archivo_con_validacion(RUTAS_DATOS$clasificacion_avenidas, "csv")
+
+# ---- CONVERSIÓN A OBJETOS ESPACIALES ----
+cat("🗺️  Convirtiendo a objetos espaciales...\n")
+
+# Desactivar s2 para geometrías complejas
+sf_use_s2(FALSE)
+
+# Proyectos a objeto espacial
+proyectos_sf <- st_as_sf(proyectos, coords = c("Longitud", "Latitud"), crs = 4326, remove = FALSE)
+
+# Otras capas espaciales
+if (!is.null(verdes)) {
+  verdes_sf <- st_as_sf(verdes, coords = c("longitud", "latitud"), crs = 4326, remove = FALSE)
+}
+
+if (!is.null(demograficos)) {
+  demograficos_sf <- demograficos %>%
+    mutate(geometry = st_as_sfc(geometry, crs = 4326)) %>%
+    st_as_sf()
+  
+  # Ajustar variables demográficas
+  demograficos_sf <- demograficos_sf %>%
+    mutate(hogares2020 = as.numeric(hogares2020))
+}
+
+# Renombrar columnas para evitar conflictos
+if (!is.null(nse_data)) {
+  nse_data <- nse_data %>%
+    rename(nse_name = Name, nse_description = Description)
+}
+
+if (!is.null(zonas_redi)) {
+  zonas_redi <- zonas_redi %>%
+    rename(zona_name = Name, zona_description = Description)
+}
+
+if (!is.null(parques_kml) && "Name" %in% names(parques_kml)) {
+  parques_kml <- parques_kml %>% rename(nombre = Name)
+}
+
+# ---- CÁLCULO DE VARIABLES DEMOGRÁFICAS EN BUFFER ----
+if (!is.null(demograficos_sf)) {
+  cat("🔢 Calculando variables demográficas en buffer de 1km...\n")
+  
+  # Transformar a CRS proyectado
+  proyectos_proj <- st_transform(proyectos_sf, 32614)
+  demograficos_proj <- st_transform(demograficos_sf, 32614)
+  
+  # Calcular área de cada AGEB
+  demograficos_proj <- demograficos_proj %>% 
+    mutate(ageb_area = st_area(.))
+  
+  # Crear buffer de 1 km
+  proyectos_buffer <- st_buffer(proyectos_proj, 1000)
+  
+  # Variables demográficas a agregar
+  variables_demograficas <- c(
+    "pob2020", "hogares2020", "viv2020", "habitadas2020", 
+    "migrantes2020", "pob_ocupada_2020", "pob2010", 
+    "hogares2010", "viv2010", "pob_ocupada_2010",
+    "independiente", "empty_nesters", "separados_hijos",
+    "pareja_sin_hijos", "pareja_hijos_10", "pareja_hijos_21",
+    "pareja_hijos_1120", "joven_sin_hijos", "soltero_adulto",
+    "soltero_joven", "prestada", "propia", "propia_pagando",
+    "rentada", "intestada_litigio", "pob_masc", "pob_fem"
+  )
+  
+  # Intersecciones y cálculo de áreas
+  intersecciones <- st_intersection(
+    st_make_valid(proyectos_buffer),
+    st_make_valid(demograficos_proj)
+  ) %>% 
+    mutate(
+      interseccion_area = st_area(.),
+      proporcion = as.numeric(interseccion_area / ageb_area)
+    ) %>% 
+    filter(proporcion > 0.001)
+  
+  # Agregar variables ponderadas
+  demografia_agregada <- intersecciones %>% 
+    st_drop_geometry() %>% 
+    group_by(Proyecto) %>% 
+    summarise(
+      across(all_of(variables_demograficas), 
+             ~sum(.x * proporcion, na.rm = TRUE),
+             .names = "{.col}_1km"),
+      .groups = "drop"
+    )
+  
+  # Unir datos agregados
+  proyectos_sf <- proyectos_sf %>% 
+    left_join(demografia_agregada, by = "Proyecto")
+}
+
+# ---- UNIONES ESPACIALES ----
+cat("🔗 Realizando uniones espaciales...\n")
+
+# Unir NSE
+if (!is.null(nse_data)) {
+  proyectos_sf <- st_join(proyectos_sf, nse_data, join = st_intersects, left = TRUE)
+}
+
+# Unir zonas REDI
+if (!is.null(zonas_redi)) {
+  proyectos_sf <- st_join(proyectos_sf, zonas_redi, join = st_intersects, left = TRUE)
+}
+
+# ---- CÁLCULO DE DISTANCIAS A PARQUES ----
+if (!is.null(verdes_sf)) {
+  cat("🌳 Calculando distancias a parques...\n")
+  
+  # Parque más cercano (base verdes)
+  nearest_idx <- st_nearest_feature(proyectos_sf, verdes_sf)
+  proyectos_sf$nearest_park <- verdes_sf$nombre[nearest_idx]
+  proyectos_sf$dist_to_park <- st_distance(proyectos_sf, verdes_sf[nearest_idx, ], by_element = TRUE)
+  proyectos_sf$dist_to_park <- as.numeric(proyectos_sf$dist_to_park)
+}
+
+if (!is.null(parques_kml)) {
+  # Parque importante más cercano
+  nearest_idx_poly <- st_nearest_feature(proyectos_sf, parques_kml)
+  proyectos_sf$nearest_park_kml <- parques_kml$nombre[nearest_idx_poly]
+  proyectos_sf$dist_to_park_kml <- st_distance(proyectos_sf, parques_kml[nearest_idx_poly, ], by_element = TRUE)
+  proyectos_sf$dist_to_park_kml <- as.numeric(proyectos_sf$dist_to_park_kml)
+}
+
+# ---- INTEGRACIÓN DE AMENIDADES ----
+if (!is.null(amenidades)) {
+  cat("🏊 Integrando datos de amenidades...\n")
+  
+  # Limpiar datos de amenidades
+  amenidades_clean <- amenidades %>%
+    janitor::clean_names() %>%
+    rename(Proyecto = proyecto) %>%
+    mutate(across(c(control_de_acceso:vestidores), ~ ifelse(.x == "Sí", 1, 0))) %>%
+    select(-c(segmento, ciudad, zona, precio_promedio_inventario, absorcion_historica, absorcioo_del_ult_q))
+  
+  # Unir amenidades
+  proyectos_sf <- proyectos_sf %>%
+    left_join(amenidades_clean, by = "Proyecto") %>%
+    mutate(across(c(control_de_acceso:vestidores), ~ ifelse(is.na(.x), 0, .x)))
+}
+
+# ---- CÁLCULO DE DISTANCIAS A EQUIPAMIENTOS ----
+calcular_distancias_equipamientos <- function(proyectos_sf, equipamientos_df, nombre) {
+  if (is.null(equipamientos_df) || nrow(equipamientos_df) == 0) {
+    return(proyectos_sf)
+  }
+  
+  cat("  📍 Procesando:", nombre, "\n")
+  
+  # Convertir a numeric
+  equipamientos_df$latitud <- as.numeric(equipamientos_df$latitud)
+  equipamientos_df$longitud <- as.numeric(equipamientos_df$longitud)
+  
+  # Filtrar coordenadas válidas
+  equipamientos_df <- equipamientos_df %>% 
+    filter(!is.na(latitud) & !is.na(longitud))
+  
+  if (nrow(equipamientos_df) == 0) return(proyectos_sf)
+  
+  # Inicializar columnas
+  proyectos_sf[[paste0("dist_", nombre)]] <- NA_real_
+  proyectos_sf[[paste0("cercania_", nombre)]] <- NA_real_
+  proyectos_sf[[paste0("cantidad_", nombre, "_1km")]] <- 0
+  
+  # Convertir a sf
+  equipamientos_sf <- st_as_sf(equipamientos_df, 
+                               coords = c("longitud", "latitud"), 
+                               crs = 4326)
+  
+  # Calcular distancias
+  for (i in 1:nrow(proyectos_sf)) {
+    punto_proyecto <- proyectos_sf[i,]
+    
+    distancias <- st_distance(punto_proyecto, equipamientos_sf)
+    distancias_m <- as.numeric(distancias)
+    
+    if (length(distancias_m) > 0) {
+      min_dist <- min(distancias_m, na.rm = TRUE)
+      proyectos_sf[[paste0("dist_", nombre)]][i] <- min_dist
+      proyectos_sf[[paste0("cercania_", nombre)]][i] <- ifelse(min_dist <= 1000, 1, 0)
+      proyectos_sf[[paste0("cantidad_", nombre, "_1km")]][i] <- sum(distancias_m <= 1000, na.rm = TRUE)
+    }
+  }
+  
+  return(proyectos_sf)
+}
+
+# Aplicar para cada equipamiento
+cat("🏥 Calculando distancias a equipamientos...\n")
+nombres_equipamientos <- c("hospital", "esc_priv", "esc_pub", "universidad", 
+                           "super", "restau", "oficina", "tienda_dept")
+nombres_archivos <- c("hospitales", "escuelas_privadas", "escuelas_publicas", "universidades",
+                      "supermercados", "restaurantes", "oficinas", "tiendas_dept")
+
+for (i in seq_along(nombres_equipamientos)) {
+  if (nombres_archivos[i] %in% names(equipamientos_list)) {
+    proyectos_sf <- calcular_distancias_equipamientos(
+      proyectos_sf, 
+      equipamientos_list[[nombres_archivos[i]]], 
+      nombres_equipamientos[i]
+    )
+  }
+}
+
+# ---- PROCESAMIENTO DE AVENIDAS ----
+if (!is.null(avenidas_data) && !is.null(clasificacion_avenidas)) {
+  cat("🛣️  Procesando información de vialidades...\n")
+  
+  # Unir clasificación con geometrías
+  avenidas_data <- avenidas_data %>%
+    rename(nombre_normalizado = Name) %>%
+    left_join(clasificacion_avenidas %>%
+                mutate(nombre_norm = tolower(trimws(nombre))),
+              by = c("nombre_normalizado" = "nombre_norm"))
+  
+  # Verificar y limpiar geometrías
+  avenidas_data <- st_make_valid(avenidas_data)
+  avenidas_data <- st_transform(avenidas_data, 4326)
+  
+  # Rellenar valores faltantes
+  avenidas_data <- avenidas_data %>%
+    mutate(
+      jerarquia = ifelse(is.na(jerarquia), 5, jerarquia),
+      nombre_final = coalesce(nombre, nombre_normalizado)
+    )
+  
+  # Calcular distancias a avenidas
+  cat("  🚗 Calculando distancias a avenidas...\n")
+  proyectos_utm <- st_transform(proyectos_sf, 32614)
+  avenidas_utm <- st_transform(avenidas_data, 32614)
+  
+  # Función para calcular distancias a avenidas
+  calcular_dist_avenidas <- function(proyectos_sf, avenidas_sf) {
+    n <- nrow(proyectos_sf)
+    dist_to_avenue <- numeric(n)
+    nearest_avenue_name <- character(n)
+    nearest_avenue_type <- character(n)
+    nearest_avenue_hierarchy <- numeric(n)
+    nearest_avenue_flow <- numeric(n)
+    
+    for (i in 1:n) {
+      proyecto <- proyectos_sf[i, ]
+      distancias <- st_distance(proyecto, avenidas_sf)
+      idx_min <- which.min(distancias)
+      
+      if (length(idx_min) > 0) {
+        dist_to_avenue[i] <- as.numeric(distancias[idx_min])
+        nearest_avenue_name[i] <- avenidas_sf$nombre_final[idx_min]
+        nearest_avenue_type[i] <- avenidas_sf$tipo_via[idx_min]
+        nearest_avenue_hierarchy[i] <- avenidas_sf$jerarquia[idx_min]
+        nearest_avenue_flow[i] <- avenidas_sf$flujo_promedio[idx_min]
+      } else {
+        dist_to_avenue[i] <- NA
+        nearest_avenue_name[i] <- NA
+        nearest_avenue_type[i] <- NA
+        nearest_avenue_hierarchy[i] <- NA
+        nearest_avenue_flow[i] <- NA
+      }
+    }
+    
+    return(data.frame(
+      dist_to_avenue = dist_to_avenue,
+      nearest_avenue_name = nearest_avenue_name,
+      nearest_avenue_type = nearest_avenue_type,
+      nearest_avenue_hierarchy = nearest_avenue_hierarchy,
+      nearest_avenue_flow = nearest_avenue_flow
+    ))
+  }
+  
+  # Calcular y añadir resultados
+  distancias_avenidas <- calcular_dist_avenidas(proyectos_utm, avenidas_utm)
+  proyectos_sf <- cbind(proyectos_sf, distancias_avenidas)
+  
+  # Variables derivadas de vialidades
+  proyectos_sf <- proyectos_sf %>%
+    mutate(
+      cerca_avenida_principal = ifelse(!is.na(nearest_avenue_hierarchy) & 
+                                         dist_to_avenue <= 200 & 
+                                         nearest_avenue_hierarchy %in% c(1, 2), 1, 0),
+      cercania_avenida = ifelse(dist_to_avenue <= 200 & dist_to_avenue < 2000, 1, 0),
+      cercania_avenida_arterial = ifelse(dist_to_avenue <= 200 & 
+                                           nearest_avenue_hierarchy == 1 & 
+                                           dist_to_avenue < 2000, 1, 0),
+      cercania_avenida_secundaria = ifelse(dist_to_avenue <= 200 & 
+                                             nearest_avenue_hierarchy == 2 & 
+                                             dist_to_avenue < 2000, 1, 0)
+    )
+}
+
+# ---- PROCESAMIENTO FINAL DE VARIABLES ----
+cat("⚙️  Procesando variables finales...\n")
+
+# Extraer coordenadas para cálculos posteriores
+proyectos_sf <- proyectos_sf %>%
+  mutate(
+    longitud = st_coordinates(geometry)[,1],
+    latitud = st_coordinates(geometry)[,2]
+  )
+
+# Procesar la variable NSE_description
+if ("nse_description" %in% names(proyectos_sf)) {
+  proyectos_sf <- proyectos_sf %>%
+    extract(
+      col = nse_description, 
+      into = c("nse", "personas", "hogares", "precio_vivienda"),
+      regex = "NSE:\\s*([^\\s]+)\\s+Personas:\\s*([0-9,]+)\\s+Hogares:\\s*([0-9,]+)\\s+Precio Promedio de Vivienda:\\s*\\$?([0-9,\\.]+)",
+      remove = FALSE
+    )
+}
+
+# Renombrar y crear variables finales
+base_integrada <- proyectos_sf %>%
+  rename(
+    absorcion = Absorcion.por.proyecto,
+    nearest_relevant_park = nearest_park_kml,
+    dist_to_relevant_park = dist_to_park_kml
+  ) %>%
+  mutate(
+    absorcion = as.numeric(absorcion),
+    Estatus = as.factor(Estatus),
+    hogares = readr::parse_number(hogares),
+    log_pm2 = log(p_m2),
+    Municipio = as.factor(Municipio),
+    nearest_park = as.factor(nearest_park),
+    nearest_relevant_park = as.factor(nearest_relevant_park),
+    nse = as.factor(nse),
+    personas = readr::parse_number(personas),
+    precio_vivienda = readr::parse_number(precio_vivienda),
+    Segmento = as.factor(Segmento),
+    zona_name = as.factor(zona_name),
+    
+    # Variables calculadas adicionales
+    unidades_vendidas = unidades_totales - unidades_inv,
+    inv_dist_to_park = 1 / log(dist_to_relevant_park + 1)
+  ) %>%
+  relocate(unidades_vendidas, .after = unidades_inv) %>%
+  relocate(log_pm2, .after = p_m2) %>%
+  relocate(inv_dist_to_park, .after = dist_to_relevant_park)
+
+# ---- TRANSFORMACIÓN DE VARIABLES A DICOTÓMICAS ----
+cat("🔄 Transformando variables a dicotómicas...\n")
+
+base_integrada <- base_integrada %>%
+  mutate(
+    # Variables de éxito
+    exitoso = case_when(
+      is.na(absorcion) ~ NA_real_,
+      absorcion >= 3 ~ 1,
+      TRUE ~ 0
+    ),
+    super_exitoso = case_when(
+      is.na(absorcion) ~ NA_real_,
+      absorcion >= 7 ~ 1,
+      TRUE ~ 0
+    ),
+    
+    # Densidad poblacional
+    alta_densidad_pob = case_when(
+      is.na(pob2020_1km) ~ NA_real_,
+      pob2020_1km / 3.14 > 20000 ~ 1, 
+      TRUE ~ 0
+    ),
+    
+    # Distancia a parques
+    cerca_parque_relevante = case_when(
+      is.na(dist_to_relevant_park) ~ NA_real_,
+      dist_to_relevant_park <= 500 ~ 1,
+      TRUE ~ 0
+    ),
+    
+    # Proporción hogares propios
+    prop_hogares_propios = (propia_1km + propia_pagando_1km) / 
+      (propia_1km + propia_pagando_1km + rentada_1km + prestada_1km),
+    predominio_hogares_propios = case_when(
+      is.na(prop_hogares_propios) ~ NA_real_,
+      prop_hogares_propios > 0.6 ~ 1,
+      TRUE ~ 0
+    ),
+    
+    # Crecimiento poblacional
+    crecimiento_pob = (pob2020_1km - pob2010_1km) / pob2010_1km,
+    alto_crecimiento = case_when(
+      is.na(crecimiento_pob) ~ NA_real_,
+      crecimiento_pob > 0.15 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+# ---- CÁLCULO DE ÍNDICES COMPUESTOS ----
+cat("📊 Calculando índices compuestos...\n")
+
+base_integrada <- base_integrada %>%
+  mutate(
+    # Índice de accesibilidad
+    indice_accesibilidad = (
+      (cercania_universidad * 3) +
+        (cercania_esc_priv * 2) +
+        (cercania_esc_pub * 1) +
+        (cercania_hospital * 3) +
+        (cercania_super * 2) +
+        (cercania_restau * 1) +
+        (cercania_oficina * 2) +
+        (cercania_tienda_dept * 2)
+    ) / 16,
+    
+    # Densidad educativa
+    densidad_educativa = cantidad_esc_priv_1km + cantidad_esc_pub_1km + cantidad_universidad_1km,
+    alta_densidad_educativa = case_when(densidad_educativa >= 5 ~ 1, TRUE ~ 0),
+    
+    # Densidad comercial
+    densidad_comercial = cantidad_super_1km + cantidad_restau_1km + cantidad_tienda_dept_1km,
+    alta_densidad_comercial = case_when(densidad_comercial >= 10 ~ 1, TRUE ~ 0),
+    
+    # Entorno laboral
+    entorno_laboral = cantidad_oficina_1km,
+    alto_entorno_laboral = case_when(entorno_laboral >= 5 ~ 1, TRUE ~ 0)
+  )
+
+# Cálculo de amenidades si existen
+if ("alberca" %in% names(base_integrada)) {
+  amenidades_cols <- c("alberca", "areas_verdes", "asadores", "bar", "campo_de_golf",
+                       "canchas_deportivas", "casa_club", "fogatero", "gimnasio", 
+                       "golf_virtual", "jacuzzi", "lounges", "ludoteca_juegos_infantiles",
+                       "patio_central", "pet_zone", "pista_de_jogging_vitapista",
+                       "roof_graden", "sala_de_cine_tv", "sala_de_lectura",
+                       "salon_usos_multiples", "salon_de_yoga", "sauna", "spa",
+                       "terraza", "vestidores")
+  
+  cols_existentes <- amenidades_cols[amenidades_cols %in% names(base_integrada)]
+  
+  if (length(cols_existentes) > 0) {
+    amenidades_df <- st_drop_geometry(base_integrada) %>% 
+      select(all_of(cols_existentes))
+    amenidades_df <- as.data.frame(lapply(amenidades_df, function(x) as.numeric(as.character(x))))
+    num_amenidades <- rowSums(amenidades_df, na.rm = TRUE)
+    
+    base_integrada$num_amenidades <- num_amenidades
+    base_integrada$categoria_amenidades <- case_when(
+      num_amenidades >= 15 ~ "Premium",
+      num_amenidades >= 8 ~ "Alto",
+      num_amenidades >= 4 ~ "Medio",
+      TRUE ~ "Básico"
+    )
+  }
+}
+
+# Variables de vialidades si existen
+if ("dist_to_avenue" %in% names(base_integrada)) {
+  base_integrada <- base_integrada %>%
+    mutate(
+      dist_avenida_norm = 1 - pmin(1, dist_to_avenue / 1000),
+      ponderacion_jerarquia = case_when(
+        nearest_avenue_hierarchy == 1 ~ 1.0,
+        nearest_avenue_hierarchy == 2 ~ 0.8,
+        nearest_avenue_hierarchy == 3 ~ 0.6,
+        nearest_avenue_hierarchy == 4 ~ 0.4,
+        TRUE ~ 0.3
+      ),
+      ponderacion_flujo = case_when(
+        !is.na(nearest_avenue_flow) & nearest_avenue_flow > 500 ~ 0.2,
+        !is.na(nearest_avenue_flow) & nearest_avenue_flow > 200 ~ 0.1,
+        TRUE ~ 0
+      ),
+      accesibilidad_vial = (dist_avenida_norm * 0.6) + 
+        (ponderacion_jerarquia * 0.3) + 
+        (ponderacion_flujo * 0.1)
+    )
+}
+
+# Índices finales
+base_integrada <- base_integrada %>%
+  mutate(
+    # Potencial de inversión
+    potencial_inversion = (
+      (alto_crecimiento * 3) +
+        (cerca_parque_relevante * 3) +
+        (indice_accesibilidad * 4) +
+        (alta_densidad_comercial * 4) +
+        (alto_entorno_laboral * 2) +
+        (ifelse(exists("accesibilidad_vial"), accesibilidad_vial * 3, 0)) +
+        (ifelse(exists("cerca_avenida_principal"), cerca_avenida_principal * 2, 0)) +
+        (ifelse(Estatus == "Preventa", 1, 0) * 1)
+    ) / 22,
+    
+    # Índice de conveniencia
+    indice_conveniencia = (
+      cercania_super * 0.10 +
+        cercania_restau * 0.15 +
+        cercania_hospital * 0.10 +
+        cercania_esc_priv * 0.10 +
+        cercania_tienda_dept * 0.10 +
+        cerca_parque_relevante * 0.20 +
+        ifelse(exists("cerca_avenida_principal"), cerca_avenida_principal * 0.15, 0) +
+        ifelse(exists("cercania_avenida_arterial"), cercania_avenida_arterial * 0.10, 0)
+    ),
+    
+    alta_conveniencia = case_when(indice_conveniencia >= 0.7 ~ 1, TRUE ~ 0)
+  )
+
+# ---- GUARDAR RESULTADOS ----
+cat("💾 Guardando resultados...\n")
+
+# Guardar versión espacial
+tryCatch({
+  st_write(base_integrada, "base_integrada_completa.gpkg", delete_dsn = TRUE)
+  cat("  ✅ Archivo espacial guardado: base_integrada_completa.gpkg\n")
+}, error = function(e) {
+  cat("  ⚠️  Error guardando archivo espacial:", conditionMessage(e), "\n")
+})
+
+# Guardar versión CSV
+base_sin_geom <- st_drop_geometry(base_integrada)
+write.csv(base_sin_geom, "base_inmobiliaria_transformada.csv", row.names = FALSE)
+cat("  ✅ Archivo CSV guardado: base_inmobiliaria_transformada.csv\n")
+
+# ---- VALIDACIÓN FINAL DE CLASE ESPACIAL ----
+cat("🔍 Validando clase espacial antes de guardar...\n")
+
+# Diagnóstico de la clase actual
+cat("📊 Clase actual:", paste(class(base_integrada), collapse = ", "), "\n")
+
+if(!"sf" %in% class(base_integrada)) {
+  cat("⚠️  base_integrada perdió clase espacial, restaurando...\n")
+  
+  # Verificar que tenemos coordenadas válidas
+  if(all(c("longitud", "latitud") %in% names(base_integrada))) {
+    coords_validas <- !is.na(base_integrada$longitud) & !is.na(base_integrada$latitud)
+    cat("📍 Coordenadas válidas:", sum(coords_validas), "/", nrow(base_integrada), "\n")
+    
+    if(sum(coords_validas) >= nrow(base_integrada) * 0.8) {  # Al menos 80% de coordenadas válidas
+      # Restaurar clase espacial
+      base_integrada <- st_as_sf(base_integrada, 
+                                 coords = c("longitud", "latitud"), 
+                                 crs = 4326, 
+                                 remove = FALSE)
+      cat("✅ Clase espacial restaurada exitosamente\n")
+    } else {
+      cat("❌ Demasiadas coordenadas faltantes para restaurar objeto espacial\n")
+      stop("No se puede crear objeto espacial válido")
+    }
+  } else {
+    cat("❌ Columnas longitud/latitud no encontradas\n")
+    stop("No se pueden recuperar coordenadas para restaurar objeto espacial")
+  }
+} else {
+  cat("✅ base_integrada mantiene clase espacial correctamente\n")
+}
+
+# Validar geometría y corregir posibles problemas
+base_integrada <- st_make_valid(base_integrada)
+
+# Verificación final
+cat("🎯 Clase final:", paste(class(base_integrada), collapse = ", "), "\n")
+cat("🗺️  Geometría válida:", all(st_is_valid(base_integrada)), "\n")
+cat("📊 Dimensiones finales:", nrow(base_integrada), "x", ncol(base_integrada), "\n")
+
+# ---- DIAGNÓSTICO ADICIONAL ----
+cat("\n🔍 DIAGNÓSTICO FINAL SCRIPT_02:\n")
+cat("base_integrada es objeto sf:", "sf" %in% class(base_integrada), "\n")
+cat("Variables críticas presentes:", 
+    all(c("Proyecto", "p_m2", "absorcion", "Segmento", "nse") %in% names(base_integrada)), "\n")
+if("geometry" %in% names(base_integrada)) {
+  cat("Tipo de geometría:", unique(st_geometry_type(base_integrada))[1], "\n")
+  cat("Sistema de coordenadas:", st_crs(base_integrada)$input, "\n")
+}
+
+# Asignar a entorno global para uso en siguientes scripts
+assign("base_integrada", base_integrada, envir = .GlobalEnv)
+assign("base_datos_completa", base_sin_geom, envir = .GlobalEnv)
+
+# ---- RESUMEN DE PREPARACIÓN ----
+cat("\n📋 RESUMEN DE PREPARACIÓN DE DATOS\n")
+cat("====================================\n")
+cat("Proyectos procesados:", nrow(base_integrada), "\n")
+cat("Variables totales:", ncol(base_integrada), "\n")
+
+# Verificar variables críticas
+variables_criticas <- c("Proyecto", "p_m2", "absorcion", "nse", "Segmento")
+variables_faltantes <- variables_criticas[!variables_criticas %in% names(base_integrada)]
+
+if (length(variables_faltantes) == 0) {
+  cat("✅ Todas las variables críticas presentes\n")
+} else {
+  cat("⚠️  Variables críticas faltantes:", paste(variables_faltantes, collapse = ", "), "\n")
+}
+
+# ---- CREAR VARIABLE ID ÚNICA ----
+cat("🆔 Creando variable ID de proyecto...\n")
+
+# Crear ID único y reorganizar columnas
+base_integrada <- base_integrada %>%
+  mutate(
+    # Crear ID único basado en número de fila original
+    ID = 1:nrow(.),
+    .before = everything()  # Colocar como primera columna
+  ) %>%
+  # Reorganizar para que las columnas críticas estén al inicio
+  relocate(ID, Proyecto, Desarrollador, Segmento, nse, Municipio, p_m2, .before = everything())
+
+cat("✅ Variable ID creada -", nrow(base_integrada), "proyectos con ID del 1 al", nrow(base_integrada), "\n")
+
+# Mostrar muestra para verificación
+cat("📋 Muestra de proyectos con ID:\n")
+muestra_ids <- base_integrada %>% 
+  st_drop_geometry() %>%
+  select(ID, Proyecto, Desarrollador, Segmento, nse) %>% 
+  head(10)
+print(muestra_ids)
+
+# Mostrar distribución por segmento
+if ("Segmento" %in% names(base_integrada)) {
+  cat("\nDistribución por segmento:\n")
+  tabla_segmentos <- table(base_integrada$Segmento)
+  for (i in 1:length(tabla_segmentos)) {
+    cat("  ", names(tabla_segmentos)[i], ":", tabla_segmentos[i], "proyectos\n")
+  }
+}
+
+cat("\n✅ PREPARACIÓN DE DATOS COMPLETADA\n")
+cat("====================================\n")
