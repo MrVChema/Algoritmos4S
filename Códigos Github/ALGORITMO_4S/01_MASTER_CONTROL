@@ -1,0 +1,397 @@
+# ================================================================================
+# SISTEMA IVU-IVP: SCRIPT MAESTRO DE CONTROL - VERSIÓN CORREGIDA
+# ================================================================================
+# Punto de entrada único para todo el sistema de análisis inmobiliario
+# Versión: 2.2 - Bug crítico corregido en detección de modo testeo
+# Autor: Sistema 4S Real Estate
+# ================================================================================
+
+# ---- CONFIGURACIÓN DEL SISTEMA ----
+cat("🏗️  INICIANDO SISTEMA IVU-IVP VERSIÓN 2.2\n")
+cat("================================================================================\n")
+
+# ---- DETECCIÓN INTELIGENTE DE MODO TESTEO Y LIMPIEZA SEGURA ----
+# Detectar modo testeo ANTES de cualquier limpieza
+MODO_TESTEO <- exists("DIRECTORIO_BASE_SISTEMA") && exists("DIRECTORIO_SCRIPTS")
+
+# Guardar variables críticas ANTES de limpiar (si están disponibles)
+if(MODO_TESTEO) {
+  cat("🧪 MODO TESTEO DETECTADO - Conservando variables del testeo\n")
+  cat("📝 Variables de testeo preservadas para continuidad\n")
+  
+  # Guardar variables críticas del testeo antes de cualquier limpieza
+  DIRECTORIO_BASE_TESTEO <- get("DIRECTORIO_BASE_SISTEMA", envir = .GlobalEnv)
+  DIRECTORIO_SCRIPTS_TESTEO <- get("DIRECTORIO_SCRIPTS", envir = .GlobalEnv)
+  DIRECTORIO_DATOS_TESTEO <- get("DIRECTORIO_DATOS", envir = .GlobalEnv)
+  
+  # Guardar configuración del testeo si existe
+  if(exists("CONFIGURACION_USUARIO")) {
+    CONFIGURACION_TESTEO <- get("CONFIGURACION_USUARIO", envir = .GlobalEnv)
+  }
+  
+} else {
+  cat("🚀 MODO PRODUCCIÓN - Limpieza completa del entorno\n")
+  # Limpiar entorno solo en modo producción, excluyendo variables críticas
+  variables_a_conservar <- c("MODO_TESTEO")
+  rm(list = setdiff(ls(), variables_a_conservar))
+}
+
+# Configuración de warnings y opciones
+options(warn = 1)  # Mostrar warnings inmediatamente
+options(stringsAsFactors = FALSE)
+
+# ---- CONFIGURACIÓN DE DIRECTORIOS ----
+if(MODO_TESTEO) {
+  # En modo testeo, usar directorios del script de testeo
+  DIRECTORIO_BASE <- DIRECTORIO_BASE_TESTEO
+  cat("✅ Usando directorios del testeo\n")
+} else {
+  # En modo producción, usar configuración estándar
+  # INSTRUCCIÓN: Modificar solo estas rutas según tu sistema
+  DIRECTORIO_BASE <- "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO"
+}
+
+DIRECTORIO_PROYECTO <- file.path(DIRECTORIO_BASE, "[04] MODELACIÓN", "[00] RESULTADOS")
+
+# Crear directorios si no existen
+dir.create(file.path(DIRECTORIO_PROYECTO, "reportes"), showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path(DIRECTORIO_PROYECTO, "mapas"), showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path(DIRECTORIO_PROYECTO, "exports"), showWarnings = FALSE, recursive = TRUE)
+
+# Establecer directorio de trabajo
+setwd(DIRECTORIO_PROYECTO)
+
+# ---- CONFIGURACIÓN DE USUARIO ----
+# INSTRUCCIÓN: Personalizar según necesidades del análisis
+if(MODO_TESTEO && exists("CONFIGURACION_TESTEO")) {
+  # Usar configuración del testeo si está disponible
+  CONFIGURACION_USUARIO <- CONFIGURACION_TESTEO
+  cat("✅ Usando configuración del testeo\n")
+} else {
+  # Configuración por defecto
+  CONFIGURACION_USUARIO <- list(
+    # PROYECTOS A ANALIZAR POR ID (NO POR ÍNDICE)
+    proyecto_principal_id = 10,          # ID del proyecto para análisis detallado
+    proyecto_comparacion_1_id = 13,      # ID del primer proyecto de comparación  
+    proyecto_comparacion_2_id = 24,      # ID del segundo proyecto de comparación
+    
+    # CONFIGURACIONES DE ANÁLISIS
+    generar_mapas_interactivos = TRUE,
+    generar_reportes_pdf = TRUE,
+    exportar_para_keynote = TRUE,
+    
+    # CONFIGURACIONES DE NSE
+    evaluar_evolucion_nse = TRUE,
+    incluir_analisis_espacial_nse = TRUE,
+    
+    # CONFIGURACIONES DE VISUALIZACIÓN
+    usar_paleta_4s = TRUE,
+    incluir_termometros = TRUE,
+    generar_radares_dimensionales = TRUE
+  )
+}
+
+# ---- CARGA DE LIBRERÍAS REQUERIDAS ----
+librerias_requeridas <- c(
+  # Manipulación de datos
+  "dplyr", "tidyr", "readr", "readxl", "janitor", "stringr",
+  
+  # Análisis espacial
+  "sf", "lwgeom", "geosphere",
+  
+  # Visualización básica
+  "ggplot2", "scales", "RColorBrewer", "viridis",
+  
+  # Visualización avanzada
+  "plotly", "leaflet", "corrplot", "gridExtra",
+  
+  # Análisis estadístico
+  "randomForest", "caret",
+  
+  # Tablas y reportes
+  "DT", "knitr", "kableExtra", "htmltools",
+  
+  # Exportación
+  "openxlsx"
+)
+
+# Función para instalar y cargar librerías
+cargar_librerias <- function(librerias) {
+  instaladas <- character(0)
+  fallidas <- character(0)
+  
+  for (lib in librerias) {
+    if (!require(lib, character.only = TRUE, quietly = TRUE)) {
+      cat("📦 Instalando librería:", lib, "\n")
+      tryCatch({
+        install.packages(lib, dependencies = TRUE, quiet = TRUE)
+        library(lib, character.only = TRUE)
+        instaladas <- c(instaladas, lib)
+      }, error = function(e) {
+        fallidas <- c(fallidas, lib)
+        cat("❌ Error instalando", lib, ":", conditionMessage(e), "\n")
+      })
+    }
+  }
+  
+  if(length(fallidas) > 0) {
+    cat("⚠️  Librerías no instaladas:", paste(fallidas, collapse = ", "), "\n")
+    cat("   El sistema funcionará con funcionalidad limitada\n")
+  }
+  cat("✅ Librerías cargadas exitosamente\n")
+}
+
+cat("📦 Cargando librerías del sistema...\n")
+cargar_librerias(librerias_requeridas)
+
+# ---- CARGA DE MÓDULOS DEL SISTEMA ----
+modulos_sistema <- c(
+  "modulos/mod_validaciones.R",
+  "modulos/mod_utilidades.R",
+  "modulos/mod_visualizaciones.R",
+  "modulos/mod_exportacion.R"
+)
+
+cat("🔧 Cargando módulos del sistema...\n")
+for (modulo in modulos_sistema) {
+  if (file.exists(modulo)) {
+    source(modulo)
+    cat("  ✅", basename(modulo), "cargado\n")
+  } else {
+    cat("  ⚠️ ", basename(modulo), "no encontrado - funcionalidad limitada\n")
+  }
+}
+
+# ---- VALIDACIÓN DEL SISTEMA ----
+cat("\n🔍 VALIDANDO CONFIGURACIÓN DEL SISTEMA...\n")
+
+# Validar directorios críticos
+directorios_criticos <- c(
+  file.path(DIRECTORIO_BASE, "[02] DATOS"),
+  file.path(DIRECTORIO_BASE, "[02] DATOS", "[00] BASE INTEGRADA"),
+  file.path(DIRECTORIO_BASE, "[02] DATOS", "[03] VARIABLES"),
+  DIRECTORIO_PROYECTO
+)
+
+for (dir in directorios_criticos) {
+  if (dir.exists(dir)) {
+    cat("  ✅ Directorio encontrado:", basename(dir), "\n")
+  } else {
+    cat("  ❌ Directorio faltante:", dir, "\n")
+    cat("     ACCIÓN REQUERIDA: Crear este directorio antes de continuar\n")
+  }
+}
+
+# ---- CONFIGURACIÓN DE PALETAS Y ESTILOS ----
+# Paletas de colores 4S estandarizadas
+PALETAS_4S <- list(
+  principal = c("#68D192", "#9B87F4", "#F4E785", "#F8C579"),
+  categorias_4s = c(
+    "SUPERIOR" = "#68D192",
+    "SÓLIDO" = "#9B87F4", 
+    "SUSTENTABLE" = "#F4E785",
+    "SINGULAR" = "#F8C579"
+  ),
+  ivu_ivp = c(
+    "Muy bajo" = "#EF6558",
+    "Bajo" = "#F8C579",
+    "Medio" = "#F4E785", 
+    "Alto" = "#68D192",
+    "Muy alto" = "#2C6C66"
+  ),
+  nse = c(
+    "A+" = "#2C6C66", "A" = "#68D192", "B" = "#54C1C4", 
+    "C+" = "#F8C579", "C" = "#EF6558", "D+" = "#F4BCCD", "D/E" = "#9B87F4"
+  )
+)
+
+# ---- CONFIGURAR RUTAS DE SCRIPTS ----
+if(MODO_TESTEO) {
+  # En modo testeo, usar la ruta del testeo
+  DIRECTORIO_SCRIPTS <- DIRECTORIO_SCRIPTS_TESTEO
+  cat("✅ Usando directorio de scripts del testeo:", basename(DIRECTORIO_SCRIPTS), "\n")
+} else {
+  # En modo producción, asumir que están en la misma carpeta que el Master Control
+  tryCatch({
+    if(requireNamespace("rstudioapi", quietly = TRUE)) {
+      DIRECTORIO_SCRIPTS <- dirname(rstudioapi::getActiveDocumentContext()$path)
+    } else {
+      DIRECTORIO_SCRIPTS <- getwd()
+    }
+  }, error = function(e) {
+    DIRECTORIO_SCRIPTS <- getwd()
+  })
+  
+  if(DIRECTORIO_SCRIPTS == "" || is.na(DIRECTORIO_SCRIPTS)) {
+    DIRECTORIO_SCRIPTS <- getwd()
+  }
+  cat("✅ Directorio de scripts en modo producción:", basename(DIRECTORIO_SCRIPTS), "\n")
+}
+
+# ---- RESTAURAR VARIABLES DEL TESTEO SI ES NECESARIO ----
+if(MODO_TESTEO) {
+  # Restaurar variables críticas para el testeo
+  assign("DIRECTORIO_BASE_SISTEMA", DIRECTORIO_BASE_TESTEO, envir = .GlobalEnv)
+  assign("DIRECTORIO_SCRIPTS", DIRECTORIO_SCRIPTS, envir = .GlobalEnv)
+  assign("PROYECTO_PRINCIPAL_ID", CONFIGURACION_USUARIO$proyecto_principal_id, envir = .GlobalEnv)
+  assign("PROYECTO_COMPARACION_1_ID", CONFIGURACION_USUARIO$proyecto_comparacion_1_id, envir = .GlobalEnv)  
+  assign("PROYECTO_COMPARACION_2_ID", CONFIGURACION_USUARIO$proyecto_comparacion_2_id, envir = .GlobalEnv)
+  assign("DIRECTORIO_DATOS", DIRECTORIO_DATOS_TESTEO, envir = .GlobalEnv)
+  cat("✅ Variables del testeo restauradas para continuidad\n")
+} else {
+  # En modo producción, asegurar que DIRECTORIO_SCRIPTS esté disponible globalmente
+  assign("DIRECTORIO_SCRIPTS", DIRECTORIO_SCRIPTS, envir = .GlobalEnv)
+}
+
+# ---- FUNCIÓN PRINCIPAL DE EJECUCIÓN ----
+ejecutar_sistema_completo <- function(config = CONFIGURACION_USUARIO) {
+  
+  cat("\n🚀 EJECUTANDO SISTEMA COMPLETO IVU-IVP\n")
+  cat("================================================================================\n")
+  
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  
+  # Asignar configuración de proyectos al entorno global
+  assign("PROYECTO_PRINCIPAL", config$proyecto_principal, envir = .GlobalEnv)
+  assign("PROYECTO_COMPARACION_1", config$proyecto_comparacion_1, envir = .GlobalEnv)
+  assign("PROYECTO_COMPARACION_2", config$proyecto_comparacion_2, envir = .GlobalEnv)
+  
+  try({
+    # FASE 1: PREPARACIÓN DE DATOS
+    cat("\n📊 FASE 1: PREPARACIÓN Y CARGA DE DATOS\n")
+    source(file.path(DIRECTORIO_SCRIPTS, "SCRIPT_02_PREPARACION_DATOS.R"))
+    if(!exists("base_integrada")) stop("Error en preparación de datos")
+    
+    # FASE 2: CÁLCULO DE ÍNDICES
+    cat("\n🧮 FASE 2: CÁLCULO DE ÍNDICES IVU-IVP\n")
+    source(file.path(DIRECTORIO_SCRIPTS, "SCRIPT_03_CALCULO_INDICES.R"))
+    if(!exists("datos_completos")) stop("Error en cálculo de índices")
+    
+    # FASE 3: ANÁLISIS AVANZADO
+    cat("\n🔬 FASE 3: ANÁLISIS AVANZADO Y VISUALIZACIONES\n")
+    source(file.path(DIRECTORIO_SCRIPTS, "SCRIPT_04_ANALISIS_AVANZADO.R"))
+    if(!exists("resultados_analisis_avanzado")) stop("Error en análisis avanzado")
+    
+    return(TRUE)
+    
+  }, error = function(e) {
+    cat("\n❌ ERROR EN LA EJECUCIÓN:\n")
+    cat("Error:", conditionMessage(e), "\n")
+    return(FALSE)
+  })
+}
+
+# ---- FUNCIÓN DE VALIDACIÓN COMPLETA ----
+validar_sistema_completo <- function() {
+  cat("\n🔍 VALIDACIÓN COMPLETA DEL SISTEMA\n")
+  cat("===================================\n")
+  
+  validaciones <- list()
+  
+  # 1. Validar archivos de scripts
+  scripts_requeridos <- c(
+    "SCRIPT_02_PREPARACION_DATOS.R",
+    "SCRIPT_03_CALCULO_INDICES.R", 
+    "SCRIPT_04_ANALISIS_AVANZADO.R"
+  )
+  
+  for (script in scripts_requeridos) {
+    ruta_script <- file.path(DIRECTORIO_SCRIPTS, script)
+    if (file.exists(ruta_script)) {
+      validaciones[[script]] <- "✅ Encontrado"
+    } else {
+      validaciones[[script]] <- "❌ Faltante"
+    }
+  }
+  
+  # 2. Validar archivos de datos críticos
+  archivos_datos <- c(
+    file.path(DIRECTORIO_BASE, "[02] DATOS", "[01] PROYECTOS", "[01] VIVIENDA VERTICAL", "Proyectos Integrados_ZMM.csv"),
+    file.path(DIRECTORIO_BASE, "[02] DATOS", "[00] BASE INTEGRADA", "base_inmobiliaria_transformada.csv")
+  )
+  
+  for (archivo in archivos_datos) {
+    if (file.exists(archivo)) {
+      validaciones[[basename(archivo)]] <- "✅ Encontrado"
+    } else {
+      validaciones[[basename(archivo)]] <- "❌ Faltante"
+    }
+  }
+  
+  # 3. Mostrar resultados
+  for (item in names(validaciones)) {
+    cat(item, ":", validaciones[[item]], "\n")
+  }
+  
+  # 4. Diagnóstico general
+  fallos <- sum(grepl("❌", validaciones))
+  if (fallos == 0) {
+    cat("\n🎉 SISTEMA VALIDADO CORRECTAMENTE - LISTO PARA EJECUTAR\n")
+    return(TRUE)
+  } else {
+    cat("\n⚠️  ENCONTRADOS", fallos, "PROBLEMAS - CORREGIR ANTES DE EJECUTAR\n")
+    return(FALSE)
+  }
+}
+
+# ---- VALIDACIÓN FINAL DE CONFIGURACIÓN ----
+validar_configuracion_usuario <- function() {
+  config <- CONFIGURACION_USUARIO
+  
+  # Validar que los índices de proyecto son numéricos y positivos
+  indices <- c(config$proyecto_principal, config$proyecto_comparacion_1, config$proyecto_comparacion_2)
+  
+  if(any(!is.numeric(indices)) || any(indices <= 0)) {
+    stop("❌ Índices de proyecto deben ser números positivos")
+  }
+  
+  if(length(unique(indices)) != 3) {
+    warning("⚠️  Se recomiendan 3 proyectos diferentes para comparación óptima")
+  }
+  
+  cat("✅ Configuración de usuario validada\n")
+  return(TRUE)
+}
+
+# Ejecutar validación
+validar_configuracion_usuario()
+
+# ---- FUNCIÓN DE AYUDA PARA USUARIOS ----
+mostrar_ayuda <- function() {
+  cat("\n📚 AYUDA DEL SISTEMA IVU-IVP\n")
+  cat("============================\n")
+  cat("\n🚀 EJECUCIÓN RÁPIDA:\n")
+  cat("ejecutar_sistema_completo()\n")
+  
+  cat("\n🔧 CONFIGURACIÓN:\n")
+  cat("1. Modificar DIRECTORIO_BASE al inicio del script\n")
+  cat("2. Ajustar CONFIGURACION_USUARIO según necesidades\n")
+  cat("3. Ejecutar validar_sistema_completo() antes del análisis\n")
+  
+  cat("\n📊 ANÁLISIS INDIVIDUAL:\n")
+  cat("- Para solo preparar datos: source('", file.path(DIRECTORIO_SCRIPTS, "SCRIPT_02_PREPARACION_DATOS.R"), "')\n", sep="")
+  cat("- Para solo calcular índices: source('", file.path(DIRECTORIO_SCRIPTS, "SCRIPT_03_CALCULO_INDICES.R"), "')\n", sep="")
+  cat("- Para análisis avanzado: source('", file.path(DIRECTORIO_SCRIPTS, "SCRIPT_04_ANALISIS_AVANZADO.R"), "')\n", sep="")
+  
+  cat("\n🆘 SOLUCIÓN DE PROBLEMAS:\n")
+  cat("- validar_sistema_completo(): Verificar que todo esté correcto\n")
+  cat("- mostrar_ayuda(): Mostrar esta ayuda\n")
+  cat("- Ver documentacion/MANUAL_USUARIO.md para guía completa\n")
+}
+
+# ---- MENSAJE DE BIENVENIDA ----
+if(MODO_TESTEO) {
+  cat("\n🧪 SISTEMA IVU-IVP 2.2 CONFIGURADO PARA TESTEO\n")
+  cat("===============================================\n")
+  cat("✅ Variables del testeo preservadas correctamente\n")
+} else {
+  cat("\n🎯 SISTEMA IVU-IVP 2.2 LISTO PARA EJECUTAR\n")
+  cat("==========================================\n")
+}
+
+cat("💡 COMANDOS DISPONIBLES:\n")
+cat("• ejecutar_sistema_completo()  - Ejecutar análisis completo\n")
+cat("• validar_sistema_completo()   - Validar configuración\n") 
+cat("• mostrar_ayuda()              - Mostrar ayuda detallada\n")
+cat("\n🔥 Para comenzar inmediatamente: ejecutar_sistema_completo()\n")
+cat("================================================================================\n")
