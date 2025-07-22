@@ -1,0 +1,275 @@
+# 🎯 GUÍA COMPLETA PARA AJUSTAR PESOS IVU E IVP
+
+## 📋 **UBICACIONES DE CONFIGURACIÓN POR SCRIPT**
+
+### 🗺️ **AJUSTES PARA IVU (Índice de Valor por Ubicación)**
+
+#### **1. SCRIPT_03_CALCULO_INDICES.R - Líneas 50-120**
+
+**A) Pesos Generales (Líneas ~80-95)**
+```r
+pesos_generales <- c(
+  # CANTIDADES (ajustar importancia de equipamientos)
+  "cantidad_hospital_1km" = 0.0290,      # ← Hospitales
+  "cantidad_esc_priv_1km" = 0.0057,      # ← Escuelas privadas
+  "cantidad_esc_pub_1km" = 0.0138,       # ← Escuelas públicas
+  "cantidad_universidad_1km" = 0.0099,   # ← Universidades
+  "cantidad_super_1km" = 0.0294,         # ← Supermercados
+  "cantidad_restau_1km" = 0.0162,        # ← Restaurantes
+  "cantidad_oficina_1km" = 0.0752,       # ← Oficinas (PESO ALTO)
+  "cantidad_tienda_dept_1km" = 0.0256,   # ← Tiendas departamentales
+  
+  # CERCANÍAS (ajustar importancia de proximidad)
+  "cercania_hospital" = 0.0246,          # ← Cerca de hospital
+  "cercania_esc_priv" = 0.0608,          # ← Cerca escuela privada
+  "cercania_esc_pub" = 0.0138,           # ← Cerca escuela pública
+  "cercania_universidad" = 0.0628,       # ← Cerca universidad
+  "cercania_super" = 0.0310,             # ← Cerca supermercado
+  "cercania_restau" = 0.0203,            # ← Cerca restaurante
+  "cercania_oficina" = 0.0353,           # ← Cerca oficinas
+  "cercania_tienda_dept" = 0.0732,       # ← Cerca tienda dept
+  
+  # ÍNDICES COMPUESTOS (ajustar conceptos generales)
+  "indice_accesibilidad" = 0.0675,       # ← Accesibilidad general
+  "potencial_inversion" = 0.0915,        # ← Potencial de inversión
+  "indice_conveniencia" = 0.0918,        # ← Conveniencia general
+  
+  # VIALIDADES (ajustar importancia conectividad)
+  "cerca_avenida_principal" = 0.0352,    # ← Cerca avenida principal
+  "cercania_avenida" = 0.0514,           # ← Cerca cualquier avenida
+  "cercania_avenida_arterial" = 0.0324,  # ← Cerca avenida arterial
+  "cercania_avenida_secundaria" = 0.0109, # ← Cerca avenida secundaria
+  "accesibilidad_vial" = 0.0926,         # ← Accesibilidad vial general
+  
+  # OTROS FACTORES (ajustar características del entorno)
+  "cerca_parque_relevante" = 0.021,      # ← Cerca parque importante
+  "alta_densidad_pob" = 0.021,           # ← Alta densidad poblacional
+  "predominio_hogares_propios" = 0.021,  # ← Predominio hogares propios
+  "alto_crecimiento" = 0.021,            # ← Alto crecimiento poblacional
+  "alta_densidad_educativa" = 0.021,     # ← Alta densidad educativa
+  "alta_densidad_comercial" = 0.021,     # ← Alta densidad comercial
+  "alto_entorno_laboral" = 0.021         # ← Alto entorno laboral
+)
+```
+
+**B) Matriz de Relevancia por Segmento (Líneas ~100-120)**
+```r
+matriz_relevancia_segmento <- data.frame(
+  Factor = c("cercania_hospital", "cercania_esc_priv", ...),
+  Premium_Plus = c(5, 5, 1, 4, 3, 4, 5, 4, ...),    # ← Ajustar para Premium Plus
+  Premium = c(4, 5, 2, 4, 4, 4, 4, 4, ...),          # ← Ajustar para Premium
+  Residencial_Plus = c(4, 4, 3, 3, 5, 3, 3, 4, ...), # ← Ajustar para Res Plus
+  Residencial = c(3, 3, 4, 3, 5, 3, 3, 4, ...),      # ← Ajustar para Residencial
+  Medio = c(4, 2, 5, 2, 5, 3, 2, 4, ...)             # ← Ajustar para Medio
+)
+```
+
+**ESCALA DE RELEVANCIA:**
+- `5` = Crítico para el segmento
+- `4` = Muy importante 
+- `3` = Importante
+- `2` = Moderadamente importante
+- `1` = Poco importante
+
+#### **2. Archivo de Pesos Calibrados por Segmento**
+**Ubicación:** `[04] MODELACIÓN/[01] PESOS/pesos_por_segmento_ajustados.rds`
+
+**Para modificar:**
+```r
+# Cargar archivo actual
+pesos_segmento <- readRDS("pesos_por_segmento_ajustados.rds")
+
+# Modificar pesos para segmento específico
+pesos_segmento$Premium$cantidad_oficina_1km <- 0.1000  # Aumentar peso oficinas
+pesos_segmento$Residencial$cercania_esc_pub <- 0.0800  # Aumentar peso escuelas públicas
+
+# Guardar archivo modificado
+saveRDS(pesos_segmento, "pesos_por_segmento_ajustados.rds")
+```
+
+---
+
+### 🏗️ **AJUSTES PARA IVP (Índice de Valor del Proyecto)**
+
+#### **1. SCRIPT_03_CALCULO_INDICES.R - Sección IVP**
+
+**A) Pesos de Componentes Principales (Buscar: "IVP Final")**
+```r
+# IVP Final - AJUSTAR ESTOS PORCENTAJES
+ivp = (calidad_producto * 0.40) +           # ← 40% Calidad Producto
+      (performance_comercial * 0.30) +      # ← 30% Performance Comercial  
+      (propuesta_valor_norm * 0.20) +       # ← 20% Propuesta de Valor
+      (credibilidad_desarrollador * 0.10)   # ← 10% Credibilidad Desarrollador
+```
+
+**B) Pesos Dentro de Calidad del Producto**
+```r
+calidad_producto = (indice_amenidades_norm * 0.6) +    # ← 60% Amenidades
+                   (amplitud_unidades * 0.25) +        # ← 25% Amplitud
+                   (densidad_proyecto * 0.15)          # ← 15% Densidad
+```
+
+**C) Pesos Dentro de Credibilidad Desarrollador**
+```r
+credibilidad_desarrollador = (
+  normalizar_robusto(proyectos_total) * 0.3 +           # ← 30% Total proyectos
+  normalizar_robusto(absorcion_promedio_dev) * 0.25 +   # ← 25% Absorción promedio
+  normalizar_robusto(ivu) * 0.25 +                      # ← 25% IVU del proyecto
+  normalizar_robusto(consistencia_absorcion) * 0.2      # ← 20% Consistencia
+)
+```
+
+**D) Pesos de Amenidades por Categoría**
+```r
+pesos_amenidades <- c(
+  "basicas" = 1.0,        # ← Control acceso, areas verdes, vestidores
+  "wellness" = 2.5,       # ← Gimnasio, spa, sauna, jacuzzi, yoga
+  "recreativas" = 2.0,    # ← Alberca, canchas, ludoteca, jogging
+  "sociales" = 1.8,       # ← Casa club, bar, lounges, cine, lectura
+  "premium" = 3.0         # ← Golf, golf virtual, roof garden, pet zone
+)
+```
+
+#### **2. IVP Segmentado por Tipo de Mercado**
+
+**Buscar en SCRIPT_03: "ivp_segmentado = case_when"**
+```r
+ivp_segmentado = case_when(
+  # PREMIUM PLUS - Enfoque en amenidades y credibilidad
+  Segmento == "Premium Plus" ~ 
+    (amenidades_norm_seg * 0.45) +      # ← 45% Amenidades
+    (performance_norm_seg * 0.20) +     # ← 20% Performance
+    (credibilidad_desarrollador * 0.25) + # ← 25% Credibilidad
+    (propuesta_valor_norm * 0.10),      # ← 10% Propuesta valor
+    
+  # PREMIUM - Balance amenidades y performance
+  Segmento == "Premium" ~ 
+    (amenidades_norm_seg * 0.35) +      # ← 35% Amenidades
+    (performance_norm_seg * 0.30) +     # ← 30% Performance
+    (credibilidad_desarrollador * 0.20) + # ← 20% Credibilidad
+    (propuesta_valor_norm * 0.15),      # ← 15% Propuesta valor
+    
+  # RESIDENCIAL PLUS - Enfoque en valor y performance
+  Segmento == "Residencial Plus" ~ 
+    (amenidades_norm_seg * 0.25) +      # ← 25% Amenidades
+    (performance_norm_seg * 0.30) +     # ← 30% Performance
+    (credibilidad_desarrollador * 0.15) + # ← 15% Credibilidad
+    (propuesta_valor_norm * 0.30),      # ← 30% Propuesta valor
+    
+  # RESIDENCIAL - Máximo enfoque en valor
+  Segmento == "Residencial" ~ 
+    (amenidades_norm_seg * 0.20) +      # ← 20% Amenidades
+    (performance_norm_seg * 0.30) +     # ← 30% Performance
+    (credibilidad_desarrollador * 0.15) + # ← 15% Credibilidad
+    (propuesta_valor_norm * 0.35),      # ← 35% Propuesta valor
+    
+  # MEDIO - Máximo enfoque en propuesta de valor
+  Segmento == "Medio" ~ 
+    (amenidades_norm_seg * 0.15) +      # ← 15% Amenidades
+    (performance_norm_seg * 0.35) +     # ← 35% Performance
+    (credibilidad_desarrollador * 0.10) + # ← 10% Credibilidad
+    (propuesta_valor_norm * 0.40)       # ← 40% Propuesta valor
+)
+```
+
+---
+
+## 🛠️ **PROCESO DE AJUSTE RECOMENDADO**
+
+### **PASO 1: Identifica el Objetivo del Ajuste**
+- **¿Quieres que oficinas tengan más peso?** → Ajustar `cantidad_oficina_1km` y `cercania_oficina`
+- **¿Quieres que amenidades premium importen más?** → Ajustar `pesos_amenidades["premium"]`
+- **¿Quieres que performance sea más importante?** → Ajustar peso en IVP final
+- **¿Quieres que Residencial valore más las escuelas?** → Ajustar matriz de relevancia
+
+### **PASO 2: Hacer Ajustes Incrementales**
+```r
+# ANTES de cambiar
+cantidad_oficina_1km = 0.0752
+
+# CAMBIO INCREMENTAL (+50%)
+cantidad_oficina_1km = 0.1128
+```
+
+### **PASO 3: Verificar Que Los Pesos Sumen Coherentemente**
+- Los pesos dentro de cada componente deben sumar ~1.0
+- Los pesos principales del IVP deben sumar 1.0 (40% + 30% + 20% + 10%)
+
+### **PASO 4: Probar el Impacto**
+```r
+# Ejecutar solo el Script 03 para ver cambios
+source("SCRIPT_03_CALCULO_INDICES.R")
+
+# Comparar estadísticas antes/después
+summary(datos_completos$ivu)
+summary(datos_completos$ivp)
+table(datos_segmentados$categoria_4s)
+```
+
+---
+
+## 📊 **EJEMPLOS PRÁCTICOS DE AJUSTES**
+
+### **Ejemplo 1: Hacer que las oficinas sean más importantes**
+```r
+# En pesos_generales (línea ~95)
+"cantidad_oficina_1km" = 0.1000,  # Era 0.0752
+"cercania_oficina" = 0.0500,      # Era 0.0353
+
+# En matriz_relevancia_segmento (todas las columnas)
+Premium_Plus = c(..., 5, ...), # Cambiar a 5 en posición de oficinas
+Premium = c(..., 5, ...),      # Cambiar a 5 en posición de oficinas
+```
+
+### **Ejemplo 2: Hacer que amenidades premium tengan más impacto**
+```r
+# En pesos_amenidades
+"premium" = 4.0  # Era 3.0
+
+# Y en IVP segmentado para Premium Plus
+(amenidades_norm_seg * 0.50) +  # Era 0.45
+```
+
+### **Ejemplo 3: Hacer que el performance comercial sea más importante**
+```r
+# En IVP final
+ivp = (calidad_producto * 0.35) +         # Era 0.40
+      (performance_comercial * 0.35) +    # Era 0.30
+      (propuesta_valor_norm * 0.20) +     # Sin cambio
+      (credibilidad_desarrollador * 0.10) # Sin cambio
+```
+
+---
+
+## ⚠️ **CONSIDERACIONES IMPORTANTES**
+
+1. **Respaldo siempre** antes de cambiar:
+   ```r
+   # Guardar configuración actual
+   pesos_originales <- pesos_generales
+   ```
+
+2. **Cambios incrementales** (10-20% por vez)
+
+3. **Verificar coherencia** en los resultados:
+   - ¿Los rankings cambian como esperabas?
+   - ¿La distribución 4S se ve lógica?
+
+4. **Documentar cambios** para poder revertir
+
+5. **Probar con dataset completo** antes de usar en producción
+
+---
+
+## 🎯 **ARCHIVOS A MODIFICAR SEGÚN TU OBJETIVO**
+
+| Objetivo | Archivo Principal | Líneas Aprox |
+|----------|------------------|--------------|
+| **Pesos IVU generales** | SCRIPT_03_CALCULO_INDICES.R | 80-95 |
+| **Relevancia por segmento** | SCRIPT_03_CALCULO_INDICES.R | 100-120 |
+| **Componentes IVP** | SCRIPT_03_CALCULO_INDICES.R | Buscar "IVP Final" |
+| **Amenidades por categoría** | SCRIPT_03_CALCULO_INDICES.R | Buscar "pesos_amenidades" |
+| **IVP por segmento** | SCRIPT_03_CALCULO_INDICES.R | Buscar "ivp_segmentado = case_when" |
+| **Pesos calibrados** | pesos_por_segmento_ajustados.rds | Archivo externo |
+
+¿Te gustaría que te ayude con algún ajuste específico?
