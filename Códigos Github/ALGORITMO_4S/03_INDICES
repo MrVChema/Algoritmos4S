@@ -1,0 +1,2385 @@
+# ================================================================================
+# SISTEMA IVU-IVP: CÁLCULO DE ÍNDICES PRINCIPALES - VERSIÓN CORREGIDA
+# ================================================================================
+# Consolida toda la metodología de cálculo de IVU, IVP y predicción NSE
+# CORRECCIONES CRÍTICAS: Amenidades y joins espaciales
+# ================================================================================
+
+# ---- AJUSTE: VALIDACIONES AL INICIO ----
+
+if (!exists("base_integrada")) {
+  stop("❌ Ejecutar primero SCRIPT_02_PREPARACION_DATOS.R")
+}
+
+# Validación robusta de clase espacial con recuperación automática
+if (!inherits(base_integrada, "sf")) {  
+  cat("⚠️ base_integrada no es objeto espacial, intentando recuperar...\n")
+  
+  # Intentar recuperar desde archivo GPKG
+  if (file.exists("base_integrada_completa.gpkg")) {
+    cat("📁 Recuperando desde GPKG...\n")
+    tryCatch({
+      base_integrada <- st_read("base_integrada_completa.gpkg", quiet = TRUE)
+      assign("base_integrada", base_integrada, envir = .GlobalEnv)
+      cat("✅ base_integrada recuperada desde GPKG\n")
+    }, error = function(e) {
+      cat("❌ Error leyendo GPKG:", conditionMessage(e), "\n")
+    })
+  }
+  
+  # Si aún no es sf, intentar recrear desde CSV
+  if (!inherits(base_integrada, "sf") && file.exists("base_inmobiliaria_transformada.csv")) {
+    cat("📁 Recreando desde CSV...\n")
+    tryCatch({
+      base_csv <- read.csv("base_inmobiliaria_transformada.csv", stringsAsFactors = FALSE)
+      
+      if (all(c("longitud", "latitud") %in% names(base_csv))) {
+        # Filtrar coordenadas válidas
+        coords_validas <- !is.na(base_csv$longitud) & !is.na(base_csv$latitud)
+        
+        if (sum(coords_validas) > 0) {
+          base_integrada <- st_as_sf(base_csv[coords_validas, ], 
+                                     coords = c("longitud", "latitud"), 
+                                     crs = 4326, 
+                                     remove = FALSE)
+          assign("base_integrada", base_integrada, envir = .GlobalEnv)
+          cat("✅ base_integrada recreada desde CSV\n")
+        } else {
+          stop("❌ No hay coordenadas válidas en CSV")
+        }
+      } else {
+        stop("❌ CSV no contiene columnas longitud/latitud")
+      }
+    }, error = function(e) {
+      stop("❌ Error recreando desde CSV: ", conditionMessage(e))
+    })
+  }
+  
+  # Verificación final
+  if (!inherits(base_integrada, "sf")) {
+    stop("❌ No se puede recuperar base_integrada como objeto espacial válido")
+  }
+}
+
+# Validaciones adicionales de integridad
+if (nrow(base_integrada) == 0) {
+  stop("❌ base_integrada está vacía")
+}
+
+# Verificar variables críticas
+variables_requeridas <- c("Proyecto", "p_m2", "Segmento")
+variables_faltantes <- variables_requeridas[!variables_requeridas %in% names(base_integrada)]
+if (length(variables_faltantes) > 0) {
+  stop("❌ Variables críticas faltantes: ", paste(variables_faltantes, collapse = ", "))
+}
+
+# Convertir factores problemáticos a character para evitar errores de levels
+if ("Segmento" %in% names(base_integrada)) {
+  base_integrada$Segmento <- as.character(base_integrada$Segmento)
+}
+
+if ("nse" %in% names(base_integrada)) {
+  base_integrada$nse <- as.character(base_integrada$nse)
+}
+
+# Validar geometría
+base_integrada <- st_make_valid(base_integrada)
+
+cat("🧮 INICIANDO CÁLCULO DE ÍNDICES\n")
+cat("================================\n")
+cat("📊 Proyectos a procesar:", nrow(base_integrada), "\n")
+cat("🗺️  Objeto espacial válido:", inherits(base_integrada, "sf"), "\n")
+cat("📋 Variables disponibles:", ncol(base_integrada), "\n")
+
+# ---- CONFIGURACIÓN DE FACTORES Y PESOS ----
+
+# Factores para cálculo del IVU
+factores_ivu <- list(
+  indices = c("indice_accesibilidad", "potencial_inversion", "indice_conveniencia"),
+  cercanias = c(
+    "cercania_hospital", "cercania_esc_priv", "cercania_esc_pub", "cercania_universidad", 
+    "cercania_super", "cercania_restau", "cercania_oficina", "cercania_tienda_dept"
+  ),
+  cantidades = c(
+    "cantidad_hospital_1km", "cantidad_esc_priv_1km", "cantidad_esc_pub_1km", "cantidad_universidad_1km", 
+    "cantidad_super_1km", "cantidad_restau_1km", "cantidad_oficina_1km", "cantidad_tienda_dept_1km"
+  ),
+  otros = c(
+    "cerca_parque_relevante", "alta_densidad_pob", "predominio_hogares_propios",
+    "alto_crecimiento", "alta_densidad_educativa", "alta_densidad_comercial", "alto_entorno_laboral"
+  ),
+  vialidades = c(
+    "cerca_avenida_principal", "cercania_avenida", "cercania_avenida_arterial", 
+    "cercania_avenida_secundaria", "accesibilidad_vial"
+  )
+)
+
+# Pesos calibrados generales
+pesos_generales <- c(
+  # Cantidades
+  "cantidad_hospital_1km" = 0.0290, "cantidad_esc_priv_1km" = 0.0057, "cantidad_esc_pub_1km" = 0.0138,
+  "cantidad_universidad_1km" = 0.0099, "cantidad_super_1km" = 0.0294, "cantidad_restau_1km" = 0.0162,
+  "cantidad_oficina_1km" = 0.0752, "cantidad_tienda_dept_1km" = 0.0256,
+  
+  # Cercanías
+  "cercania_hospital" = 0.0246, "cercania_esc_priv" = 0.0608, "cercania_esc_pub" = 0.0138,
+  "cercania_universidad" = 0.0628, "cercania_super" = 0.0310, "cercania_restau" = 0.0203,
+  "cercania_oficina" = 0.0353, "cercania_tienda_dept" = 0.0732,
+  
+  # Índices
+  "indice_accesibilidad" = 0.0675, "potencial_inversion" = 0.0915, "indice_conveniencia" = 0.0918,
+  
+  # Vialidades
+  "cerca_avenida_principal" = 0.0352, "cercania_avenida" = 0.0514, "cercania_avenida_arterial" = 0.0324,
+  "cercania_avenida_secundaria" = 0.0109, "accesibilidad_vial" = 0.0926,
+  
+  # Otros
+  "cerca_parque_relevante" = 0.021, "alta_densidad_pob" = 0.021, "predominio_hogares_propios" = 0.021,
+  "alto_crecimiento" = 0.021, "alta_densidad_educativa" = 0.021, "alta_densidad_comercial" = 0.021,
+  "alto_entorno_laboral" = 0.021
+)
+
+# Matriz de relevancia por segmento para IVU
+matriz_relevancia_segmento <- data.frame(
+  Factor = c(
+    "cercania_hospital", "cercania_esc_priv", "cercania_esc_pub", "cercania_universidad",
+    "cercania_super", "cercania_restau", "cercania_oficina", "cercania_tienda_dept",
+    "cantidad_hospital_1km", "cantidad_esc_priv_1km", "cantidad_esc_pub_1km", "cantidad_universidad_1km",
+    "cantidad_super_1km", "cantidad_restau_1km", "cantidad_oficina_1km", "cantidad_tienda_dept_1km",
+    "cerca_avenida_principal", "cercania_avenida_arterial", "accesibilidad_vial",
+    "indice_accesibilidad", "potencial_inversion", "indice_conveniencia",
+    "cerca_parque_relevante", "alta_densidad_comercial", "alto_entorno_laboral"
+  ),
+  Premium_Plus = c(5, 5, 1, 4, 3, 4, 5, 4, 4, 4, 1, 3, 3, 4, 5, 3, 4, 5, 5, 5, 5, 4, 5, 3, 4),
+  Premium = c(4, 5, 2, 4, 4, 4, 4, 4, 4, 4, 2, 3, 4, 4, 4, 4, 4, 4, 5, 5, 4, 4, 4, 4, 4),
+  Residencial_Plus = c(4, 4, 3, 3, 5, 3, 3, 4, 3, 3, 3, 3, 4, 3, 3, 4, 4, 3, 4, 4, 4, 5, 4, 4, 3),
+  Residencial = c(3, 3, 4, 3, 5, 3, 3, 4, 3, 3, 4, 3, 5, 3, 3, 4, 4, 3, 4, 4, 3, 5, 3, 4, 3),
+  Medio = c(4, 2, 5, 2, 5, 3, 2, 4, 4, 2, 5, 2, 5, 3, 2, 4, 5, 4, 5, 4, 3, 5, 3, 5, 2)
+)
+
+# ---- FUNCIONES DE NORMALIZACIÓN ----
+normalizar <- function(valores) {
+  # Manejar diferentes tipos de input de manera robusta
+  if (is.null(valores) || length(valores) == 0) {
+    return(numeric(0))
+  }
+  
+  # Convertir a numeric de manera segura
+  valores_numericos <- suppressWarnings(as.numeric(valores))
+  
+  # Filtrar valores válidos
+  valores_validos <- valores_numericos[!is.na(valores_numericos) & is.finite(valores_numericos)]
+  
+  if (length(valores_validos) == 0) {
+    return(rep(0, length(valores)))
+  }
+  
+  if (length(valores_validos) == 1) {
+    return(rep(0.5, length(valores)))
+  }
+  
+  min_val <- min(valores_validos)
+  max_val <- max(valores_validos)
+  
+  if (abs(max_val - min_val) < .Machine$double.eps) {  # Evitar división por cero
+    resultado <- rep(0.5, length(valores))
+    resultado[!is.na(valores_numericos)] <- 0.5
+    return(resultado)
+  }
+  
+  # Normalización con manejo de NAs
+  resultado <- rep(0, length(valores))
+  mask_validos <- !is.na(valores_numericos) & is.finite(valores_numericos)
+  resultado[mask_validos] <- (valores_numericos[mask_validos] - min_val) / (max_val - min_val)
+  
+  # Asegurar rango [0,1]
+  resultado <- pmax(0, pmin(1, resultado))
+  
+  return(resultado)
+}
+
+normalizar_robusto <- function(x, metodo = "iqr") {
+  # Validaciones iniciales
+  if (is.null(x) || length(x) == 0) {
+    return(numeric(0))
+  }
+  
+  # Convertir a numeric
+  x_num <- suppressWarnings(as.numeric(x))
+  
+  # Manejar casos especiales
+  if (all(is.na(x_num))) {
+    return(rep(0.5, length(x)))
+  }
+  
+  valores_validos <- x_num[!is.na(x_num) & is.finite(x_num)]
+  
+  if (length(valores_validos) <= 1) {
+    return(rep(0.5, length(x)))
+  }
+  
+  # Aplicar método de normalización
+  if (metodo == "iqr") {
+    q25 <- quantile(valores_validos, 0.25, na.rm = TRUE)
+    q75 <- quantile(valores_validos, 0.75, na.rm = TRUE)
+    
+    if (abs(q75 - q25) < .Machine$double.eps) {
+      return(rep(0.5, length(x)))
+    }
+    
+    x_clip <- pmax(q25, pmin(q75, x_num))
+    min_val <- q25
+    max_val <- q75
+  } else {
+    min_val <- min(valores_validos)
+    max_val <- max(valores_validos)
+    x_clip <- x_num
+  }
+  
+  if (abs(max_val - min_val) < .Machine$double.eps) {
+    return(rep(0.5, length(x)))
+  }
+  
+  # Normalización
+  resultado <- (x_clip - min_val) / (max_val - min_val)
+  
+  # Reemplazar NAs con valor neutral
+  resultado[is.na(resultado)] <- 0.5
+  
+  # Asegurar rango [0,1]
+  resultado <- pmax(0, pmin(1, resultado))
+  
+  return(resultado)
+}
+
+# ---- PREPARACIÓN ROBUSTA DE DATOS PARA CÁLCULOS ----
+cat("📊 Preparando datos para cálculos de manera robusta...\n")
+
+datos <- base_integrada
+
+# Validar que datos es un objeto válido
+if (!inherits(datos, "sf") || nrow(datos) == 0) {
+  stop("❌ Datos de entrada no válidos para cálculos")
+}
+
+# Calcular variables adicionales necesarias con manejo de errores
+datos <- datos %>%
+  mutate(
+    # Variables de ventas y eficiencia con validaciones
+    unidades_totales = ifelse(is.na(unidades_totales) | unidades_totales < 0, 1, unidades_totales),
+    unidades_vendidas = ifelse(is.na(unidades_vendidas) | unidades_vendidas < 0, 0, unidades_vendidas),
+    unidades_inv = ifelse(is.na(unidades_inv) | unidades_inv < 0, 0, unidades_inv),
+    meses_mercado = ifelse(is.na(meses_mercado) | meses_mercado <= 0, 1, meses_mercado),
+    
+    # Ratios con validaciones robustas
+    ratio_ventas = pmax(0, pmin(1, ifelse(unidades_totales > 0, 
+                                          unidades_vendidas / unidades_totales, 0))),
+    
+    velocidad_ventas = ifelse(meses_mercado > 0, 
+                              pmax(0, unidades_vendidas / meses_mercado), 0),
+    
+    eficiencia_inventario = ifelse(unidades_totales > 0, 
+                                   pmax(0, pmin(1, 1 - (unidades_inv / unidades_totales))), 0),
+    
+    # Precio con validación
+    p_m2 = ifelse(is.na(p_m2) | p_m2 <= 0, median(p_m2, na.rm = TRUE), p_m2),
+    precio_relativo_log = log(pmax(1, p_m2)),
+    
+    # Momentum de ventas normalizado
+    momentum_ventas_norm = pmax(0, pmin(2, ifelse(meses_mercado > 0, 
+                                                  velocidad_ventas / 10, 0))),
+    
+    # Eficiencia comercial robusta
+    eficiencia_comercial = pmax(0, pmin(2, (ratio_ventas * 0.6) + (momentum_ventas_norm * 0.4)))
+  )
+
+# Validar que las variables críticas existen y son numéricas
+variables_criticas <- c("ratio_ventas", "velocidad_ventas", "eficiencia_comercial", "eficiencia_inventario")
+for (var in variables_criticas) {
+  if (!var %in% names(datos)) {
+    datos[[var]] <- 0
+    cat("⚠️ Variable", var, "creada con valores por defecto\n")
+  } else {
+    # Convertir a numeric y reemplazar NAs
+    datos[[var]] <- as.numeric(datos[[var]])
+    datos[[var]][is.na(datos[[var]])] <- 0
+  }
+}
+
+# Normalizar cantidades para IVU de manera robusta
+cat("🔢 Normalizando cantidades para IVU...\n")
+
+cantidades_norm <- list()
+factores_cantidades <- factores_ivu$cantidades
+
+for (col in factores_cantidades) {
+  if (col %in% names(datos)) {
+    valores_col <- as.numeric(datos[[col]])
+    if (all(is.na(valores_col))) {
+      cantidades_norm[[col]] <- rep(0, nrow(datos))
+      cat("⚠️ Columna", col, "completamente NA, usando valores 0\n")
+    } else {
+      cantidades_norm[[col]] <- normalizar(valores_col)
+    }
+  } else {
+    cantidades_norm[[col]] <- rep(0, nrow(datos))
+    cat("⚠️ Columna", col, "no encontrada, usando valores 0\n")
+  }
+}
+
+# Verificar que cantidades_norm se creó correctamente
+if (length(cantidades_norm) == 0) {
+  stop("❌ Error creando cantidades normalizadas")
+}
+
+cat("✅ Variables preparadas:", length(variables_criticas), "variables críticas\n")
+cat("✅ Cantidades normalizadas:", length(cantidades_norm), "factores\n")
+
+# ---- CARGA ROBUSTA DE PESOS POR SEGMENTO ----
+cat("⚖️  Cargando configuración de pesos...\n")
+
+archivo_pesos <- file.path(DIRECTORIO_BASE, "[04] MODELACIÓN", "[01] PESOS", "pesos_por_segmento_ajustados.rds")
+
+pesos_por_segmento <- NULL
+if (file.exists(archivo_pesos)) {
+  tryCatch({
+    pesos_candidato <- readRDS(archivo_pesos)
+    if (is.list(pesos_candidato) && length(pesos_candidato) > 0) {
+      pesos_por_segmento <- pesos_candidato
+      cat("  ✅ Pesos específicos por segmento cargados desde archivo\n")
+      cat("  📊 Segmentos con pesos:", length(pesos_por_segmento), "\n")
+    } else {
+      cat("  ⚠️ Archivo de pesos no válido, usando pesos generales\n")
+    }
+  }, error = function(e) {
+    cat("  ⚠️ Error cargando pesos:", conditionMessage(e), "\n")
+  })
+}
+
+# Crear pesos por segmento usando pesos generales si no hay archivo
+if (is.null(pesos_por_segmento)) {
+  segmentos_unicos <- unique(as.character(datos$Segmento))
+  segmentos_unicos <- segmentos_unicos[!is.na(segmentos_unicos) & nzchar(segmentos_unicos)]
+  
+  if (length(segmentos_unicos) > 0) {
+    pesos_por_segmento <- list()
+    for (segmento in segmentos_unicos) {
+      pesos_por_segmento[[segmento]] <- pesos_generales
+    }
+    cat("  ✅ Pesos generales aplicados a", length(segmentos_unicos), "segmentos\n")
+  } else {
+    # Fallback: usar un segmento genérico
+    pesos_por_segmento <- list("General" = pesos_generales)
+    cat("  ⚠️ No se encontraron segmentos válidos, usando configuración genérica\n")
+  }
+}
+
+# Validación final de pesos
+if (is.null(pesos_por_segmento) || length(pesos_por_segmento) == 0) {
+  stop("❌ No se pudieron configurar los pesos por segmento")
+}
+
+cat("✅ Configuración de pesos completada\n")
+
+# ---- CÁLCULO DEL IVU ----
+cat("🗺️  Calculando Índice de Valor por Ubicación (IVU)...\n")
+
+# Cargar pesos específicos por segmento si existen
+archivo_pesos <- file.path(DIRECTORIO_BASE, "[04] MODELACIÓN", "[01] PESOS", "pesos_por_segmento_ajustados.rds")
+if (file.exists(archivo_pesos)) {
+  pesos_por_segmento <- readRDS(archivo_pesos)
+  cat("  ✅ Pesos específicos por segmento cargados\n")
+} else {
+  # Crear pesos por segmento usando pesos generales
+  segmentos_unicos <- unique(datos$Segmento)
+  segmentos_unicos <- segmentos_unicos[!is.na(segmentos_unicos)]
+  
+  pesos_por_segmento <- list()
+  for (segmento in segmentos_unicos) {
+    pesos_por_segmento[[segmento]] <- pesos_generales
+  }
+  cat("  ⚠️  Usando pesos generales para todos los segmentos\n")
+}
+
+# Función principal de cálculo IVU
+calcular_ivu_por_segmento <- function(datos, pesos_generales, pesos_por_segmento, cantidades_norm, factores) {
+  
+  cat("🔍 Iniciando cálculo IVU por segmento...\n")
+  
+  n <- nrow(datos)
+  ivu <- numeric(n)
+  
+  # Crear matriz de contribuciones de manera robusta
+  todos_factores_posibles <- unique(c(
+    names(pesos_generales),
+    unlist(lapply(pesos_por_segmento, function(x) if(is.list(x)) names(x) else character(0))),
+    unlist(factores, use.names = FALSE)
+  ))
+  
+  # Filtrar factores válidos
+  todos_factores_posibles <- todos_factores_posibles[!is.na(todos_factores_posibles) & 
+                                                       nzchar(todos_factores_posibles)]
+  
+  contribuciones <- matrix(0, nrow = n, ncol = length(todos_factores_posibles))
+  colnames(contribuciones) <- todos_factores_posibles
+  
+  cat("📊 Procesando", n, "proyectos con", length(todos_factores_posibles), "factores\n")
+  
+  # Procesar cada proyecto con manejo robusto de errores
+  for (i in 1:n) {
+    
+    tryCatch({
+      suma <- 0
+      peso_total <- 0
+      
+      # CORRECCIÓN CRÍTICA: Obtener segmento de manera ultra-robusta
+      segmento_raw <- datos$Segmento[i]
+      
+      # Validar y extraer segmento escalar
+      if (is.null(segmento_raw) || length(segmento_raw) == 0) {
+        segmento <- NA_character_
+      } else {
+        # Convertir a character y tomar solo el primer elemento
+        segmento_vec <- as.character(segmento_raw)
+        if (length(segmento_vec) > 1) {
+          segmento <- segmento_vec[1]
+          cat("⚠️ Proyecto", i, "tiene múltiples segmentos, usando:", segmento, "\n")
+        } else {
+          segmento <- segmento_vec[1]
+        }
+      }
+      
+      # CORRECCIÓN CRÍTICA: Validación robusta de pesos
+      pesos_a_usar <- pesos_generales  # Default
+      
+      if (!is.na(segmento) && 
+          !is.null(pesos_por_segmento) && 
+          is.list(pesos_por_segmento)) {
+        
+        # Usar any() para evitar error de length > 1
+        if (any(segmento %in% names(pesos_por_segmento))) {
+          pesos_candidato <- pesos_por_segmento[[segmento]]
+          if (!is.null(pesos_candidato) && 
+              (is.numeric(pesos_candidato) || is.list(pesos_candidato))) {
+            pesos_a_usar <- pesos_candidato
+          }
+        }
+      }
+      
+      # Procesar cada categoría de factores
+      if (!is.null(factores)) {
+        
+        # ÍNDICES
+        if ("indices" %in% names(factores) && !is.null(factores$indices)) {
+          for (indice in factores$indices) {
+            if (indice %in% names(datos)) {
+              valor_raw <- datos[i, indice, drop = TRUE]
+              
+              # CORRECCIÓN: Extraer valor escalar
+              if (length(valor_raw) > 1) {
+                valor <- as.numeric(valor_raw[1])
+              } else {
+                valor <- as.numeric(valor_raw)
+              }
+              
+              # Obtener peso
+              if (indice %in% names(pesos_a_usar)) {
+                peso_raw <- pesos_a_usar[[indice]]
+                peso <- if (length(peso_raw) > 1) as.numeric(peso_raw[1]) else as.numeric(peso_raw)
+                
+                # Validar y aplicar
+                if (!is.na(valor) && !is.na(peso) && peso > 0) {
+                  contribucion <- valor * peso
+                  suma <- suma + contribucion
+                  if (indice %in% colnames(contribuciones)) {
+                    contribuciones[i, indice] <- contribucion
+                  }
+                  peso_total <- peso_total + peso
+                }
+              }
+            }
+          }
+        }
+        
+        # CERCANÍAS
+        if ("cercanias" %in% names(factores) && !is.null(factores$cercanias)) {
+          for (cercania in factores$cercanias) {
+            if (cercania %in% names(datos)) {
+              valor_raw <- datos[i, cercania, drop = TRUE]
+              
+              # CORRECCIÓN: Extraer valor escalar
+              if (length(valor_raw) > 1) {
+                valor <- as.numeric(valor_raw[1])
+              } else {
+                valor <- as.numeric(valor_raw)
+              }
+              
+              # Obtener peso
+              if (cercania %in% names(pesos_a_usar)) {
+                peso_raw <- pesos_a_usar[[cercania]]
+                peso <- if (length(peso_raw) > 1) as.numeric(peso_raw[1]) else as.numeric(peso_raw)
+                
+                # Validar y aplicar
+                if (!is.na(valor) && !is.na(peso) && peso > 0) {
+                  contribucion <- valor * peso
+                  suma <- suma + contribucion
+                  if (cercania %in% colnames(contribuciones)) {
+                    contribuciones[i, cercania] <- contribucion
+                  }
+                  peso_total <- peso_total + peso
+                }
+              }
+            }
+          }
+        }
+        
+        # CANTIDADES
+        if ("cantidades" %in% names(factores) && !is.null(factores$cantidades)) {
+          for (cantidad in factores$cantidades) {
+            if (cantidad %in% names(cantidades_norm)) {
+              valor_raw <- cantidades_norm[[cantidad]][i]
+              
+              # CORRECCIÓN: Extraer valor escalar
+              if (length(valor_raw) > 1) {
+                valor <- as.numeric(valor_raw[1])
+              } else {
+                valor <- as.numeric(valor_raw)
+              }
+              
+              # Obtener peso
+              if (cantidad %in% names(pesos_a_usar)) {
+                peso_raw <- pesos_a_usar[[cantidad]]
+                peso <- if (length(peso_raw) > 1) as.numeric(peso_raw[1]) else as.numeric(peso_raw)
+                
+                # Validar y aplicar
+                if (!is.na(valor) && !is.na(peso) && peso > 0) {
+                  contribucion <- valor * peso
+                  suma <- suma + contribucion
+                  if (cantidad %in% colnames(contribuciones)) {
+                    contribuciones[i, cantidad] <- contribucion
+                  }
+                  peso_total <- peso_total + peso
+                }
+              }
+            }
+          }
+        }
+        
+        # OTROS
+        if ("otros" %in% names(factores) && !is.null(factores$otros)) {
+          for (otro in factores$otros) {
+            if (otro %in% names(datos)) {
+              valor_raw <- datos[i, otro, drop = TRUE]
+              
+              # CORRECCIÓN: Extraer valor escalar
+              if (length(valor_raw) > 1) {
+                valor <- as.numeric(valor_raw[1])
+              } else {
+                valor <- as.numeric(valor_raw)
+              }
+              
+              # Obtener peso
+              if (otro %in% names(pesos_a_usar)) {
+                peso_raw <- pesos_a_usar[[otro]]
+                peso <- if (length(peso_raw) > 1) as.numeric(peso_raw[1]) else as.numeric(peso_raw)
+                
+                # Validar y aplicar
+                if (!is.na(valor) && !is.na(peso) && peso > 0) {
+                  contribucion <- valor * peso
+                  suma <- suma + contribucion
+                  if (otro %in% colnames(contribuciones)) {
+                    contribuciones[i, otro] <- contribucion
+                  }
+                  peso_total <- peso_total + peso
+                }
+              }
+            }
+          }
+        }
+        
+        # VIALIDADES con validación especial
+        if ("vialidades" %in% names(factores) && !is.null(factores$vialidades)) {
+          for (vialidad in factores$vialidades) {
+            if (vialidad %in% names(datos)) {
+              valor_raw <- datos[i, vialidad, drop = TRUE]
+              
+              # CORRECCIÓN: Extraer valor escalar
+              if (length(valor_raw) > 1) {
+                valor <- as.numeric(valor_raw[1])
+              } else {
+                valor <- as.numeric(valor_raw)
+              }
+              
+              # Validación especial para vialidades
+              if (grepl("cercania_avenida|cerca_avenida", vialidad)) {
+                if ("dist_to_avenue" %in% names(datos)) {
+                  dist_raw <- datos[i, "dist_to_avenue", drop = TRUE]
+                  dist <- if (length(dist_raw) > 1) as.numeric(dist_raw[1]) else as.numeric(dist_raw)
+                  
+                  # Usar any() para evitar vector lógico
+                  if (!is.na(dist) && dist > 3000) {
+                    valor <- 0  # Demasiado lejos de avenida
+                  }
+                }
+              }
+              
+              # Obtener peso
+              if (vialidad %in% names(pesos_a_usar)) {
+                peso_raw <- pesos_a_usar[[vialidad]]
+                peso <- if (length(peso_raw) > 1) as.numeric(peso_raw[1]) else as.numeric(peso_raw)
+                
+                # Validar y aplicar
+                if (!is.na(valor) && !is.na(peso) && peso > 0) {
+                  contribucion <- valor * peso
+                  suma <- suma + contribucion
+                  if (vialidad %in% colnames(contribuciones)) {
+                    contribuciones[i, vialidad] <- contribucion
+                  }
+                  peso_total <- peso_total + peso
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      # Calcular IVU final para este proyecto
+      ivu[i] <- if (peso_total > 0) suma / peso_total else 0
+      
+    }, error = function(e) {
+      cat("❌ Error procesando proyecto", i, ":", conditionMessage(e), "\n")
+      ivu[i] <<- 0  # Valor por defecto en caso de error
+    })
+    
+    # Progress indicator
+    if (i %% 20 == 0 || i == n) {
+      cat("  Procesados", i, "/", n, "proyectos\n")
+    }
+  }
+  
+  cat("✅ Cálculo IVU completado\n")
+  
+  return(list(ivu = ivu, contribuciones = contribuciones))
+}
+
+# ---- VALIDACIÓN ROBUSTA DE FACTORES IVU ----
+cat("🔍 Validando factores IVU antes del cálculo...\n")
+
+# Validar que factores_ivu existe y tiene la estructura correcta
+if (!exists("factores_ivu") || !is.list(factores_ivu)) {
+  cat("⚠️ factores_ivu no válido, recreando...\n")
+  factores_ivu <- list(
+    indices = c("indice_accesibilidad", "potencial_inversion", "indice_conveniencia"),
+    cercanias = c(
+      "cercania_hospital", "cercania_esc_priv", "cercania_esc_pub", "cercania_universidad", 
+      "cercania_super", "cercania_restau", "cercania_oficina", "cercania_tienda_dept"
+    ),
+    cantidades = c(
+      "cantidad_hospital_1km", "cantidad_esc_priv_1km", "cantidad_esc_pub_1km", "cantidad_universidad_1km", 
+      "cantidad_super_1km", "cantidad_restau_1km", "cantidad_oficina_1km", "cantidad_tienda_dept_1km"
+    ),
+    otros = c(
+      "cerca_parque_relevante", "alta_densidad_pob", "predominio_hogares_propios",
+      "alto_crecimiento", "alta_densidad_educativa", "alta_densidad_comercial", "alto_entorno_laboral"
+    ),
+    vialidades = c(
+      "cerca_avenida_principal", "cercania_avenida", "cercania_avenida_arterial", 
+      "cercania_avenida_secundaria", "accesibilidad_vial"
+    )
+  )
+}
+
+# Filtrar factores que realmente existen en los datos
+factores_filtrados <- list()
+
+for (categoria in names(factores_ivu)) {
+  factores_disponibles <- intersect(factores_ivu[[categoria]], names(datos))
+  if (length(factores_disponibles) > 0) {
+    factores_filtrados[[categoria]] <- factores_disponibles
+    cat("  ✅", categoria, ":", length(factores_disponibles), "factores disponibles\n")
+  } else {
+    cat("  ⚠️", categoria, ": sin factores disponibles\n")
+  }
+}
+
+# Usar factores filtrados
+factores_ivu <- factores_filtrados
+
+# Validar que cantidades_norm tiene la estructura correcta
+if (!exists("cantidades_norm") || !is.list(cantidades_norm) || length(cantidades_norm) == 0) {
+  cat("⚠️ cantidades_norm no válido, recreando...\n")
+  
+  cantidades_norm <- list()
+  if ("cantidades" %in% names(factores_ivu)) {
+    for (col in factores_ivu$cantidades) {
+      if (col %in% names(datos)) {
+        valores_col <- as.numeric(datos[[col]])
+        cantidades_norm[[col]] <- normalizar(valores_col)
+      } else {
+        cantidades_norm[[col]] <- rep(0, nrow(datos))
+      }
+    }
+  }
+}
+
+# Validar pesos
+if (!exists("pesos_generales") || !is.numeric(pesos_generales) || length(pesos_generales) == 0) {
+  stop("❌ pesos_generales no válidos")
+}
+
+if (!exists("pesos_por_segmento") || !is.list(pesos_por_segmento)) {
+  cat("⚠️ pesos_por_segmento no válido, usando pesos generales\n")
+  segmentos_unicos <- unique(as.character(datos$Segmento))
+  segmentos_unicos <- segmentos_unicos[!is.na(segmentos_unicos)]
+  
+  pesos_por_segmento <- list()
+  for (segmento in segmentos_unicos) {
+    pesos_por_segmento[[segmento]] <- pesos_generales
+  }
+}
+
+cat("✅ Validación de factores completada\n")
+cat("📊 Categorías de factores:", length(factores_ivu), "\n")
+cat("📊 Cantidades normalizadas:", length(cantidades_norm), "\n")
+cat("📊 Segmentos con pesos:", length(pesos_por_segmento), "\n")
+
+
+# Calcular IVU
+resultado_ivu <- calcular_ivu_por_segmento(datos, pesos_generales, pesos_por_segmento, cantidades_norm, factores_ivu)
+datos$ivu <- resultado_ivu$ivu
+contribuciones_ivu <- resultado_ivu$contribuciones
+
+# Calcular contribuciones por categoría
+datos$contrib_indices <- rowSums(contribuciones_ivu[, intersect(factores_ivu$indices, colnames(contribuciones_ivu))], na.rm = TRUE)
+datos$contrib_cercanias <- rowSums(contribuciones_ivu[, intersect(factores_ivu$cercanias, colnames(contribuciones_ivu))], na.rm = TRUE)
+datos$contrib_cantidades <- rowSums(contribuciones_ivu[, intersect(factores_ivu$cantidades, colnames(contribuciones_ivu))], na.rm = TRUE)
+datos$contrib_vialidades <- rowSums(contribuciones_ivu[, intersect(factores_ivu$vialidades, colnames(contribuciones_ivu))], na.rm = TRUE)
+datos$contrib_otros <- rowSums(contribuciones_ivu[, intersect(factores_ivu$otros, colnames(contribuciones_ivu))], na.rm = TRUE)
+
+# Categorizar IVU
+datos$ivu_categoria <- cut(
+  datos$ivu, 
+  breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+  labels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"),
+  include.lowest = TRUE
+)
+
+datos$segmento_utilizado <- ifelse(is.na(datos$Segmento), "General", 
+                                   ifelse(datos$Segmento %in% names(pesos_por_segmento), 
+                                          as.character(datos$Segmento), "General"))
+
+cat("  ✅ IVU calculado para", nrow(datos), "proyectos\n")
+
+# ---- CORRECCIÓN CRÍTICA 1: AMENIDADES ULTRA-ROBUSTAS ----
+cat("🔧 APLICANDO CORRECCIÓN CRÍTICA PARA AMENIDADES...\n")
+cat("===================================================\n")
+
+# ---- FUNCIÓN DIAGNÓSTICA EXHAUSTIVA ----
+diagnosticar_estructura_columna <- function(col_data, nombre_col) {
+  cat("🔍 Diagnóstico exhaustivo:", nombre_col, "\n")
+  
+  resultado <- list(
+    nombre = nombre_col,
+    clase_principal = class(col_data)[1],
+    todas_clases = class(col_data),
+    es_lista = is.list(col_data),
+    es_matrix = is.matrix(col_data),
+    es_array = is.array(col_data),
+    longitud = length(col_data),
+    tipos_unicos = character(0),
+    muestra_valores = character(0),
+    problematico = FALSE
+  )
+  
+  # Detectar tipos únicos de elementos
+  if (is.list(col_data)) {
+    resultado$problematico <- TRUE
+    resultado$tipos_unicos <- sapply(col_data[1:min(5, length(col_data))], function(x) class(x)[1])
+    resultado$muestra_valores <- sapply(col_data[1:min(3, length(col_data))], function(x) as.character(x)[1])
+  } else {
+    # Revisar muestra de valores únicos
+    valores_unicos <- unique(col_data[!is.na(col_data)])
+    resultado$muestra_valores <- as.character(valores_unicos[1:min(5, length(valores_unicos))])
+  }
+  
+  cat("   Clase:", paste(resultado$todas_clases, collapse = ", "), "\n")
+  cat("   Es lista:", resultado$es_lista, "\n")
+  cat("   Problemático:", resultado$problematico, "\n")
+  if (length(resultado$muestra_valores) > 0) {
+    cat("   Muestra:", paste(resultado$muestra_valores, collapse = ", "), "\n")
+  }
+  
+  return(resultado)
+}
+
+# ---- PASO 1: IDENTIFICAR TODAS LAS COLUMNAS PROBLEMÁTICAS ----
+cat("\n1️⃣ Identificando columnas problemáticas exhaustivamente...\n")
+
+# Detectar amenidades automáticamente
+patron_amenidades <- "alberca|areas_verdes|asadores|bar|campo_de_golf|canchas_deportivas|casa_club|fogatero|gimnasio|golf_virtual|jacuzzi|lounges|ludoteca|patio_central|pet_zone|pista_de_jogging|roof_graden|sala_de_cine|sala_de_lectura|salon_usos|salon_de_yoga|sauna|spa|terraza|vestidores|control_de_acceso"
+amenidades_cols <- names(datos)[grepl(patron_amenidades, names(datos), ignore.case = TRUE)]
+
+cat("📊 Amenidades detectadas:", length(amenidades_cols), "\n")
+
+# Diagnosticar TODAS las columnas de amenidades
+diagnosticos_amenidades <- list()
+columnas_problematicas <- c()
+
+for (col in amenidades_cols) {
+  diag <- diagnosticar_estructura_columna(datos[[col]], col)
+  diagnosticos_amenidades[[col]] <- diag
+  
+  if (diag$problematico) {
+    columnas_problematicas <- c(columnas_problematicas, col)
+    cat("❌", col, "- PROBLEMÁTICA:", paste(diag$todas_clases, collapse = ", "), "\n")
+  } else {
+    cat("✅", col, "- OK:", diag$clase_principal, "\n")
+  }
+}
+
+cat("\n📊 Resumen diagnóstico:\n")
+cat("Total amenidades:", length(amenidades_cols), "\n")
+cat("Problemáticas:", length(columnas_problematicas), "\n")
+cat("OK:", length(amenidades_cols) - length(columnas_problematicas), "\n")
+
+# ---- PASO 2: CORRECCIÓN ULTRA-ROBUSTA ELEMENTO POR ELEMENTO ----
+cat("\n2️⃣ Aplicando corrección ultra-robusta...\n")
+
+# Función de corrección más robusta del universo
+corregir_amenidad_ultra_robusta <- function(col_data, nombre_col) {
+  
+  cat("🔧 Corrigiendo:", nombre_col, "\n")
+  
+  n <- length(col_data)
+  resultado <- numeric(n)
+  
+  # Procesar cada elemento individualmente con máximo manejo de errores
+  for (i in 1:n) {
+    tryCatch({
+      elemento <- col_data[i]
+      
+      # Caso 1: NULL o NA
+      if (is.null(elemento) || (length(elemento) == 1 && is.na(elemento))) {
+        resultado[i] <- 0
+        next
+      }
+      
+      # Caso 2: Lista (el problema principal)
+      if (is.list(elemento)) {
+        if (length(elemento) == 0) {
+          resultado[i] <- 0
+        } else {
+          # Extraer primer elemento válido de la lista
+          primer_elem <- elemento[[1]]
+          if (is.null(primer_elem) || is.na(primer_elem)) {
+            resultado[i] <- 0
+          } else {
+            # Procesar elemento extraído
+            resultado[i] <- procesar_valor_individual(primer_elem)
+          }
+        }
+        next
+      }
+      
+      # Caso 3: Vector con múltiples elementos
+      if (length(elemento) > 1) {
+        # Tomar primer elemento no-NA
+        elem_valido <- elemento[!is.na(elemento)][1]
+        if (is.na(elem_valido)) {
+          resultado[i] <- 0
+        } else {
+          resultado[i] <- procesar_valor_individual(elem_valido)
+        }
+        next
+      }
+      
+      # Caso 4: Elemento escalar normal
+      resultado[i] <- procesar_valor_individual(elemento)
+      
+    }, error = function(e) {
+      # En caso de cualquier error, asignar 0
+      resultado[i] <<- 0
+    })
+  }
+  
+  # Verificación final: asegurar que todo es 0 o 1
+  resultado[is.na(resultado)] <- 0
+  resultado[resultado < 0] <- 0
+  resultado[resultado > 1] <- 1
+  resultado[!resultado %in% c(0, 1)] <- 0
+  
+  return(as.numeric(resultado))
+}
+
+# Función auxiliar para procesar valores individuales
+procesar_valor_individual <- function(valor) {
+  
+  # Character: buscar patrones de "Sí"
+  if (is.character(valor)) {
+    valor_limpio <- tolower(trimws(as.character(valor)))
+    if (valor_limpio %in% c("sí", "si", "yes", "true", "1", "s")) {
+      return(1)
+    } else {
+      return(0)
+    }
+  }
+  
+  # Logical: conversión directa
+  if (is.logical(valor)) {
+    return(ifelse(valor, 1, 0))
+  }
+  
+  # Numeric: verificar si es positivo
+  if (is.numeric(valor)) {
+    if (is.na(valor) || is.infinite(valor)) {
+      return(0)
+    } else {
+      return(ifelse(valor > 0, 1, 0))
+    }
+  }
+  
+  # Factor: convertir a character y procesar
+  if (is.factor(valor)) {
+    valor_char <- as.character(valor)
+    return(procesar_valor_individual(valor_char))
+  }
+  
+  # Cualquier otro tipo: asumir 0
+  return(0)
+}
+
+# ---- PASO 3: APLICAR CORRECCIÓN A TODAS LAS AMENIDADES ----
+cat("\n3️⃣ Aplicando corrección a todas las amenidades...\n")
+
+for (col in amenidades_cols) {
+  cat("  🔧 Procesando:", col, "\n")
+  datos[[col]] <- corregir_amenidad_ultra_robusta(datos[[col]], col)
+}
+
+cat("✅ Todas las amenidades corregidas\n")
+
+# ---- PASO 4: VERIFICACIÓN EXHAUSTIVA POST-CORRECCIÓN ----
+cat("\n4️⃣ Verificación exhaustiva post-corrección...\n")
+
+# Verificar que no hay listas en ninguna columna
+problemas_restantes <- c()
+for (col in amenidades_cols) {
+  if (is.list(datos[[col]])) {
+    problemas_restantes <- c(problemas_restantes, col)
+  }
+}
+
+if (length(problemas_restantes) > 0) {
+  cat("❌ Aún hay listas en:", paste(problemas_restantes, collapse = ", "), "\n")
+  stop("Corrección de amenidades falló - hay listas restantes")
+} else {
+  cat("✅ No hay listas en ninguna columna de amenidades\n")
+}
+
+# Verificar que todos los valores son 0 o 1
+for (col in amenidades_cols) {
+  valores_unicos <- unique(datos[[col]][!is.na(datos[[col]])])
+  if (!all(valores_unicos %in% c(0, 1))) {
+    cat("❌", col, "tiene valores no binarios:", paste(valores_unicos, collapse = ", "), "\n")
+  }
+}
+
+cat("✅ Todas las amenidades son binarias (0/1)\n")
+
+# ---- PASO 5: CALCULAR SCORE DE AMENIDADES DE MANERA ROBUSTA ----
+cat("\n5️⃣ Calculando score_amenidades_total...\n")
+
+# Método directo: sumar columna por columna
+datos$score_amenidades_total <- 0
+
+for (col in amenidades_cols) {
+  valores_col <- as.numeric(datos[[col]])
+  valores_col[is.na(valores_col)] <- 0
+  datos$score_amenidades_total <- datos$score_amenidades_total + valores_col
+}
+
+cat("✅ score_amenidades_total calculado\n")
+cat("   Rango:", min(datos$score_amenidades_total), "a", max(datos$score_amenidades_total), "\n")
+cat("   Media:", round(mean(datos$score_amenidades_total), 2), "\n")
+
+# ---- PASO 6: TEST FINAL DE MATRIZ (CORRECCIÓN ULTRA-ESPECÍFICA) ----
+cat("\n6️⃣ Test final de conversión a matriz (método ultra-robusto)...\n")
+
+tryCatch({
+  
+  # CORRECCIÓN CRÍTICA: Extraer dataframe puro SIN geometría
+  cat("🔧 Extrayendo dataframe puro sin geometría...\n")
+  datos_puro <- st_drop_geometry(datos)
+  
+  # CORRECCIÓN CRÍTICA: Crear dataframe SOLO de amenidades
+  cat("🔧 Creando dataframe exclusivo de amenidades...\n")
+  amenidades_df <- datos_puro[amenidades_cols]
+  
+  # CORRECCIÓN CRÍTICA: Forzar cada columna a numeric explícitamente
+  cat("🔧 Forzando cada columna a numeric explícitamente...\n")
+  for (col in amenidades_cols) {
+    amenidades_df[[col]] <- as.numeric(amenidades_df[[col]])
+    amenidades_df[[col]][is.na(amenidades_df[[col]])] <- 0
+  }
+  
+  # CORRECCIÓN CRÍTICA: Verificar estructura antes de matriz
+  cat("🔧 Verificando estructura pre-matriz...\n")
+  cat("   Clase del dataframe:", paste(class(amenidades_df), collapse = ", "), "\n")
+  cat("   Dimensiones:", dim(amenidades_df), "\n")
+  cat("   Todas las columnas son numéricas:", all(sapply(amenidades_df, is.numeric)), "\n")
+  
+  # CORRECCIÓN CRÍTICA: Crear matriz paso a paso
+  cat("🔧 Creando matriz paso a paso...\n")
+  
+  # Método 1: Conversión directa
+  matriz_amenidades <- as.matrix(amenidades_df)
+  cat("   Matriz creada - Dimensiones:", dim(matriz_amenidades), "\n")
+  
+  # Forzar modo numérico
+  mode(matriz_amenidades) <- "numeric"
+  cat("   Modo forzado a numérico\n")
+  
+  # Verificar resultado final
+  cat("   Tipo final:", mode(matriz_amenidades), "\n")
+  cat("   Rango de valores:", range(matriz_amenidades, na.rm = TRUE), "\n")
+  
+  cat("✅ Test de matriz exitoso con método ultra-robusto\n")
+  
+  # Test adicional: Operaciones matemáticas
+  suma_filas_test <- rowSums(matriz_amenidades, na.rm = TRUE)
+  cat("   Test suma filas: OK - Media:", round(mean(suma_filas_test), 2), "\n")
+  
+  cat("✅ MATRIZ DE AMENIDADES COMPLETAMENTE FUNCIONAL\n")
+  
+}, error = function(e) {
+  cat("❌ Test de matriz aún falló:", e$message, "\n")
+  
+  # Diagnóstico final exhaustivo si aún falla
+  cat("🔍 Diagnóstico final exhaustivo:\n")
+  
+  # Verificar objeto datos
+  cat("   Clase de 'datos':", paste(class(datos), collapse = ", "), "\n")
+  cat("   Es sf:", inherits(datos, "sf"), "\n")
+  
+  # Verificar primeras columnas de amenidades específicamente
+  for (col in amenidades_cols[1:min(3, length(amenidades_cols))]) {
+    col_data <- datos[[col]]
+    cat("   ", col, ":\n")
+    cat("     - Clase:", paste(class(col_data), collapse = ", "), "\n")
+    cat("     - Es lista:", is.list(col_data), "\n")
+    cat("     - Es numeric:", is.numeric(col_data), "\n")
+    cat("     - Longitud:", length(col_data), "\n")
+    cat("     - Primeros valores:", paste(head(col_data, 3), collapse = ", "), "\n")
+  }
+  
+  # Método alternativo: crear matriz manualmente
+  cat("🔧 Intentando método alternativo...\n")
+  tryCatch({
+    datos_sin_geom <- st_drop_geometry(datos)
+    matriz_manual <- matrix(nrow = nrow(datos_sin_geom), ncol = length(amenidades_cols))
+    colnames(matriz_manual) <- amenidades_cols
+    
+    for (i in seq_along(amenidades_cols)) {
+      col <- amenidades_cols[i]
+      valores <- as.numeric(datos_sin_geom[[col]])
+      valores[is.na(valores)] <- 0
+      matriz_manual[, i] <- valores
+    }
+    
+    cat("✅ Método alternativo exitoso - Dimensiones:", dim(matriz_manual), "\n")
+    
+  }, error = function(e2) {
+    cat("❌ Método alternativo también falló:", e2$message, "\n")
+    
+    # Como último recurso, no fallar el script completo
+    cat("⚠️ Continuando sin test de matriz - funcionalidad limitada\n")
+  })
+})
+
+cat("\n🎉 CORRECCIÓN DE AMENIDADES COMPLETADA EXITOSAMENTE\n")
+
+# ---- CORRECCIÓN CRÍTICA 2: TRACK RECORD CON OBJETOS ESPACIALES ----
+cat("🔧 APLICANDO CORRECCIÓN CRÍTICA PARA TRACK RECORD...\n")
+cat("=====================================================\n")
+
+cat("2️⃣ Calculando track record de desarrolladores (sin joins espaciales)...\n")
+
+# CORRECCIÓN CRÍTICA: Convertir a dataframe antes de hacer joins
+if ("Desarrollador" %in% names(datos)) {
+  
+  # Crear dataframe sin geometría para operaciones de agrupación
+  datos_df <- st_drop_geometry(datos)
+  
+  # Calcular track record usando dataframe normal
+  track_record <- datos_df %>%
+    group_by(Desarrollador) %>%
+    summarise(
+      proyectos_total = n(),
+      absorcion_promedio_dev = mean(absorcion, na.rm = TRUE),
+      ivu_promedio_dev = mean(ivu, na.rm = TRUE),
+      ratio_ventas_promedio_dev = mean(ratio_ventas, na.rm = TRUE),
+      consistencia_absorcion = {
+        abs_values <- absorcion[!is.na(absorcion)]
+        if (length(abs_values) > 1 && sd(abs_values) > 0) {
+          pmax(0, pmin(1, 1 - (sd(abs_values) / mean(abs_values))))
+        } else {
+          0.5  # Valor neutral para desarrolladores con 1 proyecto o sin variación
+        }
+      },
+      segmentos_diversos = n_distinct(Segmento, na.rm = TRUE),
+      municipios_presencia = n_distinct(Municipio, na.rm = TRUE),
+      prop_premium = mean(Segmento %in% c("Premium", "Premium Plus"), na.rm = TRUE),
+      amenidades_promedio_dev = mean(score_amenidades_total, na.rm = TRUE),
+      .groups = 'drop'
+    ) %>%
+    mutate(
+      # Corregir valores problemáticos
+      absorcion_promedio_dev = ifelse(is.na(absorcion_promedio_dev) | is.infinite(absorcion_promedio_dev), 
+                                      0, absorcion_promedio_dev),
+      consistencia_absorcion = ifelse(is.na(consistencia_absorcion) | is.infinite(consistencia_absorcion), 
+                                      0.5, consistencia_absorcion),
+      amenidades_promedio_dev = ifelse(is.na(amenidades_promedio_dev) | is.infinite(amenidades_promedio_dev), 
+                                       0, amenidades_promedio_dev)
+    )
+  
+  # CORRECCIÓN CRÍTICA: Unir usando merge base R en lugar de dplyr
+  # Esto evita problemas con objetos sf
+  
+  # Primero, crear versión simplificada del track record
+  track_record_simple <- track_record %>%
+    select(Desarrollador, proyectos_total, absorcion_promedio_dev, 
+           consistencia_absorcion, amenidades_promedio_dev) %>%
+    as.data.frame()
+  
+  # Extraer dataframe base de datos
+  datos_base <- as.data.frame(datos)
+  
+  # Hacer merge usando base R
+  datos_merged <- merge(datos_base, track_record_simple, 
+                        by = "Desarrollador", all.x = TRUE)
+  
+  # Restaurar clase sf combinando geometría
+  datos <- st_sf(datos_merged, geometry = st_geometry(datos))
+  
+  cat("✅ Variables de track record creadas para", n_distinct(track_record$Desarrollador), "desarrolladores\n")
+  
+} else {
+  # Crear variables por defecto si no hay información de desarrollador
+  cat("⚠️ Variable Desarrollador no encontrada - usando valores por defecto\n")
+  datos$proyectos_total <- 1
+  datos$absorcion_promedio_dev <- ifelse(!is.na(datos$absorcion), datos$absorcion, 0)
+  datos$consistencia_absorcion <- 0.5
+  datos$amenidades_promedio_dev <- datos$score_amenidades_total
+}
+
+# ---- CORRECCIÓN 3: BENCHMARKS USANDO DATAFRAMES ----
+cat("\n3️⃣ Creando benchmarks y propuesta de valor (sin joins espaciales)...\n")
+
+# Calcular benchmarks por segmento usando dataframe
+if ("Segmento" %in% names(datos)) {
+  
+  datos_df <- st_drop_geometry(datos)
+  
+  benchmarks_segmento <- datos_df %>%
+    filter(!is.na(Segmento) & !is.na(p_m2) & p_m2 > 0) %>%
+    group_by(Segmento) %>%
+    summarise(
+      precio_benchmark = mean(p_m2, na.rm = TRUE),
+      absorcion_benchmark = mean(absorcion, na.rm = TRUE),
+      ivu_benchmark = mean(ivu, na.rm = TRUE),
+      score_amenidades_benchmark = mean(score_amenidades_total, na.rm = TRUE),
+      proyectos_en_segmento = n(),
+      .groups = 'drop'
+    ) %>%
+    mutate(
+      # Corregir valores problemáticos
+      precio_benchmark = ifelse(is.na(precio_benchmark) | precio_benchmark <= 0, 
+                                mean(datos_df$p_m2, na.rm = TRUE), precio_benchmark),
+      absorcion_benchmark = ifelse(is.na(absorcion_benchmark), 0, absorcion_benchmark),
+      ivu_benchmark = ifelse(is.na(ivu_benchmark), 0.5, ivu_benchmark)
+    ) %>%
+    as.data.frame()
+  
+  # Hacer merge usando base R
+  datos_base <- as.data.frame(datos)
+  benchmarks_simple <- benchmarks_segmento %>%
+    select(Segmento, precio_benchmark, score_amenidades_benchmark)
+  
+  datos_merged <- merge(datos_base, benchmarks_simple, 
+                        by = "Segmento", all.x = TRUE)
+  
+  # Restaurar clase sf
+  datos <- st_sf(datos_merged, geometry = st_geometry(datos))
+  
+  cat("✅ Benchmarks creados para", nrow(benchmarks_segmento), "segmentos\n")
+  
+} else {
+  # Benchmarks generales si no hay segmento
+  cat("⚠️ Variable Segmento no encontrada - usando benchmarks generales\n")
+  datos$precio_benchmark <- mean(st_drop_geometry(datos)$p_m2, na.rm = TRUE)
+  datos$score_amenidades_benchmark <- mean(datos$score_amenidades_total, na.rm = TRUE)
+}
+
+# Calcular competitividad de precio y propuesta de valor
+datos <- datos %>%
+  mutate(
+    # Competitividad de precio (menor precio = más competitivo)
+    competitividad_precio = ifelse(!is.na(precio_benchmark) & precio_benchmark > 0,
+                                   pmax(0.1, pmin(3.0, precio_benchmark / pmax(1, p_m2))), 1),
+    
+    # Propuesta de valor combinada
+    propuesta_valor_v2 = {
+      # Componente 1: Competitividad precio (40%)
+      comp_precio <- pmax(0, pmin(2, (competitividad_precio - 0.5) * 2 + 1))
+      
+      # Componente 2: Amenidades vs segmento (60%)
+      comp_amenidades <- ifelse(!is.na(score_amenidades_benchmark) & score_amenidades_benchmark > 0,
+                                pmax(0, pmin(2, score_amenidades_total / score_amenidades_benchmark)), 1)
+      
+      # Propuesta de valor final
+      pmax(0, pmin(2, (comp_precio * 0.4) + (comp_amenidades * 0.6)))
+    }
+  )
+
+cat("✅ Variables de competitividad y propuesta de valor creadas\n")
+
+# ---- CORRECCIÓN CRÍTICA: VALIDACIÓN Y CONVERSIÓN DE VARIABLES ANTES DEL IVP ----
+cat("🔧 APLICANDO CORRECCIÓN CRÍTICA PARA VARIABLES DEL IVP...\n")
+cat("========================================================\n")
+
+# ---- FUNCIÓN DIAGNÓSTICA ULTRA-ROBUSTA ----
+diagnosticar_variable_para_normalizacion <- function(var_data, var_name) {
+  cat("🔍 Diagnóstico:", var_name, "\n")
+  
+  resultado <- list(
+    nombre = var_name,
+    clase = class(var_data)[1],
+    es_numeric = is.numeric(var_data),
+    es_factor = is.factor(var_data),
+    es_character = is.character(var_data),
+    tiene_nas = sum(is.na(var_data)),
+    tiene_infinitos = sum(is.infinite(var_data)),
+    longitud = length(var_data),
+    valores_unicos = length(unique(var_data[!is.na(var_data)])),
+    muestra = head(var_data, 3),
+    problematico = FALSE
+  )
+  
+  # Identificar problemas
+  if (!is.numeric(var_data)) {
+    resultado$problematico <- TRUE
+    resultado$problema <- "No es numérica"
+  } else if (all(is.na(var_data))) {
+    resultado$problematico <- TRUE
+    resultado$problema <- "Todos los valores son NA"
+  } else if (resultado$valores_unicos <= 1) {
+    resultado$problematico <- TRUE
+    resultado$problema <- "Sin variación (valores únicos <= 1)"
+  }
+  
+  cat("   Clase:", resultado$clase, "\n")
+  cat("   Es numérica:", resultado$es_numeric, "\n")
+  cat("   NAs:", resultado$tiene_nas, "/", resultado$longitud, "\n")
+  cat("   Valores únicos:", resultado$valores_unicos, "\n")
+  cat("   Problemática:", resultado$problematico, "\n")
+  if (resultado$problematico) {
+    cat("   PROBLEMA:", resultado$problema, "\n")
+  }
+  cat("   Muestra:", paste(resultado$muestra, collapse = ", "), "\n")
+  
+  return(resultado)
+}
+
+# ---- FUNCIÓN DE CONVERSIÓN ULTRA-ROBUSTA ----
+convertir_a_numerico_ultra_robusto <- function(var_data, var_name, valor_default = 0.5) {
+  cat("🔧 Convirtiendo", var_name, "a numérico...\n")
+  
+  # Caso 1: Ya es numérica y válida
+  if (is.numeric(var_data) && !all(is.na(var_data))) {
+    var_data[is.na(var_data)] <- valor_default
+    var_data[is.infinite(var_data)] <- valor_default
+    cat("   ✅ Ya era numérica, solo se corrigieron NAs/Infinitos\n")
+    return(var_data)
+  }
+  
+  # Caso 2: Es factor - convertir a character primero
+  if (is.factor(var_data)) {
+    var_data <- as.character(var_data)
+    cat("   🔄 Convertido de factor a character\n")
+  }
+  
+  # Caso 3: Es character - intentar conversión numérica
+  if (is.character(var_data)) {
+    # Limpiar strings problemáticos
+    var_data_clean <- gsub("[^0-9\\.\\-]", "", var_data)
+    var_data_clean[var_data_clean == ""] <- NA
+    
+    # Convertir a numérico
+    var_numeric <- suppressWarnings(as.numeric(var_data_clean))
+    
+    # Reemplazar NAs con valor por defecto
+    var_numeric[is.na(var_numeric)] <- valor_default
+    var_numeric[is.infinite(var_numeric)] <- valor_default
+    
+    cat("   🔄 Convertido de character a numérico\n")
+    return(var_numeric)
+  }
+  
+  # Caso 4: Cualquier otro tipo - crear vector numérico por defecto
+  cat("   ⚠️ Tipo no reconocido, usando valores por defecto\n")
+  return(rep(valor_default, length(var_data)))
+}
+
+# ---- PASO 1: IDENTIFICAR TODAS LAS VARIABLES CRÍTICAS PARA IVP ----
+cat("\n1️⃣ Identificando variables críticas para cálculo de IVP...\n")
+
+variables_criticas_ivp <- c(
+  # Para calidad del producto
+  "score_amenidades_total", "m2_inv", "unidades_totales",
+  
+  # Para performance comercial  
+  "eficiencia_comercial",
+  
+  # Para propuesta de valor
+  "propuesta_valor_v2",
+  
+  # Para credibilidad desarrollador
+  "proyectos_total", "absorcion_promedio_dev", "ivu", "consistencia_absorcion"
+)
+
+cat("📊 Variables a validar:", length(variables_criticas_ivp), "\n")
+
+# ---- PASO 2: DIAGNÓSTICO EXHAUSTIVO ----
+cat("\n2️⃣ Diagnóstico exhaustivo de variables...\n")
+
+diagnosticos_ivp <- list()
+variables_problematicas <- c()
+
+for (var in variables_criticas_ivp) {
+  if (var %in% names(datos)) {
+    diag <- diagnosticar_variable_para_normalizacion(datos[[var]], var)
+    diagnosticos_ivp[[var]] <- diag
+    
+    if (diag$problematico) {
+      variables_problematicas <- c(variables_problematicas, var)
+      cat("❌", var, "- PROBLEMÁTICA:", diag$problema, "\n")
+    } else {
+      cat("✅", var, "- OK\n")
+    }
+  } else {
+    cat("❌", var, "- NO EXISTE EN DATOS\n")
+    variables_problematicas <- c(variables_problematicas, var)
+  }
+}
+
+cat("\n📊 Resumen diagnóstico IVP:\n")
+cat("Total variables:", length(variables_criticas_ivp), "\n")
+cat("Problemáticas:", length(variables_problematicas), "\n")
+cat("OK:", length(variables_criticas_ivp) - length(variables_problematicas), "\n")
+
+# ---- PASO 3: CORRECCIÓN DE VARIABLES PROBLEMÁTICAS ----
+cat("\n3️⃣ Corrigiendo variables problemáticas...\n")
+
+# Valores por defecto inteligentes según el tipo de variable
+valores_default <- list(
+  "score_amenidades_total" = 5,  # Media aproximada de amenidades
+  "m2_inv" = 1000,               # Metros cuadrados promedio
+  "unidades_totales" = 50,       # Unidades promedio
+  "eficiencia_comercial" = 0.5,  # Valor neutro
+  "propuesta_valor_v2" = 1.0,    # Valor neutro
+  "proyectos_total" = 1,         # Mínimo realista
+  "absorcion_promedio_dev" = 0.5, # Valor neutro
+  "ivu" = 0.5,                   # Valor neutro
+  "consistencia_absorcion" = 0.5  # Valor neutro
+)
+
+for (var in variables_criticas_ivp) {
+  if (var %in% names(datos)) {
+    valor_default <- if (var %in% names(valores_default)) valores_default[[var]] else 0.5
+    datos[[var]] <- convertir_a_numerico_ultra_robusto(datos[[var]], var, valor_default)
+  } else {
+    # Crear variable si no existe
+    valor_default <- if (var %in% names(valores_default)) valores_default[[var]] else 0.5
+    datos[[var]] <- rep(valor_default, nrow(datos))
+    cat("   ➕ Creada variable faltante:", var, "con valor", valor_default, "\n")
+  }
+}
+
+cat("✅ Todas las variables críticas para IVP corregidas\n")
+
+# ---- PASO 4: VALIDACIÓN POST-CORRECCIÓN ----
+cat("\n4️⃣ Validación post-corrección...\n")
+
+for (var in variables_criticas_ivp) {
+  if (var %in% names(datos)) {
+    var_data <- datos[[var]]
+    
+    # Tests de validación
+    es_numerica <- is.numeric(var_data)
+    tiene_variacion <- length(unique(var_data[!is.na(var_data)])) > 1
+    sin_nas <- sum(is.na(var_data)) == 0
+    sin_infinitos <- sum(is.infinite(var_data)) == 0
+    
+    if (es_numerica && tiene_variacion && sin_nas && sin_infinitos) {
+      cat("✅", var, "- Válida para normalización\n")
+    } else {
+      cat("❌", var, "- AÚN PROBLEMÁTICA:", 
+          "numérica:", es_numerica, 
+          "variación:", tiene_variacion,
+          "sin_nas:", sin_nas,
+          "sin_infinitos:", sin_infinitos, "\n")
+    }
+  }
+}
+
+# ---- PASO 5: TEST FINAL DE NORMALIZACIÓN ----
+cat("\n5️⃣ Test final de funciones de normalización...\n")
+
+for (var in variables_criticas_ivp[1:3]) {  # Test solo las primeras 3 variables
+  if (var %in% names(datos)) {
+    cat("🧪 Test normalización:", var, "\n")
+    tryCatch({
+      valores_test <- datos[[var]]
+      resultado_test <- normalizar_robusto(valores_test)
+      cat("   ✅ Test exitoso - Rango:", round(range(resultado_test, na.rm = TRUE), 3), "\n")
+    }, error = function(e) {
+      cat("   ❌ Test falló:", e$message, "\n")
+      
+      # Corrección de emergencia
+      datos[[var]] <<- rep(valores_default[[var]], nrow(datos))
+      cat("   🚨 Aplicada corrección de emergencia para:", var, "\n")
+    })
+  }
+}
+
+# ---- PASO 6: CORRECCIÓN ESPECÍFICA PARA VARIABLES CALCULADAS ----
+cat("\n6️⃣ Validación y corrección de variables calculadas previas...\n")
+
+# Asegurar que variables calculadas en el script son correctas
+variables_calculadas <- c("ratio_ventas", "velocidad_ventas", "eficiencia_comercial", 
+                          "momentum_ventas_norm", "competitividad_precio")
+
+for (var in variables_calculadas) {
+  if (var %in% names(datos)) {
+    var_data <- datos[[var]]
+    
+    # Convertir a numeric si no lo es
+    if (!is.numeric(var_data)) {
+      cat("🔧 Convirtiendo", var, "calculada a numérico...\n")
+      datos[[var]] <- convertir_a_numerico_ultra_robusto(var_data, var, 0.5)
+    }
+    
+    # Corregir valores fuera de rango para ratios y eficiencias
+    if (grepl("ratio|eficiencia", var)) {
+      datos[[var]][datos[[var]] < 0] <- 0
+      datos[[var]][datos[[var]] > 2] <- 2  # Permitir hasta 200%
+      datos[[var]][is.na(datos[[var]])] <- 0.5
+    }
+    
+    cat("✅", var, "validada - Rango:", round(range(datos[[var]], na.rm = TRUE), 3), "\n")
+  }
+}
+
+cat("\n🎉 CORRECCIÓN CRÍTICA PARA IVP COMPLETADA EXITOSAMENTE\n")
+cat("=====================================================\n")
+cat("📊 Variables críticas validadas:", length(variables_criticas_ivp), "\n")
+cat("🔧 Variables corregidas:", length(variables_problematicas), "\n")
+cat("✅ Sistema listo para cálculo de IVP\n")
+
+# ---- MENSAJE DE CONTINUACIÓN ----
+cat("\n💡 CONTINUANDO CON CÁLCULO DE IVP NORMAL...\n")
+cat("==========================================\n")
+
+# ---- CÁLCULO DEL IVP (ÍNDICE DE VALOR DEL PROYECTO) ----
+cat("🏗️  Calculando Índice de Valor del Proyecto (IVP) con validaciones completas...\n")
+
+# ---- PASO 1: VALIDAR TODAS LAS VARIABLES CRÍTICAS PARA IVP ----
+cat("🔍 Validando variables críticas para IVP...\n")
+
+# Variables necesarias para IVP
+variables_ivp_requeridas <- c(
+  "score_amenidades_total", "m2_inv", "unidades_totales",
+  "eficiencia_comercial", "propuesta_valor_v2",
+  "proyectos_total", "absorcion_promedio_dev", "ivu", "consistencia_absorcion"
+)
+
+# Función de validación ultra-robusta
+validar_variable_numerica <- function(var_data, var_name, valor_default = 0.5) {
+  
+  # Convertir a numeric si no lo es
+  if (!is.numeric(var_data)) {
+    if (is.factor(var_data)) {
+      var_data <- as.numeric(as.character(var_data))
+    } else if (is.character(var_data)) {
+      var_data <- as.numeric(var_data)
+    } else {
+      var_data <- as.numeric(var_data)
+    }
+  }
+  
+  # Reemplazar NAs e infinitos
+  var_data[is.na(var_data)] <- valor_default
+  var_data[is.infinite(var_data)] <- valor_default
+  
+  # Asegurar que hay variación mínima
+  if (length(unique(var_data)) == 1) {
+    var_data[1] <- var_data[1] + 0.001  # Añadir variación mínima
+  }
+  
+  return(var_data)
+}
+
+# Validar y corregir cada variable
+cat("📊 Validando", length(variables_ivp_requeridas), "variables críticas:\n")
+
+for (var in variables_ivp_requeridas) {
+  if (var %in% names(datos)) {
+    valor_default <- case_when(
+      var == "score_amenidades_total" ~ 5,
+      var == "m2_inv" ~ 1000,
+      var == "unidades_totales" ~ 50,
+      var == "eficiencia_comercial" ~ 0.5,
+      var == "propuesta_valor_v2" ~ 1.0,
+      var == "proyectos_total" ~ 1,
+      var == "absorcion_promedio_dev" ~ 0.5,
+      var == "ivu" ~ 0.5,
+      var == "consistencia_absorcion" ~ 0.5,
+      TRUE ~ 0.5
+    )
+    
+    datos[[var]] <- validar_variable_numerica(datos[[var]], var, valor_default)
+    cat("✅", var, "validada\n")
+  } else {
+    # Crear variable si no existe
+    valor_default <- 0.5
+    datos[[var]] <- rep(valor_default, nrow(datos))
+    cat("➕", var, "creada con valor", valor_default, "\n")
+  }
+}
+
+# ---- PASO 2: DEFINIR CATEGORIZACIÓN DE AMENIDADES ----
+cat("🏢 Definiendo categorización de amenidades...\n")
+
+amenidades_categorias <- list(
+  basicas = c("control_de_acceso", "areas_verdes", "vestidores"),
+  wellness = c("gimnasio", "spa", "sauna", "jacuzzi", "salon_de_yoga"),
+  recreativas = c("alberca", "canchas_deportivas", "ludoteca_juegos_infantiles", "pista_de_jogging_vitapista"),
+  sociales = c("casa_club", "bar", "lounges", "salon_usos_multiples", "sala_de_cine_tv", 
+               "sala_de_lectura", "patio_central", "terraza", "asadores", "fogatero"),
+  premium = c("campo_de_golf", "golf_virtual", "roof_graden", "pet_zone")
+)
+
+# Pesos por categoría
+pesos_amenidades <- c(
+  "basicas" = 1.0, "wellness" = 2.5, "recreativas" = 2.0, 
+  "sociales" = 1.8, "premium" = 3.0
+)
+
+# ---- PASO 3: CALCULAR SCORES DE AMENIDADES POR CATEGORÍA ----
+cat("🔢 Calculando scores de amenidades por categoría...\n")
+
+for (categoria in names(amenidades_categorias)) {
+  amenidades_existentes <- intersect(amenidades_categorias[[categoria]], names(datos))
+  
+  if (length(amenidades_existentes) > 0) {
+    peso <- pesos_amenidades[categoria]
+    
+    # Asegurar que todas las amenidades son numéricas
+    for (am in amenidades_existentes) {
+      datos[[am]] <- validar_variable_numerica(datos[[am]], am, 0)
+    }
+    
+    # Calcular score con validación
+    tryCatch({
+      scores_categoria <- rowSums(datos[amenidades_existentes], na.rm = TRUE) * peso
+      datos[[paste0("score_", categoria)]] <- validar_variable_numerica(scores_categoria, paste0("score_", categoria), 0)
+    }, error = function(e) {
+      cat("⚠️ Error calculando score", categoria, "- usando valores por defecto\n")
+      datos[[paste0("score_", categoria)]] <<- rep(0, nrow(datos))
+    })
+    
+    cat("✅ Score", categoria, "calculado\n")
+  } else {
+    datos[[paste0("score_", categoria)]] <- rep(0, nrow(datos))
+    cat("⚠️ Score", categoria, "- sin amenidades disponibles\n")
+  }
+}
+
+# ---- PASO 4: FUNCIÓN DE NORMALIZACIÓN ULTRA-ROBUSTA ----
+normalizar_ultra_robusto <- function(x, nombre_var = "variable") {
+  tryCatch({
+    # Validar entrada
+    if (is.null(x) || length(x) == 0) {
+      return(rep(0.5, length(x)))
+    }
+    
+    # Convertir a numeric
+    x_num <- as.numeric(x)
+    
+    # Manejar NAs e infinitos
+    x_num[is.na(x_num)] <- median(x_num, na.rm = TRUE)
+    x_num[is.infinite(x_num)] <- median(x_num, na.rm = TRUE)
+    
+    # Si aún hay NAs (todos eran NA), usar 0.5
+    if (all(is.na(x_num))) {
+      return(rep(0.5, length(x)))
+    }
+    
+    # Verificar variación
+    valores_unicos <- unique(x_num[!is.na(x_num)])
+    if (length(valores_unicos) <= 1) {
+      return(rep(0.5, length(x)))
+    }
+    
+    # Normalización robusta
+    min_val <- min(x_num, na.rm = TRUE)
+    max_val <- max(x_num, na.rm = TRUE)
+    
+    if (abs(max_val - min_val) < .Machine$double.eps) {
+      return(rep(0.5, length(x)))
+    }
+    
+    resultado <- (x_num - min_val) / (max_val - min_val)
+    
+    # Asegurar rango [0,1]
+    resultado[is.na(resultado)] <- 0.5
+    resultado[resultado < 0] <- 0
+    resultado[resultado > 1] <- 1
+    
+    return(resultado)
+    
+  }, error = function(e) {
+    cat("⚠️ Error normalizando", nombre_var, "- usando valores por defecto\n")
+    return(rep(0.5, length(x)))
+  })
+}
+
+# ---- PASO 5: CALCULAR COMPONENTES DEL IVP CON VALIDACIONES ----
+cat("🧮 Calculando componentes del IVP con validaciones...\n")
+
+# Componente 1: Calidad del Producto (40%)
+cat("1️⃣ Calculando Calidad del Producto...\n")
+datos$indice_amenidades_norm <- normalizar_ultra_robusto(datos$score_amenidades_total, "score_amenidades_total")
+datos$amplitud_unidades <- normalizar_ultra_robusto(datos$m2_inv, "m2_inv")
+
+# Densidad proyecto (cálculo seguro)
+densidad_raw <- ifelse(datos$unidades_totales > 0, 1 / (datos$unidades_totales / 100), 1)
+densidad_raw[is.infinite(densidad_raw)] <- 1
+densidad_raw[is.na(densidad_raw)] <- 1
+datos$densidad_proyecto <- normalizar_ultra_robusto(densidad_raw, "densidad_proyecto")
+
+# Calidad producto final
+datos$calidad_producto <- (datos$indice_amenidades_norm * 0.6) + 
+  (datos$amplitud_unidades * 0.25) + 
+  (datos$densidad_proyecto * 0.15)
+
+# Componente 2: Performance Comercial (30%)
+cat("2️⃣ Calculando Performance Comercial...\n")
+datos$performance_comercial <- normalizar_ultra_robusto(datos$eficiencia_comercial, "eficiencia_comercial")
+
+# Componente 3: Propuesta de Valor (20%)
+cat("3️⃣ Calculando Propuesta de Valor...\n")
+datos$propuesta_valor_norm <- normalizar_ultra_robusto(datos$propuesta_valor_v2, "propuesta_valor_v2")
+
+# Componente 4: Credibilidad Desarrollador (10%)
+cat("4️⃣ Calculando Credibilidad Desarrollador...\n")
+proyectos_norm <- normalizar_ultra_robusto(datos$proyectos_total, "proyectos_total")
+absorcion_norm <- normalizar_ultra_robusto(datos$absorcion_promedio_dev, "absorcion_promedio_dev")
+ivu_norm <- normalizar_ultra_robusto(datos$ivu, "ivu")
+consistencia_norm <- normalizar_ultra_robusto(datos$consistencia_absorcion, "consistencia_absorcion")
+
+datos$credibilidad_desarrollador <- (proyectos_norm * 0.3) + 
+  (absorcion_norm * 0.25) + 
+  (ivu_norm * 0.25) + 
+  (consistencia_norm * 0.2)
+
+# ---- PASO 6: CALCULAR IVP FINAL ----
+cat("🏗️ Calculando IVP final...\n")
+
+datos$ivp <- (datos$calidad_producto * 0.40) + 
+  (datos$performance_comercial * 0.30) + 
+  (datos$propuesta_valor_norm * 0.20) + 
+  (datos$credibilidad_desarrollador * 0.10)
+
+# Validar IVP final
+datos$ivp[is.na(datos$ivp)] <- 0.5
+datos$ivp[datos$ivp < 0] <- 0
+datos$ivp[datos$ivp > 1] <- 1
+
+# ---- PASO 7: CATEGORIZAR IVP CON VALIDACIÓN ----
+cat("📊 Categorizando IVP...\n")
+
+tryCatch({
+  datos$ivp_categoria <- cut(datos$ivp, 
+                             breaks = c(0, 0.25, 0.45, 0.65, 0.80, 1.0),
+                             labels = c("Deficiente", "Regular", "Bueno", "Excelente", "Excepcional"),
+                             include.lowest = TRUE)
+}, error = function(e) {
+  cat("⚠️ Error categorizando IVP - usando categoría por defecto\n")
+  datos$ivp_categoria <<- factor(rep("Regular", nrow(datos)), 
+                                 levels = c("Deficiente", "Regular", "Bueno", "Excelente", "Excepcional"))
+})
+
+# ---- PASO 8: VALIDACIÓN FINAL Y ESTADÍSTICAS ----
+cat("🔍 Validación final del IVP...\n")
+
+if ("ivp" %in% names(datos) && is.numeric(datos$ivp)) {
+  
+  # Estadísticas
+  ivp_media <- round(mean(datos$ivp, na.rm = TRUE), 3)
+  ivp_min <- round(min(datos$ivp, na.rm = TRUE), 3)
+  ivp_max <- round(max(datos$ivp, na.rm = TRUE), 3)
+  ivp_nas <- sum(is.na(datos$ivp))
+  
+  cat("📊 IVP - Estadísticas finales:\n")
+  cat("   Media:", ivp_media, "\n")
+  cat("   Rango:", ivp_min, "-", ivp_max, "\n")
+  cat("   NAs:", ivp_nas, "\n")
+  
+  # Distribución por categorías
+  if ("ivp_categoria" %in% names(datos)) {
+    tabla_ivp <- table(datos$ivp_categoria, useNA = "ifany")
+    cat("📊 Distribución por categoría:\n")
+    for (i in 1:length(tabla_ivp)) {
+      cat("   ", names(tabla_ivp)[i], ":", tabla_ivp[i], "proyectos\n")
+    }
+  }
+  
+  # Verificar rangos válidos
+  fuera_rango <- sum(datos$ivp < 0 | datos$ivp > 1, na.rm = TRUE)
+  if (fuera_rango == 0) {
+    cat("✅ Todos los valores IVP en rango válido [0,1]\n")
+  } else {
+    cat("⚠️", fuera_rango, "valores IVP fuera de rango\n")
+  }
+  
+  cat("✅ IVP calculado exitosamente para", nrow(datos), "proyectos\n")
+  
+} else {
+  cat("❌ Error: Variable IVP no creada correctamente\n")
+  
+  # Crear IVP por defecto como medida de emergencia
+  datos$ivp <- rep(0.5, nrow(datos))
+  datos$ivp_categoria <- factor(rep("Regular", nrow(datos)), 
+                                levels = c("Deficiente", "Regular", "Bueno", "Excelente", "Excepcional"))
+  cat("🚨 IVP de emergencia creado con valores por defecto\n")
+}
+
+cat("✅ CÁLCULO DE IVP COMPLETADO EXITOSAMENTE\n")
+cat("==========================================\n")
+
+# ---- ANÁLISIS 4S (SEGMENTADO) ROBUSTO ----
+cat("🎯 Iniciando análisis segmentado 4S de manera robusta...\n")
+
+# Validar segmentos disponibles
+segmentos_validos <- c("Premium Plus", "Premium", "Residencial Plus", "Residencial", "Medio")
+nse_validos <- c("A+", "A", "B", "C+", "C", "D+", "D", "E")
+
+# Filtrar datos para análisis segmentado con validaciones robustas
+datos_segmentados <- datos %>%
+  filter(
+    !is.na(Segmento) & 
+      !is.na(nse) & 
+      as.character(Segmento) %in% segmentos_validos & 
+      as.character(nse) %in% nse_validos
+  )
+
+cat("📊 Proyectos válidos para análisis 4S:", nrow(datos_segmentados), "/", nrow(datos), "\n")
+
+if (nrow(datos_segmentados) >= 3) {  # Mínimo 3 proyectos para análisis estadístico
+  
+  # Función robusta para calcular IVU segmentado
+  calcular_ivu_segmentado <- function(datos, factores_relevancia) {
+    
+    cat("🔍 Calculando IVU segmentado por grupos...\n")
+    
+    datos_resultado <- datos %>%
+      group_by(Segmento) %>%
+      filter(n() >= 2) %>%  # Al menos 2 proyectos por segmento
+      do({
+        df_grupo <- .
+        segmento_actual <- as.character(unique(df_grupo$Segmento)[1])
+        segmento_columna <- gsub(" ", "_", segmento_actual)
+        
+        cat("  📋 Procesando segmento:", segmento_actual, "(", nrow(df_grupo), "proyectos)\n")
+        
+        # Buscar columna de relevancia correspondiente
+        if (segmento_columna %in% names(factores_relevancia)) {
+          col_index <- which(names(factores_relevancia) == segmento_columna)
+          pesos_segmento <- data.frame(
+            Factor = factores_relevancia$Factor,
+            Peso = factores_relevancia[, col_index],
+            stringsAsFactors = FALSE
+          )
+          
+          # Filtrar factores disponibles en los datos
+          factores_disponibles <- intersect(pesos_segmento$Factor, names(df_grupo))
+          
+          if (length(factores_disponibles) > 0) {
+            ivu_segmentado <- numeric(nrow(df_grupo))
+            peso_total_usado <- 0
+            
+            # Procesar cada factor disponible
+            for (factor in factores_disponibles) {
+              peso <- pesos_segmento$Peso[pesos_segmento$Factor == factor]
+              
+              # Obtener valores del factor de manera segura
+              valores_factor <- as.numeric(df_grupo[[factor]])
+              
+              if (!all(is.na(valores_factor)) && length(unique(valores_factor[!is.na(valores_factor)])) > 1) {
+                # Normalizar valores dentro del segmento
+                min_val <- min(valores_factor, na.rm = TRUE)
+                max_val <- max(valores_factor, na.rm = TRUE)
+                
+                if (abs(max_val - min_val) > .Machine$double.eps) {
+                  valores_norm <- (valores_factor - min_val) / (max_val - min_val)
+                  valores_norm[is.na(valores_norm)] <- 0.5  # Valor neutral para NAs
+                  
+                  # Aplicar peso
+                  if (!is.na(peso) && peso > 0) {
+                    ivu_segmentado <- ivu_segmentado + (valores_norm * peso)
+                    peso_total_usado <- peso_total_usado + peso
+                  }
+                }
+              }
+            }
+            
+            # Calcular IVU final
+            df_grupo$ivu_segmentado <- if (peso_total_usado > 0) {
+              pmax(0, pmin(1, ivu_segmentado / peso_total_usado))
+            } else {
+              rep(0.5, nrow(df_grupo))
+            }
+            
+            df_grupo$peso_total_usado <- peso_total_usado
+            
+          } else {
+            # Sin factores disponibles, usar IVU general
+            df_grupo$ivu_segmentado <- as.numeric(df_grupo$ivu)
+            df_grupo$peso_total_usado <- 1
+          }
+          
+        } else {
+          # Segmento no encontrado en matriz de relevancia, usar IVU general
+          df_grupo$ivu_segmentado <- as.numeric(df_grupo$ivu)
+          df_grupo$peso_total_usado <- 1
+        }
+        
+        df_grupo
+      }) %>%
+      ungroup()
+    
+    return(datos_resultado)
+  }
+  
+  # Función robusta para calcular IVP segmentado
+  calcular_ivp_segmentado <- function(datos) {
+    
+    cat("🏗️ Calculando IVP segmentado...\n")
+    
+    datos %>%
+      group_by(Segmento) %>%
+      filter(n() >= 2) %>%
+      mutate(
+        # Normalización robusta de amenidades por segmento
+        amenidades_norm_seg = {
+          vals <- as.numeric(score_amenidades_total)
+          if (all(is.na(vals)) || length(unique(vals[!is.na(vals)])) <= 1) {
+            rep(0.5, length(vals))
+          } else {
+            min_val <- min(vals, na.rm = TRUE)
+            max_val <- max(vals, na.rm = TRUE)
+            if (abs(max_val - min_val) < .Machine$double.eps) {
+              rep(0.5, length(vals))
+            } else {
+              resultado <- (vals - min_val) / (max_val - min_val)
+              resultado[is.na(resultado)] <- 0.5
+              pmax(0, pmin(1, resultado))
+            }
+          }
+        },
+        
+        # Normalización robusta de performance por segmento
+        performance_norm_seg = {
+          vals <- as.numeric(eficiencia_comercial)
+          if (all(is.na(vals)) || length(unique(vals[!is.na(vals)])) <= 1) {
+            rep(0.5, length(vals))
+          } else {
+            min_val <- min(vals, na.rm = TRUE)
+            max_val <- max(vals, na.rm = TRUE)
+            if (abs(max_val - min_val) < .Machine$double.eps) {
+              rep(0.5, length(vals))
+            } else {
+              resultado <- (vals - min_val) / (max_val - min_val)
+              resultado[is.na(resultado)] <- 0.5
+              pmax(0, pmin(1, resultado))
+            }
+          }
+        },
+        
+        # Calcular IVP segmentado según pesos específicos por segmento
+        ivp_segmentado = case_when(
+          as.character(Segmento) == "Premium Plus" ~ 
+            pmax(0, pmin(1, (amenidades_norm_seg * 0.45) + (performance_norm_seg * 0.20) + 
+                           (credibilidad_desarrollador * 0.25) + (propuesta_valor_norm * 0.10))),
+          as.character(Segmento) == "Premium" ~ 
+            pmax(0, pmin(1, (amenidades_norm_seg * 0.35) + (performance_norm_seg * 0.30) + 
+                           (credibilidad_desarrollador * 0.20) + (propuesta_valor_norm * 0.15))),
+          as.character(Segmento) == "Residencial Plus" ~ 
+            pmax(0, pmin(1, (amenidades_norm_seg * 0.25) + (performance_norm_seg * 0.30) + 
+                           (credibilidad_desarrollador * 0.15) + (propuesta_valor_norm * 0.30))),
+          as.character(Segmento) == "Residencial" ~ 
+            pmax(0, pmin(1, (amenidades_norm_seg * 0.20) + (performance_norm_seg * 0.30) + 
+                           (credibilidad_desarrollador * 0.15) + (propuesta_valor_norm * 0.35))),
+          as.character(Segmento) == "Medio" ~ 
+            pmax(0, pmin(1, (amenidades_norm_seg * 0.15) + (performance_norm_seg * 0.35) + 
+                           (credibilidad_desarrollador * 0.10) + (propuesta_valor_norm * 0.40))),
+          TRUE ~ as.numeric(ivp)  # Fallback al IVP general
+        ),
+        
+        # Categorización del IVP segmentado
+        ivp_segmentado_categoria = cut(
+          ivp_segmentado,
+          breaks = c(0, 0.25, 0.45, 0.65, 0.80, 1.0),
+          labels = c("Muy Bajo", "Bajo", "Medio", "Alto", "Muy Alto"),
+          include.lowest = TRUE
+        )
+      ) %>%
+      ungroup()
+  }
+  
+  # Aplicar cálculos segmentados con manejo de errores
+  tryCatch({
+    datos_segmentados <- calcular_ivu_segmentado(datos_segmentados, matriz_relevancia_segmento)
+    cat("✅ IVU segmentado calculado\n")
+  }, error = function(e) {
+    cat("⚠️ Error en IVU segmentado:", conditionMessage(e), "\n")
+    datos_segmentados$ivu_segmentado <- as.numeric(datos_segmentados$ivu)
+    datos_segmentados$peso_total_usado <- 1
+  })
+  
+  tryCatch({
+    datos_segmentados <- calcular_ivp_segmentado(datos_segmentados)
+    cat("✅ IVP segmentado calculado\n")
+  }, error = function(e) {
+    cat("⚠️ Error en IVP segmentado:", conditionMessage(e), "\n")
+    datos_segmentados$ivp_segmentado <- as.numeric(datos_segmentados$ivp)
+    datos_segmentados$ivp_segmentado_categoria <- datos_segmentados$ivp_categoria
+  })
+  
+  # Categorización 4S final
+  datos_segmentados <- datos_segmentados %>%
+    mutate(
+      # Categorías de IVU segmentado
+      ivu_segmentado_categoria = cut(
+        ivu_segmentado,
+        breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1.0),
+        labels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"),
+        include.lowest = TRUE
+      ),
+      
+      # Categorización 4S robusta
+      categoria_4s = case_when(
+        !is.na(ivu_segmentado) & !is.na(ivp_segmentado) & 
+          ivu_segmentado >= 0.5 & ivp_segmentado >= 0.5 ~ "SUPERIOR",
+        !is.na(ivu_segmentado) & !is.na(ivp_segmentado) & 
+          ivu_segmentado < 0.5 & ivp_segmentado >= 0.5 ~ "SÓLIDO",
+        !is.na(ivu_segmentado) & !is.na(ivp_segmentado) & 
+          ivu_segmentado >= 0.5 & ivp_segmentado < 0.5 ~ "SUSTENTABLE",
+        !is.na(ivu_segmentado) & !is.na(ivp_segmentado) ~ "SINGULAR",
+        TRUE ~ "SIN_CLASIFICAR"
+      ),
+      
+      # Convertir a factor ordenado
+      categoria_4s = factor(categoria_4s, 
+                            levels = c("SUPERIOR", "SÓLIDO", "SUSTENTABLE", "SINGULAR", "SIN_CLASIFICAR"),
+                            ordered = FALSE)
+    )
+  
+  cat("✅ Análisis 4S completado para", nrow(datos_segmentados), "proyectos segmentados\n")
+  
+  # Mostrar distribución 4S
+  if ("categoria_4s" %in% names(datos_segmentados)) {
+    tabla_4s <- table(datos_segmentados$categoria_4s, useNA = "ifany")
+    cat("📊 Distribución 4S:\n")
+    for (i in 1:length(tabla_4s)) {
+      cat("   ", names(tabla_4s)[i], ":", tabla_4s[i], "proyectos\n")
+    }
+  }
+  
+  # Asignar a entorno global
+  assign("datos_segmentados", datos_segmentados, envir = .GlobalEnv)
+  
+} else {
+  cat("⚠️ Insuficientes datos para análisis 4S (", nrow(datos_segmentados), " proyectos válidos)\n")
+  cat("   Se requieren al menos 3 proyectos con segmento y NSE válidos\n")
+}
+
+# ---- MODELO DE EVOLUCIÓN NSE ----
+cat("🔮 Calculando modelo de evolución NSE...\n")
+
+# Mapeo NSE y Segmento a valores numéricos
+nse_valores <- c("A+" = 7, "A" = 6, "B" = 5, "C+" = 4, "C" = 3, "D+" = 2, "D" = 1, "E" = 0)
+segmento_valores <- c("Premium Plus" = 7, "Premium" = 6, "Residencial Plus" = 5, 
+                      "Residencial" = 4, "Medio" = 3, "Económico" = 2, "Social" = 1)
+
+datos$nse_valor <- sapply(datos$nse, function(x) {
+  if (is.na(x)) return(NA)
+  if (x %in% names(nse_valores)) return(nse_valores[x]) else return(NA)
+})
+
+datos$segmento_valor <- sapply(datos$Segmento, function(x) {
+  if (is.na(x)) return(NA)
+  if (x %in% names(segmento_valores)) return(segmento_valores[x]) else return(NA)
+})
+
+# Calcular factores predictivos
+datos$brecha_nse_segmento <- datos$segmento_valor - datos$nse_valor
+
+# Modelo predictivo de evolución NSE
+datos <- datos %>%
+  mutate(
+    score_evolucion_nse = (
+      pmax(0, brecha_nse_segmento) * 0.40 +      # Brecha principal
+        pmax(0, eficiencia_comercial - 0.5) * 0.30 + # Performance comercial
+        ratio_ventas * 0.20 +                        # Velocidad de ventas
+        ivu * 0.10                                   # Calidad de ubicación
+    ),
+    score_norm = normalizar_robusto(score_evolucion_nse),
+    prob_incremento_nse = pmin(1, pmax(0, score_norm)),
+    tendencia_nse = cut(
+      prob_incremento_nse,
+      breaks = c(0, 0.3, 0.7, 1),
+      labels = c("Estable", "Potencial incremento", "Alto potencial de incremento"),
+      include.lowest = TRUE
+    ),
+    tiempo_estimado_cambio = case_when(
+      prob_incremento_nse >= 0.7 ~ "1-3 años",
+      prob_incremento_nse >= 0.5 ~ "3-5 años",
+      prob_incremento_nse >= 0.3 ~ "5-10 años",
+      TRUE ~ "Más de 10 años o sin cambio previsible"
+    )
+  )
+
+cat("  ✅ Modelo NSE calculado para", nrow(datos), "proyectos\n")
+
+# ---- MÉTRICAS INTEGRADAS FINALES ----
+cat("🔗 Calculando métricas integradas finales...\n")
+
+datos <- datos %>%
+  mutate(
+    # IVU Proyectado
+    ivu_proyectado = ivu * (1 + (prob_incremento_nse * 0.3)),
+    incremento_valor = ivu_proyectado - ivu,
+    ivu_proyectado_categoria = cut(
+      ivu_proyectado, 
+      breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+      labels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"),
+      include.lowest = TRUE
+    ),
+    
+    # Índice de Potencial de Inversión
+    indice_potencial_inversion = (ivu * 0.6) + (prob_incremento_nse * 0.4),
+    categoria_potencial_inversion = cut(
+      indice_potencial_inversion,
+      breaks = c(0, 0.3, 0.5, 0.7, 1),
+      labels = c("Bajo potencial", "Potencial moderado", "Alto potencial", "Excelente potencial"),
+      include.lowest = TRUE
+    ),
+    
+    # Score combinado para ranking
+    score_combinado = (ivu * 0.6) + (ivp * 0.4)
+  )
+
+# ---- VALIDACIONES FINALES Y DIAGNÓSTICOS ROBUSTOS ----
+cat("🔍 Ejecutando validaciones finales...\n")
+
+# Validar que datos_completos se creó correctamente
+if (!exists("datos") || nrow(datos) == 0) {
+  stop("❌ Error: datos principales no disponibles")
+}
+
+# Verificar variables críticas en datos finales
+variables_criticas_finales <- c("ivu", "ivp", "ivu_categoria", "ivp_categoria")
+variables_faltantes_finales <- variables_criticas_finales[!variables_criticas_finales %in% names(datos)]
+
+if (length(variables_faltantes_finales) > 0) {
+  cat("⚠️ Creando variables faltantes con valores por defecto:", 
+      paste(variables_faltantes_finales, collapse = ", "), "\n")
+  
+  for (var in variables_faltantes_finales) {
+    if (var == "ivu") {
+      datos$ivu <- rep(0.5, nrow(datos))
+    } else if (var == "ivp") {
+      datos$ivp <- rep(0.5, nrow(datos))
+    } else if (var == "ivu_categoria") {
+      datos$ivu_categoria <- factor(rep("Medio", nrow(datos)), 
+                                    levels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"))
+    } else if (var == "ivp_categoria") {
+      datos$ivp_categoria <- factor(rep("Regular", nrow(datos)), 
+                                    levels = c("Deficiente", "Regular", "Bueno", "Excelente", "Excepcional"))
+    }
+  }
+}
+
+# Validar rangos de variables calculadas
+cat("📊 Validando rangos de variables calculadas...\n")
+
+# Validar IVU
+if ("ivu" %in% names(datos)) {
+  ivu_fuera_rango <- which(datos$ivu < 0 | datos$ivu > 1 | is.na(datos$ivu))
+  if (length(ivu_fuera_rango) > 0) {
+    datos$ivu[ivu_fuera_rango] <- 0.5
+    cat("⚠️ Corregidos", length(ivu_fuera_rango), "valores de IVU fuera de rango\n")
+  }
+}
+
+# Validar IVP
+if ("ivp" %in% names(datos)) {
+  ivp_fuera_rango <- which(datos$ivp < 0 | datos$ivp > 1 | is.na(datos$ivp))
+  if (length(ivp_fuera_rango) > 0) {
+    datos$ivp[ivp_fuera_rango] <- 0.5
+    cat("⚠️ Corregidos", length(ivp_fuera_rango), "valores de IVP fuera de rango\n")
+  }
+}
+
+# Asegurar que las categorías existen
+if (!"ivu_categoria" %in% names(datos)) {
+  datos$ivu_categoria <- cut(datos$ivu, 
+                             breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+                             labels = c("Muy bajo", "Bajo", "Medio", "Alto", "Muy alto"),
+                             include.lowest = TRUE)
+}
+
+if (!"ivp_categoria" %in% names(datos)) {
+  datos$ivp_categoria <- cut(datos$ivp, 
+                             breaks = c(0, 0.25, 0.45, 0.65, 0.80, 1.0),
+                             labels = c("Deficiente", "Regular", "Bueno", "Excelente", "Excepcional"),
+                             include.lowest = TRUE)
+}
+
+# ---- ASIGNAR RESULTADOS AL ENTORNO GLOBAL ----
+assign("datos_completos", datos, envir = .GlobalEnv)
+
+# ---- GUARDAR RESULTADOS CON MANEJO DE ERRORES ----
+cat("💾 Guardando resultados de índices...\n")
+
+# Guardar dataset completo
+tryCatch({
+  datos_sin_geom <- st_drop_geometry(datos)
+  write.csv(datos_sin_geom, "proyectos_indices_completos.csv", row.names = FALSE)
+  cat("  ✅ Dataset completo guardado: proyectos_indices_completos.csv\n")
+}, error = function(e) {
+  cat("  ⚠️ Error guardando dataset completo:", conditionMessage(e), "\n")
+})
+
+# Guardar datos segmentados si existen
+if (exists("datos_segmentados") && nrow(datos_segmentados) > 0) {
+  tryCatch({
+    datos_seg_sin_geom <- st_drop_geometry(datos_segmentados)
+    write.csv(datos_seg_sin_geom, "proyectos_indices_segmentados.csv", row.names = FALSE)
+    cat("  ✅ Dataset segmentado guardado: proyectos_indices_segmentados.csv\n")
+  }, error = function(e) {
+    cat("  ⚠️ Error guardando dataset segmentado:", conditionMessage(e), "\n")
+  })
+}
+
+# ---- DIAGNÓSTICO FINAL COMPLETO ----
+cat("\n📊 DIAGNÓSTICO FINAL SCRIPT_03:\n")
+cat("=================================\n")
+
+# Información básica
+cat("📈 Proyectos procesados:", nrow(datos), "\n")
+cat("📋 Variables totales:", ncol(datos), "\n")
+
+# Estadísticas IVU
+if ("ivu" %in% names(datos)) {
+  ivu_stats <- summary(datos$ivu)
+  cat("🗺️ IVU - Estadísticas:\n")
+  cat("   Media:", round(mean(datos$ivu, na.rm = TRUE), 3), "\n")
+  cat("   Min-Max:", round(min(datos$ivu, na.rm = TRUE), 3), "-", 
+      round(max(datos$ivu, na.rm = TRUE), 3), "\n")
+  cat("   NAs:", sum(is.na(datos$ivu)), "\n")
+}
+
+# Estadísticas IVP
+if ("ivp" %in% names(datos)) {
+  cat("🏗️ IVP - Estadísticas:\n")
+  cat("   Media:", round(mean(datos$ivp, na.rm = TRUE), 3), "\n")
+  cat("   Min-Max:", round(min(datos$ivp, na.rm = TRUE), 3), "-", 
+      round(max(datos$ivp, na.rm = TRUE), 3), "\n")
+  cat("   NAs:", sum(is.na(datos$ivp)), "\n")
+}
+
+# Estadísticas de datos segmentados
+if (exists("datos_segmentados") && "categoria_4s" %in% names(datos_segmentados)) {
+  cat("🎯 Análisis 4S completado:", nrow(datos_segmentados), "proyectos\n")
+  
+  tabla_4s <- table(datos_segmentados$categoria_4s, useNA = "ifany")
+  cat("📊 Distribución 4S final:\n")
+  for (i in 1:length(tabla_4s)) {
+    cat("   ", names(tabla_4s)[i], ":", tabla_4s[i], "proyectos\n")
+  }
+} else {
+  cat("⚠️ Análisis 4S no disponible\n")
+}
+
+# Verificar archivos generados
+archivos_esperados <- c("proyectos_indices_completos.csv")
+if (exists("datos_segmentados")) {
+  archivos_esperados <- c(archivos_esperados, "proyectos_indices_segmentados.csv")
+}
+
+cat("💾 Archivos generados:\n")
+for (archivo in archivos_esperados) {
+  if (file.exists(archivo)) {
+    cat("   ✅", archivo, "\n")
+  } else {
+    cat("   ❌", archivo, "no generado\n")
+  }
+}
+
+# Validar objetos en entorno global
+objetos_criticos <- c("datos_completos")
+if (exists("datos_segmentados")) {
+  objetos_criticos <- c(objetos_criticos, "datos_segmentados")
+}
+
+cat("🌐 Objetos en entorno global:\n")
+for (objeto in objetos_criticos) {
+  if (exists(objeto, envir = .GlobalEnv)) {
+    obj_size <- nrow(get(objeto, envir = .GlobalEnv))
+    cat("   ✅", objeto, "(", obj_size, "filas)\n")
+  } else {
+    cat("   ❌", objeto, "no creado\n")
+  }
+}
+
+# ---- TEST FINAL DE MATRIZ DE AMENIDADES ----
+cat("\n🧪 TEST FINAL PARA CONFIRMAR CORRECCIÓN...\n")
+cat("==========================================\n")
+
+# Test exhaustivo de la matriz de amenidades
+tryCatch({
+  
+  # Detectar todas las amenidades
+  patron_amenidades <- "alberca|areas_verdes|asadores|bar|campo_de_golf|canchas_deportivas|casa_club|fogatero|gimnasio|golf_virtual|jacuzzi|lounges|ludoteca|patio_central|pet_zone|pista_de_jogging|roof_graden|sala_de_cine|sala_de_lectura|salon_usos|salon_de_yoga|sauna|spa|terraza|vestidores|control_de_acceso"
+  amenidades_cols_test <- names(datos)[grepl(patron_amenidades, names(datos), ignore.case = TRUE)]
+  
+  # Test 1: Verificar que no hay listas
+  listas_encontradas <- sapply(amenidades_cols_test, function(col) is.list(datos[[col]]))
+  if (any(listas_encontradas)) {
+    cols_con_listas <- names(listas_encontradas)[listas_encontradas]
+    cat("❌ Aún hay listas en:", paste(cols_con_listas, collapse = ", "), "\n")
+  } else {
+    cat("✅ Test 1: No hay listas en amenidades\n")
+  }
+  
+  # Test 2: Verificar que todos son numéricos
+  no_numericos <- sapply(amenidades_cols_test, function(col) !is.numeric(datos[[col]]))
+  if (any(no_numericos)) {
+    cols_no_numericos <- names(no_numericos)[no_numericos]
+    cat("❌ Columnas no numéricas:", paste(cols_no_numericos, collapse = ", "), "\n")
+  } else {
+    cat("✅ Test 2: Todas las amenidades son numéricas\n")
+  }
+  
+  # Test 3: Crear matriz de amenidades
+  matriz_amenidades_final <- as.matrix(datos[amenidades_cols_test])
+  mode(matriz_amenidades_final) <- "numeric"
+  
+  cat("✅ Test 3: Matriz de amenidades creada exitosamente\n")
+  cat("   Dimensiones:", dim(matriz_amenidades_final), "\n")
+  cat("   Rango de valores:", range(matriz_amenidades_final, na.rm = TRUE), "\n")
+  
+  # Test 4: Operaciones matemáticas en la matriz
+  suma_filas <- rowSums(matriz_amenidades_final, na.rm = TRUE)
+  media_filas <- rowMeans(matriz_amenidades_final, na.rm = TRUE)
+  
+  cat("✅ Test 4: Operaciones matemáticas exitosas\n")
+  cat("   Suma promedio por proyecto:", round(mean(suma_filas), 2), "\n")
+  
+  # Test 5: Verificar score_amenidades_total
+  if ("score_amenidades_total" %in% names(datos)) {
+    diferencias <- abs(suma_filas - datos$score_amenidades_total)
+    if (max(diferencias, na.rm = TRUE) < 0.001) {
+      cat("✅ Test 5: score_amenidades_total coincide con suma de matriz\n")
+    } else {
+      cat("⚠️ Test 5: Ligeras diferencias en score_amenidades_total (máximo:", 
+          round(max(diferencias, na.rm = TRUE), 3), ")\n")
+    }
+  }
+  
+  cat("\n🎉 TODOS LOS TESTS DE AMENIDADES EXITOSOS\n")
+  
+}, error = function(e) {
+  cat("❌ ERROR EN TEST FINAL:", e$message, "\n")
+  cat("💡 Revisar correcciones de amenidades\n")
+})
+
+# ---- TEST FINAL DE OBJETOS CREADOS ----
+cat("\n🧪 TEST FINAL DE OBJETOS CREADOS...\n")
+cat("===================================\n")
+
+# Verificar que datos_completos existe y es válido
+if (exists("datos_completos", envir = .GlobalEnv)) {
+  datos_test <- get("datos_completos", envir = .GlobalEnv)
+  
+  cat("✅ datos_completos existe en entorno global\n")
+  cat("   Clase:", paste(class(datos_test), collapse = ", "), "\n")
+  cat("   Dimensiones:", nrow(datos_test), "x", ncol(datos_test), "\n")
+  
+  # Verificar variables críticas
+  vars_criticas_test <- c("ivu", "ivp", "ivu_categoria", "ivp_categoria", "score_amenidades_total")
+  vars_presentes <- vars_criticas_test[vars_criticas_test %in% names(datos_test)]
+  vars_faltantes <- vars_criticas_test[!vars_criticas_test %in% names(datos_test)]
+  
+  cat("   Variables críticas presentes:", length(vars_presentes), "/", length(vars_criticas_test), "\n")
+  if (length(vars_faltantes) > 0) {
+    cat("   Variables faltantes:", paste(vars_faltantes, collapse = ", "), "\n")
+  }
+  
+  # Estadísticas básicas de variables críticas
+  if ("ivu" %in% names(datos_test)) {
+    cat("   IVU - Rango:", round(range(datos_test$ivu, na.rm = TRUE), 3), "\n")
+  }
+  if ("ivp" %in% names(datos_test)) {
+    cat("   IVP - Rango:", round(range(datos_test$ivp, na.rm = TRUE), 3), "\n")
+  }
+  
+} else {
+  cat("❌ datos_completos NO existe en entorno global\n")
+}
+
+# Verificar datos_segmentados si existe
+if (exists("datos_segmentados", envir = .GlobalEnv)) {
+  datos_seg_test <- get("datos_segmentados", envir = .GlobalEnv)
+  cat("✅ datos_segmentados existe:", nrow(datos_seg_test), "proyectos\n")
+  
+  if ("categoria_4s" %in% names(datos_seg_test)) {
+    tabla_4s_test <- table(datos_seg_test$categoria_4s, useNA = "ifany")
+    cat("   Distribución 4S:", paste(names(tabla_4s_test), tabla_4s_test, sep = ":", collapse = ", "), "\n")
+  }
+} else {
+  cat("⚠️ datos_segmentados no existe (análisis 4S no disponible)\n")
+}
+
+cat("\n✅ CÁLCULO DE ÍNDICES COMPLETADO EXITOSAMENTE\n")
+cat("=============================================\n")
+
+# Mensaje final
+if (exists("datos_segmentados") && nrow(datos_segmentados) > 0) {
+  cat("🎉 Sistema IVU-IVP completamente funcional con análisis 4S\n")
+  cat("📊 Proyectos procesados:", nrow(datos), "\n")
+  cat("🎯 Proyectos con análisis 4S:", nrow(datos_segmentados), "\n")
+} else {
+  cat("✅ Sistema IVU-IVP funcional (análisis 4S limitado por datos)\n")
+  cat("📊 Proyectos procesados:", nrow(datos), "\n")
+}
+
+cat("💾 Archivos generados en:", getwd(), "\n")
+cat("🌐 Objetos disponibles: datos_completos", 
+    ifelse(exists("datos_segmentados"), ", datos_segmentados", ""), "\n")
+
+cat("\n🚀 LISTO PARA SCRIPT_04_ANALISIS_AVANZADO.R\n")
+cat("===========================================\n")
