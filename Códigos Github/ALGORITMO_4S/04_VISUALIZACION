@@ -1341,6 +1341,99 @@ exportar_resultados_keynote <- function(datos, proyecto1_idx, proyecto2_idx, pro
   ))
 }
 
+# Función para exportar datos de radar optimizados para Keynote
+exportar_radar_keynote <- function(datos, indices_proyectos, archivo = "datos_radar_keynote.csv") {
+  
+  radar_data_keynote <- data.frame()
+  
+  for(i in seq_along(indices_proyectos)) {
+    indice <- indices_proyectos[i]
+    proyecto <- datos[indice, ]
+    
+    # Calcular scores para este proyecto
+    scores_seg <- calcular_scores_dimensiones(datos, dimensiones_negocio, proyecto$Segmento)
+    scores_p <- scores_seg[scores_seg$Proyecto == proyecto$Proyecto, ]
+    
+    # Crear datos en formato vertical para radar
+    dimensiones_nombres <- names(dimensiones_negocio)
+    
+    for(dim in dimensiones_nombres) {
+      score_col <- paste0("score_", dim)
+      if(score_col %in% names(scores_p)) {
+        
+        # Nombres amigables para Keynote
+        nombre_amigable <- case_when(
+          dim == "performance_comercial" ~ "Performance Comercial",
+          dim == "ubicacion_accesibilidad" ~ "Ubicación & Accesibilidad", 
+          dim == "entorno_demografico" ~ "Entorno Demográfico",
+          dim == "ecosistema_servicios" ~ "Ecosistema Servicios",
+          dim == "competitividad_producto" ~ "Competitividad Producto",
+          dim == "credibilidad_desarrollador" ~ "Credibilidad Desarrollador",
+          TRUE ~ stringr::str_to_title(gsub("_", " ", dim))
+        )
+        
+        radar_data_keynote <- rbind(radar_data_keynote, data.frame(
+          Proyecto = proyecto$Proyecto,
+          Proyecto_Corto = paste0("Proy ", i),
+          Tipo = c("Principal", "Comparación 1", "Comparación 2")[i],
+          Dimensión = nombre_amigable,
+          Score = round(scores_p[[score_col]], 1),
+          Segmento = proyecto$Segmento,
+          NSE = proyecto$nse,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+  
+  # Exportar
+  write.csv(radar_data_keynote, archivo, row.names = FALSE)
+  cat("✅ Datos de radar exportados:", archivo, "\n")
+  
+  return(radar_data_keynote)
+}
+
+# Función para exportar datos de barras comparativas optimizados para Keynote
+exportar_barras_keynote <- function(datos, indices_proyectos, archivo = "datos_barras_keynote.csv") {
+  
+  barras_data_keynote <- data.frame()
+  
+  for(i in seq_along(indices_proyectos)) {
+    indice <- indices_proyectos[i]
+    proyecto <- datos[indice, ]
+    
+    # Calcular scores para este proyecto
+    scores_seg <- calcular_scores_dimensiones(datos, dimensiones_negocio, proyecto$Segmento)
+    scores_p <- scores_seg[scores_seg$Proyecto == proyecto$Proyecto, ]
+    
+    # Crear fila para barras comparativas
+    fila_barra <- data.frame(
+      Proyecto = proyecto$Proyecto,
+      Proyecto_Corto = paste0("Proyecto ", i),
+      Tipo = c("Principal", "Comparación 1", "Comparación 2")[i],
+      Segmento = proyecto$Segmento,
+      NSE = proyecto$nse,
+      Desarrollador = proyecto$Desarrollador,
+      # Scores con nombres amigables
+      Performance_Comercial = round(scores_p$score_performance_comercial, 1),
+      Ubicación_Accesibilidad = round(scores_p$score_ubicacion_accesibilidad, 1),
+      Entorno_Demográfico = round(scores_p$score_entorno_demografico, 1),
+      Ecosistema_Servicios = round(scores_p$score_ecosistema_servicios, 1),
+      Competitividad_Producto = round(scores_p$score_competitividad_producto, 1),
+      Credibilidad_Desarrollador = round(scores_p$score_credibilidad_desarrollador, 1),
+      stringsAsFactors = FALSE
+    )
+    
+    barras_data_keynote <- rbind(barras_data_keynote, fila_barra)
+  }
+  
+  # Exportar
+  write.csv(barras_data_keynote, archivo, row.names = FALSE)
+  cat("✅ Datos de barras exportados:", archivo, "\n")
+  
+  return(barras_data_keynote)
+}
+
 # ---- EJECUCIÓN DEL ANÁLISIS COMPLETO ----
 
 cat("🎯 CONFIGURANDO ANÁLISIS COMPLETO...\n")
@@ -1604,6 +1697,21 @@ if (CONFIGURACION_USUARIO$exportar_para_keynote) {
   # Exportar datos completos
   write.csv(datos_keynote_segmentado, "matriz_4s_todos_segmentos_keynote.csv", row.names = FALSE)
   cat("✅ Exportado: matriz_4s_todos_segmentos_keynote.csv\n")
+  
+  # Exportación optimizada para gráficas de Keynote
+  cat("\n📊 Exportando datos optimizados para gráficas de Keynote...\n")
+  
+  indices_principales <- c(PROYECTO_PRINCIPAL, PROYECTO_COMPARACION_1, PROYECTO_COMPARACION_2)
+  
+  # Datos para radar
+  datos_radar <- exportar_radar_keynote(datos_validos, indices_principales, 
+                                        paste0("radar_keynote_", timestamp, ".csv"))
+  
+  # Datos para barras comparativas  
+  datos_barras <- exportar_barras_keynote(datos_validos, indices_principales,
+                                          paste0("barras_keynote_", timestamp, ".csv"))
+  
+  cat("🎨 Archivos optimizados para Keynote creados exitosamente\n")
 }
 
 # ---- CONSOLIDACIÓN DE RESULTADOS ----
