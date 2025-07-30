@@ -35,9 +35,9 @@ library(viridis)
 # Verificar que tenemos los proyectos configurados
 if (!exists("PROYECTO_PRINCIPAL_ID")) {
   # INSTRUCCIÓN: Cambiar estos IDs según los proyectos que quieras analizar
-  PROYECTO_PRINCIPAL_ID <- 10      # ID del proyecto principal
-  PROYECTO_COMPARACION_1_ID <- 13  # ID del primer proyecto de comparación  
-  PROYECTO_COMPARACION_2_ID <- 24  # ID del segundo proyecto de comparación
+  PROYECTO_PRINCIPAL_ID <- 24      # ID del proyecto principal
+  PROYECTO_COMPARACION_1_ID <- 25  # ID del primer proyecto de comparación  
+  PROYECTO_COMPARACION_2_ID <- 32  # ID del segundo proyecto de comparación
   cat("⚠️  Usando IDs de proyecto por defecto para análisis\n")
 }
 
@@ -51,26 +51,6 @@ cat("• Comparación 2: ID", PROYECTO_COMPARACION_2_ID, "\n")
 # Segmentos y NSE válidos para análisis consultivo
 segmentos_validos <- c("Premium Plus", "Premium", "Residencial Plus", "Residencial", "Medio")
 nse_validos <- c("A+", "A", "B", "C+", "C", "D+", "D", "E")
-
-# Filtrar y segmentar datos para análisis consultivo
-datos_analisis <- datos_completos %>%
-  filter(
-    !is.na(Segmento) & 
-      !is.na(nse) & 
-      Segmento %in% segmentos_validos & 
-      nse %in% nse_validos
-  ) %>%
-  mutate(
-    segmento_nse = paste0(Segmento, " | NSE ", nse),
-    categoria_segmento = case_when(
-      Segmento %in% c("Premium Plus", "Premium") ~ "PREMIUM",
-      Segmento %in% c("Residencial Plus", "Residencial") ~ "RESIDENCIAL", 
-      Segmento == "Medio" ~ "MEDIO",
-      TRUE ~ "OTRO"
-    )
-  )
-
-cat("📊 Datos filtrados para análisis consultivo:", nrow(datos_analisis), "proyectos\n")
 
 # ---- COLORES 4S ESTANDARIZADOS EN ORDEN CORRECTO ----
 COLORES_4S <- c(
@@ -424,9 +404,40 @@ agregar_categorizacion_4s <- function(datos) {
 # ---- APLICAR CÁLCULOS SEGMENTADOS ----
 cat("🔄 Aplicando cálculos segmentados...\n")
 
-datos_analisis <- calcular_ivu_segmentado(datos_analisis, factores_relevancia)
-datos_analisis <- calcular_ivp_segmentado(datos_analisis)
-datos_analisis <- agregar_categorizacion_4s(datos_analisis)
+# Crear dataset filtrado temporal para cálculos segmentados
+datos_temp <- datos_completos %>%
+  filter(
+    !is.na(Segmento) & 
+      !is.na(nse) & 
+      Segmento %in% segmentos_validos & 
+      nse %in% nse_validos
+  ) %>%
+  mutate(
+    segmento_nse = paste0(Segmento, " | NSE ", nse),
+    categoria_segmento = case_when(
+      Segmento %in% c("Premium Plus", "Premium") ~ "PREMIUM",
+      Segmento %in% c("Residencial Plus", "Residencial") ~ "RESIDENCIAL", 
+      Segmento == "Medio" ~ "MEDIO",
+      TRUE ~ "OTRO"
+    )
+  )
+
+datos_temp <- calcular_ivu_segmentado(datos_temp, factores_relevancia)
+datos_temp <- calcular_ivp_segmentado(datos_temp)
+datos_temp <- agregar_categorizacion_4s(datos_temp)
+
+cat("📊 Cálculos segmentados aplicados a:", nrow(datos_temp), "proyectos\n")
+
+# Propagar resultados de vuelta a datos_completos
+datos_completos <- datos_completos %>%
+  left_join(
+    datos_temp %>% 
+      st_drop_geometry() %>%
+      select(ID, ivu_segmentado, ivp_segmentado, categoria_4s, 
+             ivu_segmentado_categoria, ivp_segmentado_categoria,
+             amenidades_norm_seg, performance_norm_seg),
+    by = "ID"
+  )
 
 # ---- FUNCIONES DE ANÁLISIS POR DIMENSIONES (DEL ORIGINAL) ----
 
@@ -925,10 +936,10 @@ crear_grafico_comparativo_dimensiones <- function(datos, proyecto1_idx, proyecto
 }
 
 # Función para análisis integral de un proyecto individual
-ejecutar_analisis_integral <- function(indice_proyecto) {
+ejecutar_analisis_integral <- function(datos, indice_proyecto) {
   
   # Obtener información del proyecto seleccionado
-  proyecto <- datos_analisis[indice_proyecto, ]
+  proyecto <- datos[indice_proyecto, ]
   
   # Header del análisis integral
   cat("\n", rep("📊", 30), "\n")
@@ -944,18 +955,18 @@ ejecutar_analisis_integral <- function(indice_proyecto) {
   
   # 1. ANÁLISIS POR DIMENSIONES DE NEGOCIO
   cat("\n1️⃣ ANÁLISIS POR DIMENSIONES DE NEGOCIO:\n")
-  analisis_dim <- analizar_fortalezas_dimensiones(datos_analisis, dimensiones_negocio, indice_proyecto)
+  analisis_dim <- analizar_fortalezas_dimensiones(datos, dimensiones_negocio, indice_proyecto)
   
   # 2. ANÁLISIS DE CARACTERÍSTICAS DISTINTIVAS
   cat("\n2️⃣ CARACTERÍSTICAS DISTINTIVAS:\n")
-  caracteristicas <- analizar_caracteristicas_distintivas(datos_analisis, caracteristicas_distintivas, indice_proyecto)
+  caracteristicas <- analizar_caracteristicas_distintivas(datos, caracteristicas_distintivas, indice_proyecto)
   
   # 3. GENERACIÓN DE VISUALIZACIONES PRINCIPALES
   cat("\n3️⃣ GENERANDO VISUALIZACIONES:\n")
   
   # Radar de dimensiones de negocio
   cat("   📊 Gráfico radar de dimensiones...\n")
-  radar <- crear_radar_dimensiones(datos_analisis, dimensiones_negocio, indice_proyecto)
+  radar <- crear_radar_dimensiones(datos, dimensiones_negocio, indice_proyecto)
   print(radar)
   
   cat("\n", rep("📊", 30), "\n")
@@ -1337,9 +1348,25 @@ cat("🎯 CONFIGURANDO ANÁLISIS COMPLETO...\n")
 # Convertir IDs a índices para el dataset actual
 ids_proyectos <- c(PROYECTO_PRINCIPAL_ID, PROYECTO_COMPARACION_1_ID, PROYECTO_COMPARACION_2_ID)
 
-# Verificar datos válidos
-datos_validos <- datos_analisis %>% 
-  filter(!is.na(ivu_segmentado) & !is.na(ivp_segmentado))
+# Crear dataset único para análisis (consolidando todos los filtros)
+datos_validos <- datos_completos %>%
+  filter(
+    !is.na(Segmento) & 
+      !is.na(nse) & 
+      Segmento %in% segmentos_validos & 
+      nse %in% nse_validos &
+      !is.na(latitud) & !is.na(longitud) & 
+      !is.na(ivu_segmentado) & !is.na(ivp_segmentado)
+  ) %>%
+  mutate(
+    segmento_nse = paste0(Segmento, " | NSE ", nse),
+    categoria_segmento = case_when(
+      Segmento %in% c("Premium Plus", "Premium") ~ "PREMIUM",
+      Segmento %in% c("Residencial Plus", "Residencial") ~ "RESIDENCIAL", 
+      Segmento == "Medio" ~ "MEDIO",
+      TRUE ~ "OTRO"
+    )
+  )
 
 cat("✅ Datos válidos para análisis:", nrow(datos_validos), "proyectos\n")
 
@@ -1387,7 +1414,7 @@ cat("--------------------------------------------------\n")
 # Análisis del proyecto principal
 if(PROYECTO_PRINCIPAL <= nrow(datos_validos)) {
   cat("1️⃣ PROYECTO PRINCIPAL:\n")
-  resultado_principal <- ejecutar_analisis_integral(PROYECTO_PRINCIPAL)
+  resultado_principal <- ejecutar_analisis_integral(datos_validos, PROYECTO_PRINCIPAL)
   resultado_principal_seg <- analizar_proyecto_individual_segmentado(datos_validos, PROYECTO_PRINCIPAL)
   
   # Termómetros del proyecto principal
@@ -1401,14 +1428,28 @@ if(PROYECTO_PRINCIPAL <= nrow(datos_validos)) {
 # Análisis de proyectos de comparación
 if(PROYECTO_COMPARACION_1 <= nrow(datos_validos)) {
   cat("\n2️⃣ PROYECTO COMPARACIÓN 1:\n")
-  resultado_comp1 <- ejecutar_analisis_integral(PROYECTO_COMPARACION_1)
+  resultado_comp1 <- ejecutar_analisis_integral(datos_validos, PROYECTO_COMPARACION_1)
   resultado_comp1_seg <- analizar_proyecto_individual_segmentado(datos_validos, PROYECTO_COMPARACION_1)
+  
+  # Termómetros del proyecto comparación 1
+  termometro_ivu_comp1 <- crear_termometro_segmentado(datos_validos, PROYECTO_COMPARACION_1, "ivu")
+  termometro_ivp_comp1 <- crear_termometro_segmentado(datos_validos, PROYECTO_COMPARACION_1, "ivp")
+  
+  print(termometro_ivu_comp1)
+  print(termometro_ivp_comp1)
 }
 
 if(PROYECTO_COMPARACION_2 <= nrow(datos_validos)) {
   cat("\n3️⃣ PROYECTO COMPARACIÓN 2:\n")
-  resultado_comp2 <- ejecutar_analisis_integral(PROYECTO_COMPARACION_2)
+  resultado_comp2 <- ejecutar_analisis_integral(datos_validos, PROYECTO_COMPARACION_2)
   resultado_comp2_seg <- analizar_proyecto_individual_segmentado(datos_validos, PROYECTO_COMPARACION_2)
+  
+  # Termómetros del proyecto comparación 2
+  termometro_ivu_comp2 <- crear_termometro_segmentado(datos_validos, PROYECTO_COMPARACION_2, "ivu")
+  termometro_ivp_comp2 <- crear_termometro_segmentado(datos_validos, PROYECTO_COMPARACION_2, "ivp")
+  
+  print(termometro_ivu_comp2)
+  print(termometro_ivp_comp2)
 }
 
 # ---- FASE 2: COMPARACIÓN INTEGRAL ENTRE PROYECTOS ----
@@ -1596,7 +1637,11 @@ resultados_analisis_avanzado <- list(
     grafico_comparativo = if(exists("grafico_comparativo")) grafico_comparativo else NULL,
     termometros = list(
       ivu_principal = if(exists("termometro_ivu_principal")) termometro_ivu_principal else NULL,
-      ivp_principal = if(exists("termometro_ivp_principal")) termometro_ivp_principal else NULL
+      ivp_principal = if(exists("termometro_ivp_principal")) termometro_ivp_principal else NULL,
+      ivu_comp1 = if(exists("termometro_ivu_comp1")) termometro_ivu_comp1 else NULL,
+      ivp_comp1 = if(exists("termometro_ivp_comp1")) termometro_ivp_comp1 else NULL,
+      ivu_comp2 = if(exists("termometro_ivu_comp2")) termometro_ivu_comp2 else NULL,
+      ivp_comp2 = if(exists("termometro_ivp_comp2")) termometro_ivp_comp2 else NULL
     ),
     mapas = list(
       principal = mapa_4s_principal,
@@ -1649,8 +1694,8 @@ cat("• resultados_analisis_avanzado$comparacion\n")
 cat("• resultados_analisis_avanzado$estadisticas\n")
 cat("• resultados_analisis_avanzado$visualizaciones\n")
 
-cat("\n🚀 FUNCIONES PRINCIPALES DISPONIBLES:\n")
-cat("• ejecutar_analisis_integral(indice)\n")
+cat("🚀 FUNCIONES PRINCIPALES DISPONIBLES:\n")
+cat("• ejecutar_analisis_integral(datos, indice)\n")
 cat("• comparar_proyectos_integral(datos, idx1, idx2, idx3)\n")
 cat("• crear_grafico_comparativo_dimensiones(datos, idx1, idx2, idx3)\n")
 cat("• crear_matriz_4s_segmentada(datos, segmento)\n")
