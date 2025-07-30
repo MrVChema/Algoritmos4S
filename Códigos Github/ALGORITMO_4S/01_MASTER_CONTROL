@@ -71,9 +71,9 @@ if(MODO_TESTEO && exists("CONFIGURACION_TESTEO")) {
   # Configuración por defecto
   CONFIGURACION_USUARIO <- list(
     # PROYECTOS A ANALIZAR POR ID (NO POR ÍNDICE)
-    proyecto_principal_id = 10,          # ID del proyecto para análisis detallado
-    proyecto_comparacion_1_id = 13,      # ID del primer proyecto de comparación  
-    proyecto_comparacion_2_id = 24,      # ID del segundo proyecto de comparación
+    proyecto_principal_id = 24,          # ID del proyecto para análisis detallado
+    proyecto_comparacion_1_id = 25,      # ID del primer proyecto de comparación  
+    proyecto_comparacion_2_id = 32,      # ID del segundo proyecto de comparación
     
     # CONFIGURACIONES DE ANÁLISIS
     generar_mapas_interactivos = TRUE,
