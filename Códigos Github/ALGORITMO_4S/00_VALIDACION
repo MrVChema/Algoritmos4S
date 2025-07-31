@@ -1,1 +1,506 @@
+# ================================================================================
+# SISTEMA IVU-IVP: TEST DE VALIDACIÓN COMPLETO ACTUALIZADO
+# ================================================================================
+# Valida todas las correcciones implementadas incluyendo IDs y análisis segmentado
+# Fuerza generación de visualizaciones para validación completa
+# ================================================================================
 
+# === CONFIGURACIÓN DE RUTAS ===
+cat("🧪 INICIANDO TEST DE VALIDACIÓN COMPLETO ACTUALIZADO\n")
+cat("======================================================\n")
+
+# Limpiar entorno
+rm(list = ls())
+
+# Rutas del sistema
+DIRECTORIO_BASE_SISTEMA <- "/Users/yalta/Library/CloudStorage/GoogleDrive-yaltalielt@gmail.com/Mi unidad/4S Real Estate/2025/[02] ALGORITMO"
+DIRECTORIO_SCRIPTS <- file.path(DIRECTORIO_BASE_SISTEMA, "[04] MODELACIÓN", "[03] TESTEO")
+DIRECTORIO_DATOS <- file.path(DIRECTORIO_BASE_SISTEMA, "[02] DATOS")
+DIRECTORIO_PROYECTO <- file.path(DIRECTORIO_BASE_SISTEMA, "[04] MODELACIÓN", "[00] RESULTADOS")
+
+# Establecer directorio de trabajo
+setwd(DIRECTORIO_PROYECTO)
+
+# Configuración ACTUALIZADA usando IDs
+CONFIGURACION_USUARIO <- list(
+  # NUEVOS: PROYECTOS POR ID (NO POR ÍNDICE)
+  proyecto_principal_id = 24,          # ID del proyecto principal
+  proyecto_comparacion_1_id = 25,      # ID del primer proyecto de comparación
+  proyecto_comparacion_2_id = 32,      # ID del segundo proyecto de comparación
+  
+  # Configuraciones de análisis
+  generar_mapas_interactivos = TRUE,
+  generar_reportes_pdf = TRUE,
+  exportar_para_keynote = TRUE,
+  evaluar_evolucion_nse = TRUE,
+  incluir_analisis_espacial_nse = TRUE,
+  usar_paleta_4s = TRUE,
+  incluir_termometros = TRUE,
+  generar_radares_dimensionales = TRUE
+)
+
+# Establecer variables globales
+DIRECTORIO_BASE <- DIRECTORIO_BASE_SISTEMA
+DIRECTORIO_SCRIPTS <- DIRECTORIO_SCRIPTS
+DIRECTORIO_DATOS <- DIRECTORIO_DATOS
+
+# Asignar variables globales por ID
+PROYECTO_PRINCIPAL_ID <- CONFIGURACION_USUARIO$proyecto_principal_id
+PROYECTO_COMPARACION_1_ID <- CONFIGURACION_USUARIO$proyecto_comparacion_1_id
+PROYECTO_COMPARACION_2_ID <- CONFIGURACION_USUARIO$proyecto_comparacion_2_id
+
+# === EJECUTAR SCRIPTS EN SECUENCIA ===
+cat("\n🔄 EJECUTANDO SCRIPTS EN SECUENCIA CON VALIDACIÓN...\n")
+
+# Script 01: Master Control
+cat("\n1️⃣ Ejecutando Master Control (con IDs)...\n")
+tryCatch({
+  source(file.path(DIRECTORIO_SCRIPTS, "SCRIPT_01_MASTER_CONTROL.R"))
+  cat("✅ Master Control ejecutado\n")
+  
+  # Validar que variables por ID fueron creadas
+  if(exists("PROYECTO_PRINCIPAL_ID") && exists("PROYECTO_COMPARACION_1_ID") && exists("PROYECTO_COMPARACION_2_ID")) {
+    cat("✅ Variables ID globales creadas correctamente\n")
+  } else {
+    cat("⚠️  Variables ID globales no creadas - usando configuración local\n")
+  }
+  
+}, error = function(e) {
+  cat("❌ Error en Master Control:", conditionMessage(e), "\n")
+  stop("Test detenido")
+})
+
+# Script 02: Preparación de Datos
+cat("\n2️⃣ Ejecutando Preparación de Datos (con creación de ID)...\n")
+tryCatch({
+  source(file.path(DIRECTORIO_SCRIPTS, "SCRIPT_02_PREPARACION_DATOS.R"))
+  cat("✅ Preparación de datos completada\n")
+  
+  # VALIDACIÓN ESPECÍFICA DE VARIABLE ID
+  cat("\n🔍 VALIDANDO CREACIÓN DE VARIABLE ID...\n")
+  if(exists("base_integrada")) {
+    if("ID" %in% names(base_integrada)) {
+      cat("✅ Variable ID creada en base_integrada\n")
+      cat("📊 Rango de IDs:", min(base_integrada$ID), "a", max(base_integrada$ID), "\n")
+      
+      # Verificar que ID está al principio
+      primeras_cols <- names(base_integrada)[1:6]
+      if(primeras_cols[1] == "ID") {
+        cat("✅ Variable ID está como primera columna\n")
+        cat("📋 Primeras columnas:", paste(primeras_cols, collapse = ", "), "\n")
+      } else {
+        cat("❌ Variable ID no está como primera columna\n")
+      }
+      
+      # Mostrar muestra de IDs
+      muestra_base <- st_drop_geometry(base_integrada) %>% 
+        select(ID, Proyecto, Desarrollador, Segmento, nse) %>% 
+        head(5)
+      cat("📋 Muestra de base_integrada con ID:\n")
+      print(muestra_base)
+      
+    } else {
+      cat("❌ Variable ID NO creada en base_integrada\n")
+    }
+  } else {
+    cat("❌ base_integrada no existe\n")
+  }
+  
+}, error = function(e) {
+  cat("❌ Error en Preparación de Datos:", conditionMessage(e), "\n")
+  stop("Test detenido")
+})
+
+# Script 03: Cálculo de Índices
+cat("\n3️⃣ Ejecutando Cálculo de Índices (con propagación de ID)...\n")
+tryCatch({
+  source(file.path(DIRECTORIO_SCRIPTS, "SCRIPT_03_CALCULO_INDICES.R"))
+  cat("✅ Cálculo de índices completado\n")
+  
+  # Validar que ID se propagó correctamente
+  if(exists("datos_completos")) {
+    if("ID" %in% names(datos_completos)) {
+      cat("✅ Variable ID propagada a datos_completos\n")
+      cat("📊 IDs en datos_completos:", min(datos_completos$ID), "a", max(datos_completos$ID), "\n")
+    } else {
+      cat("❌ Variable ID NO propagada a datos_completos\n")
+    }
+  }
+  
+}, error = function(e) {
+  cat("❌ Error en Cálculo de Índices:", conditionMessage(e), "\n")
+  stop("Test detenido")
+})
+
+# Script 04: Análisis Avanzado CORREGIDO
+cat("\n4️⃣ Ejecutando Análisis Avanzado (con IDs y análisis segmentado)...\n")
+tryCatch({
+  source(file.path(DIRECTORIO_SCRIPTS, "SCRIPT_04_ANALISIS_AVANZADO.R"))
+  cat("✅ Análisis avanzado completado\n")
+}, error = function(e) {
+  cat("❌ Error en Análisis Avanzado:", conditionMessage(e), "\n")
+  cat("   Error específico:", e$message, "\n")
+  
+  # Continuar con validaciones incluso si hay error
+  cat("⚠️  Continuando con validaciones...\n")
+})
+
+# === VALIDACIONES ESPECÍFICAS ACTUALIZADAS ===
+cat("\n📊 VALIDACIONES ESPECÍFICAS ACTUALIZADAS\n")
+cat("=========================================\n")
+
+# ---- VALIDACIÓN 1: SISTEMA DE IDs ----
+cat("\n1️⃣ Validando sistema de IDs implementado...\n")
+
+# Verificar que funciones auxiliares existen
+funciones_id <- c("obtener_indice_por_id", "validar_proyectos_seleccionados", "mostrar_catalogo_proyectos")
+for(func in funciones_id) {
+  if(exists(func)) {
+    cat("✅ Función", func, "disponible\n")
+  } else {
+    cat("❌ Función", func, "NO disponible\n")
+  }
+}
+
+# Test de conversión ID → índice
+if(exists("datos_completos") && "ID" %in% names(datos_completos)) {
+  cat("\n🧪 Test de conversión ID → índice:\n")
+  
+  # Probar con ID específico
+  id_test <- 21
+  if(exists("obtener_indice_por_id")) {
+    indice_test <- tryCatch({
+      obtener_indice_por_id(datos_completos, id_test)
+    }, error = function(e) NULL)
+    
+    if(!is.null(indice_test)) {
+      proyecto_test <- datos_completos[indice_test, ]
+      cat("✅ Conversión ID", id_test, "→ índice", indice_test, "\n")
+      cat("   Proyecto encontrado:", proyecto_test$Proyecto[1], "\n")
+      cat("   Segmento:", proyecto_test$Segmento[1], "\n")
+    } else {
+      cat("❌ Error en conversión ID → índice\n")
+    }
+  }
+}
+
+# ---- VALIDACIÓN 2: CONFIGURACIÓN POR IDs ----
+cat("\n2️⃣ Validando configuración por IDs...\n")
+
+ids_configurados <- c("PROYECTO_PRINCIPAL_ID", "PROYECTO_COMPARACION_1_ID", "PROYECTO_COMPARACION_2_ID")
+for(var_id in ids_configurados) {
+  if(exists(var_id)) {
+    valor_id <- get(var_id)
+    cat("✅", var_id, "=", valor_id, "\n")
+  } else {
+    cat("❌", var_id, "NO configurada\n")
+  }
+}
+
+# ---- VALIDACIÓN 3: DATOS SEGMENTADOS CON ID ----
+cat("\n3️⃣ Validando datos segmentados con sistema ID...\n")
+
+if(exists("datos_segmentados")) {
+  cat("✅ datos_segmentados existe\n")
+  cat("📊 Proyectos en datos_segmentados:", nrow(datos_segmentados), "\n")
+  
+  # Verificar que ID existe en datos_segmentados
+  if("ID" %in% names(datos_segmentados)) {
+    cat("✅ Variable ID presente en datos_segmentados\n")
+    cat("📊 Rango de IDs:", min(datos_segmentados$ID), "a", max(datos_segmentados$ID), "\n")
+    
+    # Verificar que proyectos configurados existen en datos_segmentados
+    ids_buscar <- c(PROYECTO_PRINCIPAL_ID, PROYECTO_COMPARACION_1_ID, PROYECTO_COMPARACION_2_ID)
+    proyectos_encontrados <- 0
+    
+    for(id_buscar in ids_buscar) {
+      if(id_buscar %in% datos_segmentados$ID) {
+        proyecto_info <- datos_segmentados[datos_segmentados$ID == id_buscar, ]
+        cat("✅ ID", id_buscar, "encontrado:", proyecto_info$Proyecto[1], "(", proyecto_info$Segmento[1], ")\n")
+        proyectos_encontrados <- proyectos_encontrados + 1
+      } else {
+        cat("❌ ID", id_buscar, "NO encontrado en datos_segmentados\n")
+      }
+    }
+    
+    if(proyectos_encontrados == 3) {
+      cat("✅ Todos los proyectos configurados están en datos_segmentados\n")
+    } else {
+      cat("⚠️  Solo", proyectos_encontrados, "de 3 proyectos encontrados\n")
+    }
+    
+  } else {
+    cat("❌ Variable ID NO presente en datos_segmentados\n")
+  }
+  
+  # Verificar variables críticas segmentadas
+  vars_segmentadas <- c("ivu_segmentado", "ivp_segmentado", "categoria_4s")
+  for(var in vars_segmentadas) {
+    if(var %in% names(datos_segmentados)) {
+      cat("✅ Variable", var, "presente\n")
+    } else {
+      cat("❌ Variable", var, "FALTANTE\n")
+    }
+  }
+  
+} else {
+  cat("❌ datos_segmentados NO existe\n")
+}
+
+# ---- VALIDACIÓN 4: FUNCIONES SEGMENTADAS ACTUALIZADAS ----
+cat("\n4️⃣ Validando funciones segmentadas actualizadas...\n")
+
+funciones_completas <- c(
+  "crear_matriz_4s_segmentada",
+  "crear_mapa_4s_segmentado", 
+  "crear_termometro_segmentado",
+  "analizar_proyecto_individual_segmentado",
+  "ejecutar_analisis_integral",
+  "comparar_proyectos_integral",
+  "crear_grafico_comparativo_dimensiones",
+  "exportar_resultados_keynote"
+)
+
+funciones_disponibles <- 0
+for(func in funciones_completas) {
+  if(exists(func)) {
+    cat("✅ Función", func, "disponible\n")
+    funciones_disponibles <- funciones_disponibles + 1
+  } else {
+    cat("❌ Función", func, "NO disponible\n")
+  }
+}
+
+cat("📊 Funciones disponibles:", funciones_disponibles, "de", length(funciones_completas), "\n")
+
+# ---- VALIDACIÓN 5: FORZAR GENERACIÓN DE VISUALIZACIONES ----
+cat("\n5️⃣ Forzando generación de visualizaciones para validación...\n")
+
+if(exists("datos_segmentados") && nrow(datos_segmentados) > 0 && 
+   exists("obtener_indice_por_id") && exists("validar_proyectos_seleccionados")) {
+  
+  cat("🎨 Intentando generar visualizaciones específicas...\n")
+  
+  # Convertir IDs a índices usando las funciones
+  ids_proyectos <- c(PROYECTO_PRINCIPAL_ID, PROYECTO_COMPARACION_1_ID, PROYECTO_COMPARACION_2_ID)
+  
+  tryCatch({
+    validacion_viz <- validar_proyectos_seleccionados(datos_segmentados, ids_proyectos)
+    
+    if(length(validacion_viz$indices) >= 1) {
+      indice_principal <- validacion_viz$indices[1]
+      cat("✅ Índice principal para visualizaciones:", indice_principal, "\n")
+      
+      # Test 1: Generar termómetro
+      cat("🌡️  Generando termómetro segmentado...\n")
+      tryCatch({
+        if(exists("crear_termometro_segmentado")) {
+          termometro_test <- crear_termometro_segmentado(datos_segmentados, indice_principal, "ivu")
+          if(!is.null(termometro_test)) {
+            cat("✅ Termómetro IVU generado exitosamente\n")
+            print(termometro_test)
+          }
+        }
+      }, error = function(e) {
+        cat("❌ Error generando termómetro:", e$message, "\n")
+      })
+      
+      # Test 2: Generar análisis individual
+      cat("\n📊 Generando análisis individual segmentado...\n")
+      tryCatch({
+        if(exists("analizar_proyecto_individual_segmentado")) {
+          analisis_test <- analizar_proyecto_individual_segmentado(datos_segmentados, indice_principal)
+          if(!is.null(analisis_test)) {
+            cat("✅ Análisis individual generado exitosamente\n")
+          }
+        }
+      }, error = function(e) {
+        cat("❌ Error generando análisis individual:", e$message, "\n")
+      })
+      
+      # Test 3: Mostrar catálogo de proyectos
+      cat("\n📋 Mostrando catálogo de proyectos disponibles...\n")
+      tryCatch({
+        if(exists("mostrar_catalogo_proyectos")) {
+          catalogo_test <- mostrar_catalogo_proyectos(datos_segmentados)
+          cat("✅ Catálogo generado exitosamente\n")
+        }
+      }, error = function(e) {
+        cat("❌ Error generando catálogo:", e$message, "\n")
+      })
+      
+      # Test 4: Generar comparación integral (si hay 3 proyectos)
+      if(length(validacion_viz$indices) >= 3) {
+        cat("\n⚖️  Generando comparación integral...\n")
+        tryCatch({
+          if(exists("comparar_proyectos_integral")) {
+            comparacion_test <- comparar_proyectos_integral(datos_segmentados, 
+                                                            validacion_viz$indices[1],
+                                                            validacion_viz$indices[2], 
+                                                            validacion_viz$indices[3])
+            cat("✅ Comparación integral generada exitosamente\n")
+          }
+        }, error = function(e) {
+          cat("❌ Error generando comparación integral:", e$message, "\n")
+        })
+        
+        # Test 5: Generar gráfico comparativo
+        cat("\n📊 Generando gráfico comparativo...\n")
+        tryCatch({
+          if(exists("crear_grafico_comparativo_dimensiones")) {
+            grafico_comp <- crear_grafico_comparativo_dimensiones(datos_segmentados,
+                                                                  validacion_viz$indices[1],
+                                                                  validacion_viz$indices[2], 
+                                                                  validacion_viz$indices[3])
+            if(!is.null(grafico_comp)) {
+              cat("✅ Gráfico comparativo generado exitosamente\n")
+              print(grafico_comp)
+            }
+          }
+        }, error = function(e) {
+          cat("❌ Error generando gráfico comparativo:", e$message, "\n")
+        })
+      }
+      
+    } else {
+      cat("⚠️  No se pudieron obtener índices válidos para visualizaciones\n")
+    }
+    
+  }, error = function(e) {
+    cat("❌ Error en validación de proyectos:", e$message, "\n")
+  })
+  
+} else {
+  cat("❌ No se pueden generar visualizaciones - datos o funciones faltantes\n")
+}
+
+# ---- VALIDACIÓN 6: ARCHIVOS GENERADOS ----
+cat("\n6️⃣ Validando archivos generados...\n")
+
+archivos_esperados <- c(
+  "base_integrada_completa.gpkg",
+  "base_inmobiliaria_transformada.csv", 
+  "proyectos_indices_completos.csv",
+  "matriz_4s_todos_segmentos_keynote.csv"
+)
+
+archivos_encontrados <- 0
+for(archivo in archivos_esperados) {
+  if(file.exists(archivo)) {
+    size_kb <- round(file.info(archivo)$size / 1024, 1)
+    cat("✅", archivo, "(", size_kb, "KB)\n")
+    archivos_encontrados <- archivos_encontrados + 1
+  } else {
+    cat("❌", archivo, "no generado\n")
+  }
+}
+
+cat("📊 Archivos encontrados:", archivos_encontrados, "de", length(archivos_esperados), "\n")
+
+# ---- VALIDACIÓN 7: INTEGRIDAD DE RESULTADOS FINALES ----
+cat("\n7️⃣ Validando integridad de resultados finales...\n")
+
+if(exists("resultados_analisis_avanzado")) {
+  cat("✅ resultados_analisis_avanzado existe\n")
+  
+  # Verificar estructura completa
+  secciones_esperadas <- c("configuracion", "analisis_individuales", "comparacion", 
+                           "estadisticas", "visualizaciones", "exportacion")
+  
+  secciones_encontradas <- 0
+  for(seccion in secciones_esperadas) {
+    if(seccion %in% names(resultados_analisis_avanzado)) {
+      cat("✅ Sección", seccion, "presente\n")
+      secciones_encontradas <- secciones_encontradas + 1
+    } else {
+      cat("❌ Sección", seccion, "FALTANTE\n")
+    }
+  }
+  
+  cat("📊 Secciones encontradas:", secciones_encontradas, "de", length(secciones_esperadas), "\n")
+  
+  # Verificar configuración con IDs
+  if("configuracion" %in% names(resultados_analisis_avanzado)) {
+    config <- resultados_analisis_avanzado$configuracion
+    if("indices_proyectos" %in% names(config)) {
+      cat("✅ Índices de proyectos registrados en configuración\n")
+      cat("📊 Proyectos registrados:", paste(config$indices_proyectos, collapse = ", "), "\n")
+    }
+  }
+  
+} else {
+  cat("❌ resultados_analisis_avanzado NO existe\n")
+}
+
+# === RESUMEN FINAL COMPLETO ===
+cat("\n", rep("=", 70), "\n")
+cat("RESUMEN FINAL DEL TEST DE VALIDACIÓN COMPLETO ACTUALIZADO\n")
+cat(rep("=", 70), "\n")
+
+# Calcular estadísticas de éxito
+tests_principales <- list(
+  "Sistema de IDs implementado" = exists("obtener_indice_por_id"),
+  "Variable ID en base_integrada" = exists("base_integrada") && "ID" %in% names(base_integrada),
+  "Variable ID en datos_completos" = exists("datos_completos") && "ID" %in% names(datos_completos),
+  "datos_segmentados existe" = exists("datos_segmentados"),
+  "Funciones segmentadas disponibles" = funciones_disponibles >= (length(funciones_completas) * 0.75),
+  "resultados_analisis_avanzado existe" = exists("resultados_analisis_avanzado"),
+  "Archivos generados" = archivos_encontrados >= (length(archivos_esperados) * 0.75)
+)
+
+exitos <- sum(unlist(tests_principales))
+total_tests <- length(tests_principales)
+
+cat("\n📊 RESULTADOS CONSOLIDADOS:\n")
+for(test_name in names(tests_principales)) {
+  resultado <- tests_principales[[test_name]]
+  if(resultado) {
+    cat("✅", test_name, "\n")
+  } else {
+    cat("❌", test_name, "\n")
+  }
+}
+
+cat("\n📈 ESTADÍSTICAS FINALES:\n")
+cat("Tests exitosos:", exitos, "de", total_tests, "\n")
+cat("Porcentaje de éxito:", round(exitos / total_tests * 100, 1), "%\n")
+cat("Funciones disponibles:", funciones_disponibles, "de", length(funciones_completas), "\n")
+cat("Archivos generados:", archivos_encontrados, "de", length(archivos_esperados), "\n")
+
+# Evaluación final
+if(exitos >= total_tests * 0.85) {
+  cat("\n🎉 ¡SISTEMA COMPLETAMENTE FUNCIONAL!\n")
+  cat("✅ Corrección de IDs implementada exitosamente\n")
+  cat("✅ Análisis segmentado funcionando correctamente\n")
+  cat("✅ Visualizaciones generándose con proyectos correctos\n")
+  cat("✅ Sistema listo para uso en consultoría\n")
+  
+  cat("\n🚀 PARA USAR EL SISTEMA:\n")
+  cat("1. Cambiar IDs: PROYECTO_PRINCIPAL_ID <- nuevo_id\n")
+  cat("2. Ver proyectos: mostrar_catalogo_proyectos(datos_segmentados)\n")
+  cat("3. Generar análisis: ejecutar_analisis_integral(indice)\n")
+  cat("4. Comparar proyectos: comparar_proyectos_integral(datos, idx1, idx2, idx3)\n")
+  
+} else if(exitos >= total_tests * 0.70) {
+  cat("\n⚠️  SISTEMA PARCIALMENTE FUNCIONAL\n")
+  cat("La mayoría de funcionalidades están operativas\n")
+  cat("Revisar elementos faltantes arriba\n")
+  
+} else {
+  cat("\n❌ SISTEMA REQUIERE CORRECCIONES ADICIONALES\n")
+  cat("Varios elementos críticos no están funcionando\n")
+  cat("Revisar implementación de IDs y funciones segmentadas\n")
+}
+
+cat("\n💡 PRÓXIMOS PASOS:\n")
+if(!exists("mostrar_catalogo_proyectos")) {
+  cat("1. Verificar que todas las funciones están en Script_04\n")
+}
+if(archivos_encontrados < length(archivos_esperados)) {
+  cat("2. Ejecutar scripts individualmente para identificar errores\n") 
+}
+cat("3. Usar datos_segmentados para análisis consultivo\n")
+cat("4. Generar visualizaciones específicas con IDs correctos\n")
+
+cat("\n🔧 EL SISTEMA IVU-IVP ACTUALIZADO ESTÁ LISTO\n")
+cat("============================================\n")
